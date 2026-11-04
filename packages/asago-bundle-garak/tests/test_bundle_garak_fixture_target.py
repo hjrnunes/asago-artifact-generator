@@ -24,9 +24,9 @@ from asago_bundle_core.preparation import PreparationIncomplete
 from asago_bundle_core.target import TargetConfig, load_target_config, mcp_call_target
 from asago_bundle_garak import Instantiated, InstantiateError, RunSettings, compile, instantiate
 from asago_bundle_garak import parse as parse_receipt
-from conftest import PIGGYBANK, REPO, WITHDRAW, write_setup_package
+from conftest import PIGGYBANK, REPO, WITHDRAW, receipt_payload, write_setup_package
 
-RECEIPT_SCHEMA = REPO / "contracts/execution-receipt/execution-receipt-v1/schema.json"
+RECEIPT_SCHEMA = REPO / "contracts/execution-receipt/execution-receipt-v2/schema.json"
 RUN = RunSettings(
     gateway_url="http://127.0.0.1:18999/v1",
     model="fixture-model",
@@ -127,7 +127,9 @@ def test_a_package_with_setup_runs_from_preparation_to_receipt(
     report.write_text(garak_report(user_text, {"balance": 100.0}), encoding="utf-8")
     receipt = parse_receipt(bundle, bundle / "execution-receipt.json", records_dir=tmp_path)
 
-    jsonschema.validate(receipt, json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8")))
+    jsonschema.validate(
+        receipt_payload(receipt), json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
+    )
     assert receipt["execution_status"] == "completed"
     (attempt,) = receipt["attempts"]
     assert attempt["turns"][0]["request"]["messages"] == result.values["messages"]

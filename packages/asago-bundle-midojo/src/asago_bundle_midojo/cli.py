@@ -74,7 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     compile_cmd.set_defaults(handler=_compile)
     parse_cmd = commands.add_parser(
         "parse",
-        help="write execution-receipt-v1 from a sealed snapshot and its verdict; a failed "
+        help="write execution-receipt-v2 from a sealed snapshot and its verdict; a failed "
         "run exits 0",
     )
     parse_cmd.add_argument("injection_spec", type=Path, help="the directory compile wrote")
@@ -87,15 +87,15 @@ def build_parser() -> argparse.ArgumentParser:
     parse_cmd.add_argument(
         "--delivery",
         type=Path,
-        help="the runner's delivery.json of that snapshot (midojo-delivery-v1); without it "
+        help="the runner's delivery.json of that snapshot (midojo-delivery-v2); without it "
         "the receipt's delivery and exposure are null (unknown)",
     )
     parse_cmd.add_argument("--out", type=Path, required=True, help="receipt path")
     parse_cmd.add_argument(
-        "--route",
+        "--driver",
         choices=ROUTES,
         default=DEFAULT_ROUTE,
-        help="the client that drove this run: midojo (MiDojo's own attacker loop)",
+        help="the driver that drove this run: midojo (MiDojo's own attacker loop)",
     )
     parse_cmd.add_argument("--tool-revision", help="MiDojo commit that ran the episode")
     parse_cmd.add_argument("--adapter-revision", help="consumer commit of this adapter")
@@ -147,7 +147,7 @@ def _parse(args: argparse.Namespace) -> int:
             args.out,
             tool_revision=args.tool_revision,
             adapter_revision=args.adapter_revision,
-            route=args.route,
+            driver=args.driver,
             delivery_path=args.delivery,
         )
     except ParseError as exc:

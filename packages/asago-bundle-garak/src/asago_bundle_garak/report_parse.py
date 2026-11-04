@@ -1,4 +1,4 @@
-"""parse: turn Garak's report for one concrete bundle into ``execution-receipt-v1``.
+"""parse: turn Garak's report for one concrete bundle into ``execution-receipt-v2``.
 
 A usable report holds exactly one finished attempt (status 2) with one output
 whose response completed. Anything else yields a ``failed`` receipt whose
@@ -26,7 +26,7 @@ decision in the receipt's judge vocabulary: ``supported`` for a detection,
 nothing, so an obeyed or undecided reply is never counted as resisted. A chain
 the probe never sealed yields a
 ``failed`` receipt naming ``interrupted``, and its attempt grades inconclusive.
-A report of one chain also carries the receipt's ``episode`` block: the route
+A report of one chain also carries the receipt's ``evaluation`` block: the driver
 ``garak.midojo.InjectionSpecProbe``, the evaluation, snapshot, evidence status and verdict
 the probe sealed, the delivery facts and exposure it computed, and each sealed call's
 injection outcomes with the payload's digest and the slot it was placed in. The block is
@@ -68,12 +68,14 @@ from asago_bundle_core.mcp_records import (
     read_json,
     text,
 )
-from asago_bundle_core.receipt_contract import read_receipt
+from asago_bundle_core.receipt_contract import read_receipt, write_receipt
 from asago_bundle_core.text import canonical_text, jsonl_lines
 from asago_injection_spec.sealed import (
     DELIVERY_SCHEMA_VERSION,
+    LEGACY_DELIVERY_SCHEMA_VERSION,
+    LEGACY_SLOT_KEY,
     delivery_shape,
-    episode_block,
+    evaluation_block,
     grade_result,
     placements_of,
     plan_of,
@@ -94,7 +96,11 @@ from .compiler import (
     TOOL,
 )
 
-SCHEMA_VERSION = "execution-receipt-v1"
+SCHEMA_VERSION = "execution-receipt-v2"
+# What this parser writes, and the writer its envelope names: the module and the package's
+# version (``asago-bundle-garak``).
+WRITER = "asago_bundle_garak.report_parse"
+WRITER_VERSION = "0.1.0"
 ATTEMPT_COMPLETE = 2
 OUTCOMES = {1.0: "detected", 0.0: "not_detected"}
 INCONCLUSIVE = "inconclusive"
@@ -123,10 +129,10 @@ LEGACY_IPI_VERDICT = "EpisodeVerdict"
 LEGACY_IPI_EFFECT = "EpisodeEffect"
 IPI_VERDICTS = (IPI_VERDICT, LEGACY_IPI_VERDICT)
 GRADE_READERS = frozenset({IPI_VERDICT, IPI_EFFECT_NAME, LEGACY_IPI_VERDICT, LEGACY_IPI_EFFECT})
-# The route that drove an IPI report: Garak's own probe, over MiDojo's injection-spec API.
+# The driver that drove an IPI report: Garak's own probe, over MiDojo's injection-spec API.
 # A receipt recorded before the rename names ``garak.ipi_episode.IPIEpisode``; the
 # contract accepts both, and this adapter writes the current name.
-IPI_ROUTE = "garak.midojo.InjectionSpecProbe"
+IPI_DRIVER = "garak.midojo.InjectionSpecProbe"
 # What the probe's trace says of the chain it closed: ``final`` is a complete seal with the
 # plan's delivery computed; any other word is a chain that stopped short, which states none.
 SEALED_FINAL = "final"
@@ -167,9 +173,9 @@ class ParseError(BundleError):
 def _read_back(receipt: dict[str, Any], out: Path) -> None:
     """Read the receipt through its installed contract before this writer hands it on.
 
-    Every document this parser writes is an ``execution-receipt-v1`` document, so the
-    installed spec accepts it. A document the reader refuses is a defect here, not a
-    saved outcome: the error names the path and the spec's own reason.
+    Every document this parser writes is an ``execution-receipt-v2`` document with its
+    envelope, so the installed spec accepts it. A document the reader refuses is a defect
+    here, not a saved outcome: the error names the path and the spec's own reason.
     """
 
     try:
@@ -240,7 +246,8 @@ def parse_report(
         "native": native_files(report_file, out.parent),
     }
     if episode is not None:
-        receipt["episode"] = episode
+        receipt["evaluation"] = episode
+    receipt = write_receipt(receipt, writer=WRITER, writer_version=WRITER_VERSION)
     _read_back(receipt, out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(canonical_text(receipt), encoding="utf-8")
@@ -518,7 +525,7 @@ def sequential_judge(turns: list[dict[str, Any]], records: Records) -> dict[str,
 def ipi_report(
     report_file: Path, bundle: Bundle, records: Records
 ) -> tuple[list[dict[str, Any]], str | None, dict[str, Any] | None]:
-    """Return one receipt attempt per episode chain, why the run failed, and the episode block.
+    """Return one receipt attempt per episode chain, why the run failed, and the evaluation block.
 
     The probe writes each turn's attempt at status 1 and the turn it returns again at
     status 2 when it seals the chain. A chain with no status 2 attempt was interrupted
@@ -530,9 +537,9 @@ def ipi_report(
     generation, but nothing the receipt could verify. A runtime failure (an interrupted
     chain or an errored generation) keeps its attempt.
 
-    The ``episode`` block names the route and what the probe sealed for a report of one
+    The ``evaluation`` block names the driver and what the probe sealed for a report of one
     chain. A report of several chains leaves it out: one member cannot name several
-    episodes.
+    evaluations.
     """
 
     entries, reason = read_entries(report_file)
@@ -551,7 +558,7 @@ def ipi_report(
             attempts.append(attempt)
         if failure is not None:
             failures.append(failure)
-    episode = ipi_episode(next(iter(chains.values())), bundle) if len(chains) == 1 else None
+    episode = ipi_evaluation(next(iter(chains.values())), bundle) if len(chains) == 1 else None
     return attempts, failures[0] if failures else None, episode
 
 
@@ -575,8 +582,8 @@ def check_source_metadata(metadata: Any, bundle: Bundle) -> None:
         )
 
 
-def ipi_episode(turns: list[dict[str, Any]], bundle: Bundle) -> dict[str, Any]:
-    """Return the receipt's episode block for one chain, from the trace the probe sealed.
+def ipi_evaluation(turns: list[dict[str, Any]], bundle: Bundle) -> dict[str, Any]:
+    """Return the receipt's evaluation block for one chain, from the trace the probe sealed.
 
     A chain the probe closed short still names its evaluation, but no snapshot, verdict or
     delivery evidence: those are null, never invented. A final seal states the delivery and
@@ -597,7 +604,7 @@ def ipi_episode(turns: list[dict[str, Any]], bundle: Bundle) -> dict[str, Any]:
     plan = None
     if final and reason is None:
         plan = plan_of(source_plan(bundle), source_placements(bundle, delivery))
-    block = episode_block(IPI_ROUTE, snapshot, verdict, delivery=delivery, plan=plan)
+    block = evaluation_block(IPI_DRIVER, snapshot, verdict, delivery=delivery, plan=plan)
     block["evidence_status"] = _evidence_status(snapshot)
     if snapshot is None:
         block["evaluation_id"] = text(trace.get("evaluation_id"))
@@ -674,13 +681,31 @@ def sealed_delivery(trace: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(delivery, list) or not isinstance(exposure, dict):
         return None
     document = {
-        "schema_version": DELIVERY_SCHEMA_VERSION,
+        "schema_version": _delivery_schema_version(delivery, exposure),
         "evaluation_id": text(trace.get("evaluation_id")),
         "snapshot_id": text(trace.get("snapshot_id")),
         "delivery": delivery,
         "exposure": exposure,
     }
     return document if delivery_shape(document) else None
+
+
+def _delivery_schema_version(delivery: list[Any], exposure: dict[str, Any]) -> str:
+    """Return the version the trace's delivery facts are in.
+
+    A fact or instruction item that names ``slot_key`` is what MiDojo writes now; one that
+    names ``probe_key`` and none that names ``slot_key`` is what a trace recorded before
+    term.5a holds. A trace with neither names no instruction, so either version accepts it.
+    """
+
+    items = [
+        item
+        for item in [*delivery, *(exposure.get("instructions") or [])]
+        if isinstance(item, dict)
+    ]
+    legacy = any(LEGACY_SLOT_KEY in item for item in items)
+    current = any("slot_key" in item for item in items)
+    return LEGACY_DELIVERY_SCHEMA_VERSION if legacy and not current else DELIVERY_SCHEMA_VERSION
 
 
 def sealed_trace_failure(trace: dict[str, Any]) -> str | None:

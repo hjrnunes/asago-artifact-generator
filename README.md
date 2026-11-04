@@ -1056,7 +1056,7 @@ the old plugin and note names; `parse` reads both forms and gives the same outco
 and verdict. A reply episode's `judge.verdict` states
 `supported` for a detection, `contradicted` for a decided resistance, and
 `unresolved` in every other case. A one-chain report also fills the receipt's
-`episode` block with the evaluation and snapshot the probe sealed and their verdict;
+`evaluation` block with the evaluation and snapshot the probe sealed and their verdict;
 a chain sealed short names its evaluation only.
 
 ## MiDojo episodes
@@ -1073,12 +1073,12 @@ Garak adapter reaches the same result through the Garak IPI route:
 its `compile --target` writes `ipi-episodes.json`, and Garak's `InjectionSpecProbe`
 probe plants through the same host interceptor. Neither adapter writes a `seed.json`
 into the target. The adapter reads and writes MiDojo's documents through `midojo-sdk`,
-which `pyproject.toml` pins by commit to `asago/main` at `162233f` (subdirectory
+which `pyproject.toml` pins by commit to `asago/main` at `24b0b23` (subdirectory
 `interception/python-sdk`), and it never imports `midojo`: the injection-spec schema,
 the plan, the snapshot digest and the rubric judge are the SDK's
 (`midojo_sdk.injection_spec_schema`, `midojo_sdk.injection`, `midojo_sdk.snapshot` and
 `midojo_sdk.rubric_judge`).
-The runner runs the injection spec with the same revision, `asago/main` at `162233f`. It
+The runner runs the injection spec with the same revision, `asago/main` at `24b0b23`. It
 reads the v1 document under either ID: `midojo.episode_handle.open`, the deprecated alias
 of `midojo.evaluation_handle`, with `HostInterception`
 (`src/midojo/interception_host.py`), `midojo.grade`
@@ -1096,7 +1096,7 @@ asago-bundle-midojo compile PACKAGE --out INJECTION_SPEC_DIR --target target.yam
 JUDGE_MODEL_URL=http://127.0.0.1:8001/v1 JUDGE_MODEL=judge-name OPENAICOMPATIBLE_API_KEY=... \
 JUDGE_SERVICE_TOKEN=... asago-bundle-midojo judge-serve [--port 8780]
 asago-bundle-midojo parse INJECTION_SPEC_DIR --snapshot snapshot.json --verdict verdict.json \
-  [--delivery delivery.json] --out execution-receipt.json [--route midojo] \
+  [--delivery delivery.json] --out execution-receipt.json [--driver midojo] \
   [--tool-revision REV]
 ```
 
@@ -1329,11 +1329,11 @@ records the payload as delivered. A false grade that states no delivery fact
 does) is `inconclusive` at every claim level, its reason naming the recording: never a pass
 or a fail. The attempt's reason is the grade's `security_reason`, plus, for that false grade,
 the clause that names the recording; a true or false `security`
-without one is `verdict_malformed`. The receipt's `episode` block carries the run's
-`route`, the `evaluation_id` and
+without one is `verdict_malformed`. The receipt's `evaluation` block carries the run's
+`driver`, the `evaluation_id` and
 `snapshot_id` graded, the snapshot's `evidence_status`, the verdict as MiDojo gave it,
 and `call_injections`: each sealed call's `call_id`, `function` and `injection_outcomes`
-as MiDojo sealed them (`instruction_index`, `probe_key`, `occurrence`, `status`,
+as MiDojo sealed them (`instruction_index`, `slot_key`, `occurrence`, `status`,
 `detail`; from `b5b8c75` a call whose arguments did not match an instruction's
 `call_arguments`, and from `c0bee12` one whose result did not match its `result_record`,
 is `unmatched` at occurrence 0, the same shape for both), null for a record that does not say (a blocked or unfinished call, or one
@@ -1404,25 +1404,40 @@ snapshot ID is unchanged. Garak's receipt leaves the field out: it observes no r
 
 Delivery and exposure are not in the snapshot or the verdict: the runner computes them in
 MiDojo's interpreter and writes `delivery.json` beside the snapshot, a
-`midojo-delivery-v1` document (`contracts/midojo-delivery/`):
+`midojo-delivery-v2` document (`contracts/midojo-delivery/`). The runner stamps the
+shared `contract` envelope, so the document names its version and the spec digest it was
+written against:
 
 ```json
 {
-  "schema_version": "midojo-delivery-v1",
+  "schema_version": "midojo-delivery-v2",
   "evaluation_id": "<the snapshot's evaluation_id>",
   "snapshot_id": "<the snapshot's snapshot_id>",
   "delivery": "<midojo.delivery.delivery_facts(plan, snapshot.function_calls), each fact's model_dump(mode='json')>",
-  "exposure": "<midojo.delivery.exposure(plan, snapshot.function_calls, turns=len(snapshot.turns), evidence_status=snapshot.evidence_status).model_dump(mode='json')>"
+  "exposure": "<midojo.delivery.exposure(plan, snapshot.function_calls, turns=len(snapshot.turns), evidence_status=snapshot.evidence_status).model_dump(mode='json')>",
+  "contract": {
+    "id": "midojo-delivery",
+    "version": "midojo-delivery-v2",
+    "spec_digest": "<the installed spec's digest>",
+    "requires": [],
+    "provenance": {
+      "writer": "asago-orch.qualification.midojo_episode_runner",
+      "writer_version": "0.1.0",
+      "validator_version": "asago-contracts-core 0.1.0"
+    }
+  }
 }
 ```
 
 From `a19562e` each fact may also carry the outcome's `payload_digest`, `placed_digest`
 and `slot`, optional and null when not reported, as the snapshot does; the contract accepts
-them, shape-checked the same way.
+them, shape-checked the same way. From term.5a each fact and instruction item names the
+instruction's key as `slot_key`; a document a run recorded before the rename names it
+`probe_key` and is `midojo-delivery-v1`, which the reader still accepts.
 
-`parse` reads it only when `--delivery` names it. The receipt's `episode` block then
+`parse` reads it only when `--delivery` names it. The receipt's `evaluation` block then
 carries its `delivery` (each fact: call, `interceptor_instruction_index`,
-`plan_instruction_index`, probe, occurrence, status and the three facts, without the
+`plan_instruction_index`, `slot_key`, occurrence, status and the three facts, without the
 placement keys, which the receipt carries as each outcome's `payload_sha256` and `slot`) and its
 `exposure` (`emitted`, `agent_tool_result` and `model_input`, each `exposed`,
 `not_exposed` or `unknown`, and each plan instruction's own), and `native` lists it.
@@ -1431,10 +1446,11 @@ missing (`delivery_missing`), does not match the contract (`delivery_malformed`)
 another evaluation or snapshot than the snapshot's (`delivery_mismatch`) fails the
 receipt. The reader selects the version it installs
 (`packages/asago-injection-spec/src/asago_injection_spec/contracts/midojo-delivery/`, whose
-`midojo-delivery-v1/spec.json` is the authority's, byte for byte); a document that carries
-the shared `contract` envelope names its version there, and an uninstalled version, an
-unknown `requires` entry, an unknown top-level field or another `spec_digest` is
-`delivery_malformed`. A document without the envelope is a v1 document, as before. A
+`midojo-delivery-v1/spec.json` and `midojo-delivery-v2/spec.json` are the authority's, byte
+for byte); a document that carries the shared `contract` envelope names its version there,
+and an uninstalled version, an unknown `requires` entry, an unknown top-level field or
+another `spec_digest` is `delivery_malformed`. A document without the envelope is a v1
+document, as before; a v2 document without one is refused. A
 payload the host placed in the environment has no delivery fact, so its
 exposure, and `injection_delivered`, stay unknown; a response-injection placement gives
 real facts.

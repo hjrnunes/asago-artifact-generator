@@ -43,7 +43,7 @@ from asago_bundle_midojo.injection_spec_compile import (
 )
 from asago_bundle_midojo.placement import Placement, gap_reason, locate
 from asago_bundle_midojo.sealed import parse_sealed
-from conftest import RECEIPT_SCHEMA, RECORDED_TOOL_REVISION_RANGE, as_written
+from conftest import RECEIPT_SCHEMA, RECORDED_TOOL_REVISION_RANGE, as_written, receipt_payload
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
 RECORDING = json.loads((RESULT_RECORDS / "recording.json").read_text(encoding="utf-8"))
@@ -337,7 +337,7 @@ def _parsed(tmp_path: Path, case: str, scenario: str) -> dict[str, Any]:
         adapter_revision="abc123",
     )
     assert receipt == json.loads(out.read_text(encoding="utf-8"))
-    jsonschema.validate(receipt, SCHEMA)
+    jsonschema.validate(receipt_payload(receipt), SCHEMA)
     return receipt
 
 
@@ -355,7 +355,7 @@ def test_a_sealed_result_record_run_gives_a_completed_receipt_with_its_unmatched
     assert attempt["result"]["outcome"] == outcome
     sealed = [
         item
-        for call in receipt["episode"]["call_injections"]
+        for call in receipt["evaluation"]["call_injections"]
         for item in call["injection_outcomes"] or []
     ]
     assert [(item["status"], item["occurrence"]) for item in sealed] == [

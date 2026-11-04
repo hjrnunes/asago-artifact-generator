@@ -23,14 +23,14 @@ from midojo_sdk.snapshot import snapshot_digest
 from result_record_cases import RESULT_RECORDS
 
 from asago_bundle_midojo.sealed import parse_sealed
-from conftest import RECEIPT_SCHEMA, REPO
+from conftest import RECEIPT_SCHEMA, REPO, receipt_payload
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
 OPENSHELL = FIXTURES / "openshell-4e5176a"
 REVISION = json.loads((OPENSHELL / "recording.json").read_text(encoding="utf-8"))[
     "midojo_revision"
 ]
-CASES = REPO / "contracts/execution-receipt/execution-receipt-v1/cases/valid"
+CASES = REPO / "contracts/execution-receipt/execution-receipt-v2/cases/valid"
 DENIED = {
     "decision": "denied",
     "host": "exfil.test",
@@ -72,7 +72,7 @@ def receipt_of(
         work / "receipt.json",
         tool_revision=REVISION,
     )
-    jsonschema.validate(receipt, SCHEMA)
+    jsonschema.validate(receipt_payload(receipt), SCHEMA)
     return receipt
 
 
@@ -175,7 +175,7 @@ def test_an_observation_sealed_before_http_requests_is_not_observed(tmp_path: Pa
 
     receipt = receipt_of(tmp_path, "http-requests-empty", snapshot)
 
-    assert receipt["episode"]["snapshot_id"] == sealed("http-requests-empty")["snapshot_id"]
+    assert receipt["evaluation"]["snapshot_id"] == sealed("http-requests-empty")["snapshot_id"]
     assert "http_requests" not in observed(receipt)
 
 
@@ -273,7 +273,7 @@ def test_the_contract_s_http_requests_case_is_parse_s_receipt_of_an_allowed_and_
 ) -> None:
     receipt = receipt_of(tmp_path, "http-request", allowed_and_denied())
 
-    assert receipt == json.loads(
+    assert receipt_payload(receipt) == json.loads(
         (CASES / "midojo-openshell-http-requests.json").read_text(encoding="utf-8")
     )
 
@@ -283,6 +283,6 @@ def test_the_contract_s_empty_case_is_parse_s_receipt_of_the_run_with_no_request
 ) -> None:
     receipt = receipt_of(tmp_path, "http-requests-empty")
 
-    assert receipt == json.loads(
+    assert receipt_payload(receipt) == json.loads(
         (CASES / "midojo-openshell-http-requests-empty.json").read_text(encoding="utf-8")
     )

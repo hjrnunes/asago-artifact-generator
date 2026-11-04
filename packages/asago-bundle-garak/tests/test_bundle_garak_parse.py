@@ -28,11 +28,12 @@ from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import instantiate_bundle
 from asago_bundle_garak.report_parse import ParseError, parse_report
 from asago_package.package_io import load_package
+from conftest import receipt_payload
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 RECEIPT_SCHEMA = (
     Path(__file__).resolve().parents[3]
-    / "contracts/execution-receipt/execution-receipt-v1/schema.json"
+    / "contracts/execution-receipt/execution-receipt-v2/schema.json"
 )
 MESSAGES = [{"role": "user", "content": "Show the referral for PAT-201."}]
 CALL = {
@@ -104,7 +105,9 @@ def finished_index(lines: list[str]) -> int:
 
 def parse(output: Path, **kwargs: Any) -> dict[str, Any]:
     receipt = parse_report(output / "bundle", output / "execution-receipt.json", **kwargs)
-    jsonschema.validate(receipt, json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8")))
+    jsonschema.validate(
+        receipt_payload(receipt), json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
+    )
     assert receipt == json.loads((output / "execution-receipt.json").read_text())
     return receipt
 
@@ -112,7 +115,7 @@ def parse(output: Path, **kwargs: Any) -> dict[str, Any]:
 def test_tool_call_condition_report(command_output: Path, tmp_path: Path) -> None:
     receipt = parse(command_output, tool_revision="1c2918ae", adapter_revision="abc1234")
 
-    assert receipt["schema_version"] == "execution-receipt-v1"
+    assert receipt["schema_version"] == "execution-receipt-v2"
     assert receipt["tool"] == {
         "id": "garak",
         "revision": "1c2918ae",
@@ -562,7 +565,7 @@ def test_cli_parse_refuses_an_unreadable_bundle_with_exit_1(
 def test_the_written_receipt_reads_through_the_installed_contract(command_output: Path) -> None:
     receipt = parse_report(command_output / "bundle", command_output / "execution-receipt.json")
 
-    assert read_receipt(receipt).version == "execution-receipt-v1"
+    assert read_receipt(receipt).version == "execution-receipt-v2"
 
 
 def test_a_receipt_the_contract_refuses_is_an_error_naming_the_path(

@@ -209,14 +209,14 @@ def compiled_slot(case: str) -> dict[str, Any]:
     return {"id": placement["slot"], "record": placement["record"], "mode": instruction["mode"]}
 
 
-def stated_slots(receipt: dict[str, Any], probe_key: str) -> list[Any]:
-    """Every slot the parsed receipt states for the probe key's injection outcomes."""
+def stated_slots(receipt: dict[str, Any], slot_key: str) -> list[Any]:
+    """Every slot the parsed receipt states for the slot key's injection outcomes."""
 
     return [
         outcome["slot"]
-        for call in receipt["episode"]["call_injections"] or []
+        for call in receipt["evaluation"]["call_injections"] or []
         for outcome in call["injection_outcomes"] or []
-        if outcome.get("probe_key") == probe_key and outcome.get("slot") is not None
+        if outcome.get("slot_key") == slot_key and outcome.get("slot") is not None
     ]
 
 
@@ -264,7 +264,7 @@ def test_each_delivery_document_repeats_the_trace_facts() -> None:
         trace = trace_of(case)
         document = load(case, "delivery.json")
 
-        assert document["schema_version"] == "midojo-delivery-v1"
+        assert document["schema_version"] == "midojo-delivery-v2"
         assert document["snapshot_id"] == trace["snapshot_id"]
         assert document["evaluation_id"] == trace["evaluation_id"]
         assert document["delivery"] == trace["delivery"]
@@ -279,7 +279,7 @@ def test_every_delivery_fact_names_its_slot_and_payload() -> None:
             assert fact["selected"] is True
             assert fact["payload_digest"] == fact["placed_digest"]
             assert fact["slot"]["id"].startswith("sha256:")
-            assert fact["probe_key"] == PLANTED
+            assert fact["slot_key"] == PLANTED
 
 
 def test_every_report_carries_the_detectors_the_route_names() -> None:
@@ -320,7 +320,7 @@ def test_every_expected_pins_the_receipt_mapping(tmp_path: Path) -> None:
         assert expected["case"] == case
         assert expected["execution_status"] == wanted["receipt"]
         assert expected["incomplete_reason"] == wanted["refusal"]
-        assert expected["route"] == ROUTE, "the receipt names the route that drove the run"
+        assert expected["driver"] == ROUTE, "the receipt names the route that drove the run"
         assert expected["detectors"] == DETECTORS
         assert expected["attempt_count"] == wanted["attempts"]
         assert expected["repeat_count"] == 1

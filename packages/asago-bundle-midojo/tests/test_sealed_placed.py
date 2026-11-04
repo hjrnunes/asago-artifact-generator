@@ -25,6 +25,7 @@ from result_record_cases import CLINIC_PLANTED
 from test_sealed_placement import NOTE_SLOT, REFERRAL_SLOT, outcomes, parsed, placed, sha256
 
 from asago_bundle_midojo.sealed import PLACEMENT_FIELDS, slot_id
+from conftest import as_current_slot_keys
 
 RECORDING = json.loads((PLACED / "recording.json").read_text(encoding="utf-8"))
 GENERATED = RECORDING["generated_payloads"]
@@ -126,7 +127,7 @@ def test_each_run_s_placements_are_what_midojo_sealed(
 def test_the_receipt_carries_no_sealed_placement_key(tmp_path: Path, case: str) -> None:
     receipt = parsed(tmp_path, run_of(case), episode=PLACED / case)
 
-    facts = receipt["episode"]["delivery"]
+    facts = receipt["evaluation"]["delivery"]
     assert facts and all(not PLACEMENT_FIELDS & fact.keys() for fact in facts)
     assert all({"payload_digest", "placed_digest"}.isdisjoint(item) for item in outcomes(receipt))
 
@@ -407,10 +408,12 @@ def test_a_delivery_document_with_the_placement_keys_is_read(tmp_path: Path) -> 
 
     receipt = parsed(tmp_path, NOTE, episode=PLACED / "note", delivery=delivery)
 
-    assert receipt["episode"]["delivery"] == [
-        {key: value for key, value in fact.items() if key not in PLACEMENT_FIELDS}
-        for fact in delivery["delivery"]
-    ]
+    assert receipt["evaluation"]["delivery"] == as_current_slot_keys(
+        [
+            {key: value for key, value in fact.items() if key not in PLACEMENT_FIELDS}
+            for fact in delivery["delivery"]
+        ]
+    )
 
 
 @pytest.mark.parametrize(

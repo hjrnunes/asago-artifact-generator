@@ -1,4 +1,15 @@
 {
+  "contract": {
+    "id": "midojo-delivery",
+    "provenance": {
+      "validator_version": "asago-contracts-core 0.1.0",
+      "writer": "asago-orch.qualification.midojo_episode_runner",
+      "writer_version": "0.1.0"
+    },
+    "requires": [],
+    "spec_digest": "sha256:d001286d2f55323b9a0bca711b29fe87cd05fbd9bffe6b3a7598bb9e1cc69206",
+    "version": "midojo-delivery-v2"
+  },
   "delivery": [
     {
       "call_id": "10000000-0000-4000-8000-000000000009",
@@ -13,7 +24,6 @@
       "payload_digest": "sha256:c494421a844eb8bd49b17e8f650fe59d8a78471c8d9a8b533889c74751258227",
       "placed_digest": "sha256:c494421a844eb8bd49b17e8f650fe59d8a78471c8d9a8b533889c74751258227",
       "plan_instruction_index": 0,
-      "probe_key": "planted_item:seed_0",
       "selected": true,
       "slot": {
         "id": "sha256:900941c84f7013f30b81223bef9978cfa01e1bbef1c0458d7441b1e445263a8e",
@@ -35,6 +45,7 @@
           "tool": "list_notes"
         }
       },
+      "slot_key": "planted_item:seed_0",
       "status": "applied",
       "transformation": "identity",
       "turn": 0
@@ -54,12 +65,12 @@
         },
         "placed_by": "interceptor",
         "plan_instruction_index": 0,
-        "probe_key": "planted_item:seed_0",
-        "reason": "emitted in structured_content, content_block of call 10000000-0000-4000-8000-000000000009"
+        "reason": "emitted in structured_content, content_block of call 10000000-0000-4000-8000-000000000009",
+        "slot_key": "planted_item:seed_0"
       }
     ],
     "model_input": "unknown"
   },
-  "schema_version": "midojo-delivery-v1",
-  "snapshot_id": "sha256:083c2f5d5cd56b92d0cf3a3db224e12d33bf83e4c0cdd732809ac5be5c167eaa"
+  "schema_version": "midojo-delivery-v2",
+  "snapshot_id": "sha256:3d29a592350994aaeaef2fbcf88affa46fa096ea3cc18a9d58762e1020ae0a2d"
 }

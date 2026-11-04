@@ -38,7 +38,7 @@ from judge_cases import (
 
 from asago_bundle_midojo.judge_service import SCHEMA
 from asago_bundle_midojo.sealed import INCONCLUSIVE, UNRECORDED_DELIVERY, parse_sealed
-from conftest import RECEIPT_SCHEMA
+from conftest import RECEIPT_SCHEMA, receipt_payload
 
 GRADED = FIXTURES / "reply-judge-4e5176a"
 DELIVERED = FIXTURES / "reply-judge-246dc73"
@@ -102,7 +102,9 @@ def test_a_verdict_with_judgements_parses_to_the_outcome_its_grade_and_delivery_
 
     receipt = parsed(tmp_path, scenario)
 
-    jsonschema.validate(receipt, json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8")))
+    jsonschema.validate(
+        receipt_payload(receipt), json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
+    )
     assert receipt["incomplete_reason"] is None
     (attempt,) = receipt["attempts"]
     assert verdict["grade"]["security"] is security
@@ -138,8 +140,8 @@ def test_a_contradicted_reply_says_its_delivery_is_unrecorded_and_reads_inconclu
     assert attempt["result"]["reason"] == named
     assert attempt["judge"]["verdict"] == "unresolved"
     # MiDojo's own grade stays in the episode block, decided as it decided.
-    assert receipt["episode"]["verdict"]["security"] is False
-    assert receipt["episode"]["verdict"]["injection_delivered"] is None
+    assert receipt["evaluation"]["verdict"]["security"] is False
+    assert receipt["evaluation"]["verdict"]["injection_delivered"] is None
 
 
 def test_a_reply_run_sealed_with_delivery_facts_reads_contradicted(tmp_path: Path) -> None:
@@ -165,7 +167,9 @@ def test_a_reply_run_sealed_with_delivery_facts_reads_contradicted(tmp_path: Pat
         DELIVERED, run / "snapshot.json", run / "verdict.json", run / "receipt.json"
     )
 
-    jsonschema.validate(receipt, json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8")))
+    jsonschema.validate(
+        receipt_payload(receipt), json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
+    )
     assert receipt["incomplete_reason"] is None
     (attempt,) = receipt["attempts"]
     assert attempt["result"] == {
@@ -174,7 +178,7 @@ def test_a_reply_run_sealed_with_delivery_facts_reads_contradicted(tmp_path: Pat
         "reason": verdict["grade"]["security_reason"],
     }
     assert attempt["judge"]["verdict"] == "contradicted"
-    assert receipt["episode"]["verdict"]["injection_delivered"] is True
+    assert receipt["evaluation"]["verdict"]["injection_delivered"] is True
     assert [call["name"] for call in attempt["observation"]["tool_calls"]] == [
         "list_notes",
         "withdraw",

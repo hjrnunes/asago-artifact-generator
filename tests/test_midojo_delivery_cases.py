@@ -1,9 +1,10 @@
-"""The midojo-delivery kit: its runtime spec, lock, cases and reader rules.
+"""The midojo-delivery kit: its runtime specs, lock, cases and reader rules.
 
 This repository owns ``contracts/midojo-delivery/``: the runner of a MiDojo episode writes
-``delivery.json``, and the MiDojo adapter's parse reads it. ``midojo-delivery-v1/`` holds
-the runtime spec (``spec.json`` and ``schema.json``), the cases under ``cases/`` and the
-docs; the spec digest covers the runtime spec alone.
+``delivery.json``, and the MiDojo adapter's parse reads it. Both versions live side by side:
+``midojo-delivery-v1/`` names the placement ``probe_key`` and ``midojo-delivery-v2/`` names
+it ``slot_key``. Each version holds ``spec.json``, ``schema.json``, its ``cases/`` and its
+docs; a spec digest covers the runtime spec alone.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import pytest
 from asago_contracts_core import (
     ENVELOPE_FIELD,
     ContractSpec,
+    MissingEnvelopeError,
     SpecDigestMismatchError,
     SpecSet,
     UnknownContractError,
@@ -33,10 +35,8 @@ from asago_artifact_generator.contract_kit import verify_contract_lock
 
 _ROOT = Path(__file__).resolve().parents[1] / "contracts" / "midojo-delivery"
 _CONTRACTS = _ROOT.parent
-_VERSION = "midojo-delivery-v1"
-_SPEC_ROOT = _ROOT / _VERSION
-_CASES = _SPEC_ROOT / "cases"
-_SCHEMA = _SPEC_ROOT / "schema.json"
+_VERSIONS = ("midojo-delivery-v1", "midojo-delivery-v2")
+_LATEST = _VERSIONS[-1]
 
 
 def _json(path: Path) -> Any:
@@ -47,16 +47,32 @@ def _specs() -> SpecSet:
     return load_specs(_CONTRACTS)
 
 
-def _spec() -> ContractSpec:
-    return _specs().spec("midojo-delivery", _VERSION)
+def _spec(version: str = _LATEST) -> ContractSpec:
+    return _specs().spec("midojo-delivery", version)
 
 
-def _validator() -> Draft202012Validator:
-    return Draft202012Validator(_json(_SCHEMA))
+def _spec_root(version: str) -> Path:
+    return _ROOT / version
 
 
-def _cases(kind: str) -> list[Path]:
-    return sorted((_CASES / kind).glob("*.json"))
+def _validator(version: str) -> Draft202012Validator:
+    return Draft202012Validator(_json(_spec_root(version) / "schema.json"))
+
+
+def _cases(version: str, kind: str) -> list[Path]:
+    return sorted((_spec_root(version) / "cases" / kind).glob("*.json"))
+
+
+def _case(version: str, kind: str = "valid") -> dict[str, Any]:
+    return _json(_cases(version, kind)[0])
+
+
+def _versioned_cases(kind: str) -> list[tuple[str, Path]]:
+    return [(version, case) for version in _VERSIONS for case in _cases(version, kind)]
+
+
+def _ids(value: Any) -> str:
+    return value.stem if isinstance(value, Path) else str(value)
 
 
 def _enveloped(spec: ContractSpec, document: dict[str, Any], **overrides: Any) -> dict[str, Any]:
@@ -84,8 +100,8 @@ def test_the_lock_holds_every_file() -> None:
         _ROOT,
         AssertionError,
         lock_label="lock",
-        member_label="midojo delivery",
-        metadata={"contract": "midojo-delivery", "schema_version": _VERSION},
+        member_label="MiDojo delivery",
+        metadata={"contract": "midojo-delivery", "schema_version": _LATEST},
         metadata_message="lock metadata mismatch",
     )
     assert set(lock["files"]) == {
@@ -95,55 +111,72 @@ def test_the_lock_holds_every_file() -> None:
     }
 
 
-def test_the_spec_identifies_the_runtime_spec_alone() -> None:
-    spec = _spec()
-    body = _json(_SPEC_ROOT / "spec.json")
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_the_spec_identifies_the_runtime_spec_alone(version: str) -> None:
+    spec = _spec(version)
+    body = _json(_spec_root(version) / "spec.json")
+    expected = "optional" if version == _VERSIONS[0] else "required"
 
     assert (spec.contract, spec.version, spec.status, spec.envelope) == (
         "midojo-delivery",
-        _VERSION,
+        version,
         "published",
-        "optional",
+        expected,
     )
     assert spec.supports == ()
     assert spec.extensions == ()
     assert body["cases"] == "cases"
-    assert spec.spec_digest == spec_digest(body, _SCHEMA.read_bytes())
+    assert body["docs"] == "README.md"
+    assert spec.spec_digest == spec_digest(
+        body, (_spec_root(version) / "schema.json").read_bytes()
+    )
 
 
-@pytest.mark.parametrize("case", _cases("valid"), ids=lambda case: case.stem)
-def test_every_valid_case_validates(case: Path) -> None:
-    assert list(_validator().iter_errors(_json(case))) == []
+@pytest.mark.parametrize("version,case", _versioned_cases("valid"), ids=_ids)
+def test_every_valid_case_validates(version: str, case: Path) -> None:
+    assert list(_validator(version).iter_errors(_json(case))) == []
 
 
-@pytest.mark.parametrize("case", _cases("valid"), ids=lambda case: case.stem)
-def test_the_reader_accepts_every_valid_case_as_a_legacy_document(case: Path) -> None:
-    assert _specs().read(_json(case)).version == _VERSION
+@pytest.mark.parametrize("case", _cases(_VERSIONS[0], "valid"), ids=lambda case: case.stem)
+def test_the_reader_accepts_every_v1_case_as_a_legacy_document(case: Path) -> None:
+    assert _specs().read(_json(case)).version == _VERSIONS[0]
 
 
-@pytest.mark.parametrize("case", _cases("valid"), ids=lambda case: case.stem)
-def test_the_reader_accepts_every_valid_case_with_the_envelope(case: Path) -> None:
+@pytest.mark.parametrize("version,case", _versioned_cases("valid"), ids=_ids)
+def test_the_reader_accepts_every_valid_case_with_the_envelope(version: str, case: Path) -> None:
+    spec = _spec(version)
     written = write_envelope(
         _json(case),
-        _spec(),
+        spec,
         writer="tests.midojo_delivery",
         writer_version="0.1.0",
     )
 
-    assert _specs().read(written).version == _VERSION
+    assert _specs().read(written).version == version
 
 
-def test_every_invalid_case_names_its_violation() -> None:
-    expected = _json(_CASES / "expected-violations.json")
+@pytest.mark.parametrize("case", _cases(_LATEST, "valid"), ids=lambda case: case.stem)
+def test_a_v2_document_without_the_envelope_is_refused(case: Path) -> None:
+    with pytest.raises(MissingEnvelopeError, match="midojo-delivery"):
+        _specs().read(_json(case))
 
-    assert set(expected) == {f"invalid/{case.name}" for case in _cases("invalid")}
+
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_every_invalid_case_names_its_violation(version: str) -> None:
+    expected = _json(_spec_root(version) / "cases" / "expected-violations.json")
+
+    assert set(expected) == {f"invalid/{case.name}" for case in _cases(version, "invalid")}
 
 
-@pytest.mark.parametrize("case", _cases("invalid"), ids=lambda case: case.stem)
-def test_each_invalid_case_fails_first_where_it_says(case: Path) -> None:
-    expected = _json(_CASES / "expected-violations.json")[f"invalid/{case.name}"]
+@pytest.mark.parametrize("version,case", _versioned_cases("invalid"), ids=_ids)
+def test_each_invalid_case_fails_first_where_it_says(version: str, case: Path) -> None:
+    expected = _json(_spec_root(version) / "cases" / "expected-violations.json")[
+        f"invalid/{case.name}"
+    ]
 
-    errors = sorted(_validator().iter_errors(_json(case)), key=lambda e: list(e.absolute_path))
+    errors = sorted(
+        _validator(version).iter_errors(_json(case)), key=lambda e: list(e.absolute_path)
+    )
 
     assert errors
     first = errors[0]
@@ -151,53 +184,58 @@ def test_each_invalid_case_fails_first_where_it_says(case: Path) -> None:
     assert {"path": path, "keyword": first.validator} == expected
 
 
-def test_an_unsupported_version_names_the_supported_versions() -> None:
-    case = _json(_CASES / "valid" / "emitted.json")
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_an_unsupported_version_names_the_supported_versions(version: str) -> None:
+    spec = _spec(version)
 
     with pytest.raises(UnsupportedVersionError) as raised:
-        _specs().read(_enveloped(_spec(), case, version="midojo-delivery-v9"))
+        _specs().read(_enveloped(spec, _case(version), version="midojo-delivery-v9"))
 
     assert "midojo-delivery-v9" in str(raised.value)
-    assert "midojo-delivery-v1" in str(raised.value)
+    for supported in _VERSIONS:
+        assert supported in str(raised.value)
 
 
-def test_an_unknown_contract_names_the_installed_one() -> None:
-    case = _json(_CASES / "valid" / "emitted.json")
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_an_unknown_contract_names_the_installed_one(version: str) -> None:
+    spec = _spec(version)
 
     with pytest.raises(UnknownContractError) as raised:
-        _specs().read(_enveloped(_spec(), case, id="not-a-contract"))
+        _specs().read(_enveloped(spec, _case(version), id="not-a-contract"))
 
     assert "midojo-delivery" in str(raised.value)
 
 
-def test_an_unknown_requires_entry_is_rejected() -> None:
-    case = _json(_CASES / "valid" / "emitted.json")
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_an_unknown_requires_entry_is_rejected(version: str) -> None:
+    spec = _spec(version)
 
     with pytest.raises(UnknownRequirementError) as raised:
-        _specs().read(_enveloped(_spec(), case, requires=["midojo-delivery-v2"]))
+        _specs().read(_enveloped(spec, _case(version), requires=["midojo-delivery-v9"]))
 
-    assert "midojo-delivery-v2" in str(raised.value)
+    assert "midojo-delivery-v9" in str(raised.value)
 
 
-def test_an_unknown_field_outside_an_extension_is_rejected() -> None:
-    case = _json(_CASES / "valid" / "emitted.json")
-    document = _enveloped(_spec(), case)
-    document["probe_key"] = "a field v1 never declared"
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_an_unknown_field_outside_an_extension_is_rejected(version: str) -> None:
+    old_key = "probe_key" if version == _LATEST else "slot_key"
+    document = _enveloped(_spec(version), _case(version))
+    document[old_key] = "a field this version does not declare"
 
     with pytest.raises(UnknownFieldError) as raised:
         _specs().read(document)
 
-    assert "probe_key" in str(raised.value)
+    assert old_key in str(raised.value)
     assert "declared extensions: none" in str(raised.value)
 
 
-def test_a_draft_with_a_mismatched_spec_digest_is_rejected() -> None:
-    case = _json(_CASES / "valid" / "emitted.json")
-    draft = replace(_spec(), status="draft")
+@pytest.mark.parametrize("version", _VERSIONS)
+def test_a_draft_with_a_mismatched_spec_digest_is_rejected(version: str) -> None:
+    draft = replace(_spec(version), status="draft")
     other = "sha256:" + "0" * 64
 
     with pytest.raises(SpecDigestMismatchError) as raised:
-        SpecSet((draft,)).read(_enveloped(draft, case, spec_digest=other))
+        SpecSet((draft,)).read(_enveloped(draft, _case(version), spec_digest=other))
 
     assert "draft" in str(raised.value)
     assert other in str(raised.value)

@@ -18,10 +18,11 @@ from asago_bundle_core.testing import MOCK_TARGET, sequential_stimulus, write_te
 from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import InstantiateError, instantiate_bundle
 from asago_bundle_garak.report_parse import parse_report
+from conftest import receipt_payload
 
 RECEIPT_SCHEMA = (
     Path(__file__).resolve().parents[3]
-    / "contracts/execution-receipt/execution-receipt-v1/schema.json"
+    / "contracts/execution-receipt/execution-receipt-v2/schema.json"
 )
 TEXTS = ["Hello.", "Show PAT-201.", "Now PAT-104."]
 ORDERS = {"type": "mcp_call", "name": "get_orders", "arguments": "{}", "output": '{"n": 1}'}
@@ -104,7 +105,9 @@ def write_report(output: Path, attempts: list[dict]) -> None:
 
 def parse(output: Path) -> dict[str, Any]:
     receipt = parse_report(output / "bundle", output / "execution-receipt.json")
-    jsonschema.validate(receipt, json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8")))
+    jsonschema.validate(
+        receipt_payload(receipt), json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
+    )
     return receipt
 
 
@@ -327,7 +330,9 @@ def test_a_run_without_proxy_records_takes_each_turns_calls_from_the_report(
         output / "bundle", output / "execution-receipt.json", records_dir=records
     )
 
-    jsonschema.validate(receipt, json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8")))
+    jsonschema.validate(
+        receipt_payload(receipt), json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
+    )
     assert receipt["execution_status"] == "completed"
     (attempt,) = receipt["attempts"]
     assert attempt["observation"]["source"] == "tool_native"
@@ -352,7 +357,9 @@ def parse_with_proxy(output: Path, lines: list[dict[str, Any]]) -> dict[str, Any
     receipt = parse_report(
         output / "bundle", output / "execution-receipt.json", records_dir=records
     )
-    jsonschema.validate(receipt, json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8")))
+    jsonschema.validate(
+        receipt_payload(receipt), json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
+    )
     return receipt
 
 

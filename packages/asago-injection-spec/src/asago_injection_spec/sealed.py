@@ -1,4 +1,4 @@
-"""parse: turn one episode's sealed snapshot and its verdict into ``execution-receipt-v1``.
+"""parse: turn one evaluation's sealed snapshot and its verdict into ``execution-receipt-v2``.
 
 The runner opens the evaluation ``compile`` wrote (``midojo.open_evaluation``), seals it, and
 grades the sealed snapshot with ``midojo.grade``, MiDojo's pure grade function. It leaves
@@ -12,8 +12,8 @@ MiDojo's ``security`` grade is three-valued, and so is the receipt: True is
 ``detected``, False ``not_detected``, and None, a check that could not be decided from the
 evidence (``grade_validity`` ``invalid``), ``inconclusive``. An unknown grade is never made
 a pass or a fail. The receipt explains the outcome with the grade's ``security_reason``; a
-True or False grade without one is malformed. The receipt's ``episode`` block names the
-route that drove the run (``route.py``), the evaluation and the snapshot graded, the
+True or False grade without one is malformed. The receipt's ``evaluation`` block names the
+driver that drove the run (``route.py``), the evaluation and the snapshot graded, the
 snapshot's evidence status and the verdict as MiDojo gave it, and, as delivery evidence,
 each sealed call's injection outcomes as MiDojo sealed them (``call_injections``).
 
@@ -44,15 +44,16 @@ grade of a reply episode, whose ``reply_judge`` check asks a judge service, also
 must be a list of objects, and the receipt does not carry it: the judge's verdict is the
 grade's ``security`` and its reason ``security_reason``.
 
-The runner may also write ``delivery.json`` (``midojo-delivery-v1``) beside the snapshot:
+The runner may also write ``delivery.json`` (``midojo-delivery-v2``) beside the snapshot:
 the evaluation and snapshot it describes, ``midojo.delivery.delivery_facts`` of the
-episode's plan and the snapshot's calls, and ``midojo.delivery.exposure`` of them, as
+evaluation's plan and the snapshot's calls, and ``midojo.delivery.exposure`` of them, as
 MiDojo's run report holds them. ``parse`` reads it only when it is named
-(``delivery_path``): the receipt's ``episode`` block then carries its ``delivery`` and
+(``delivery_path``): the receipt's ``evaluation`` block then carries its ``delivery`` and
 ``exposure``, and lists it among the native files. Without one both are null (unknown).
 A named document that is missing (``delivery_missing``), is not that shape
 (``delivery_malformed``) or names another evaluation or snapshot (``delivery_mismatch``)
-fails the receipt.
+fails the receipt. A document recorded before the term.5a rename is a
+``midojo-delivery-v1`` and reads too.
 
 From a19562e a placement (``applied``, ``partial``, ``fallback``) may also say what it placed
 and where: ``payload_digest`` (``sha256:<hex>`` of the payload's UTF-8 bytes before its
@@ -120,7 +121,7 @@ from midojo_sdk.snapshot import CONTENT_FIELDS, DigestFault, verified
 
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.mcp_records import decoded, read_json, text
-from asago_bundle_core.receipt_contract import read_receipt
+from asago_bundle_core.receipt_contract import read_receipt, write_receipt
 from asago_bundle_core.text import canonical_text
 
 from .delivery_contract import read_delivery
@@ -134,7 +135,18 @@ from .injection_spec_compile import (
 )
 from .route import DEFAULT_ROUTE, ROUTES
 
-RECEIPT_SCHEMA_VERSION = "execution-receipt-v1"
+RECEIPT_SCHEMA_VERSION = "execution-receipt-v2"
+# What this parser writes, and the writer its envelope names: the module and the package's
+# version (``asago-injection-spec``).
+RECEIPT_WRITER = "asago_injection_spec.sealed"
+RECEIPT_WRITER_VERSION = "0.1.0"
+# The names term.5a renamed, read from a document recorded before it: the receipt's
+# ``episode`` block (now ``evaluation``) and ``route`` (now ``driver``), the instruction's
+# ``probe_key`` (now ``slot_key``) in an outcome, a delivery fact or an exposure item, and
+# the delivery document's version.
+LEGACY_EVALUATION = "episode"
+LEGACY_DRIVER = "route"
+LEGACY_SLOT_KEY = "probe_key"
 DETECTORS = {COMMAND_ATTEMPT: "ToolCallCondition", REPLY: "RubricJudge"}
 OUTCOMES = {True: "detected", False: "not_detected", None: "inconclusive"}
 INCONCLUSIVE = "inconclusive"
@@ -181,7 +193,9 @@ CALL_FIELDS = frozenset(
 )
 # What a call record gains from 3824922 (``types.FunctionCallRecord``): both or neither.
 CALL_DETAIL_FIELDS = frozenset({"structured_content", "injection_outcomes"})
-OUTCOME_FIELDS = frozenset({"instruction_index", "probe_key", "occurrence", "status", "detail"})
+OUTCOME_FIELDS = frozenset({"instruction_index", "slot_key", "occurrence", "status", "detail"})
+# A CallInjectionOutcome sealed before term.5a names the instruction's slot key ``probe_key``.
+LEGACY_OUTCOME_FIELDS = OUTCOME_FIELDS - {"slot_key"} | {LEGACY_SLOT_KEY}
 # What an outcome gains from 13d5487 (``types.CallInjectionOutcome``): its delivery facts, all or
 # none.
 FACT_FIELDS = frozenset({"selected", "transformation", "emitted"})
@@ -239,7 +253,9 @@ ATTACK_OUTCOME = ("attempted", "blocked", "effect_observed", "injection_delivere
 # What a grade a judge service took part in also has (from cab2a35): each request MiDojo
 # sent or would have sent and the answer, a ``JudgeRecord``. The receipt does not carry it.
 JUDGEMENTS = "judgements"
-DELIVERY_SCHEMA_VERSION = "midojo-delivery-v1"
+DELIVERY_SCHEMA_VERSION = "midojo-delivery-v2"
+LEGACY_DELIVERY_SCHEMA_VERSION = "midojo-delivery-v1"
+DELIVERY_SCHEMA_VERSIONS = (DELIVERY_SCHEMA_VERSION, LEGACY_DELIVERY_SCHEMA_VERSION)
 DELIVERY_FIELDS = frozenset(
     {"schema_version", "evaluation_id", "snapshot_id", "delivery", "exposure"}
 )
@@ -252,17 +268,19 @@ DELIVERY_FACT_FIELDS = frozenset(
         "turn",
         "interceptor_instruction_index",
         "plan_instruction_index",
-        "probe_key",
+        "slot_key",
         "occurrence",
         "status",
         *FACT_FIELDS,
     }
 )
+LEGACY_DELIVERY_FACT_FIELDS = DELIVERY_FACT_FIELDS - {"slot_key"} | {LEGACY_SLOT_KEY}
 BOUNDARIES = ("emitted", "agent_tool_result", "model_input")
 EXPOSURE_STATUSES = frozenset({"exposed", "not_exposed", "unknown"})
 INSTRUCTION_EXPOSURE_FIELDS = frozenset(
-    {"plan_instruction_index", "channel", "probe_key", "placed_by", "exposure", "reason"}
+    {"plan_instruction_index", "channel", "slot_key", "placed_by", "exposure", "reason"}
 )
+LEGACY_INSTRUCTION_EXPOSURE_FIELDS = INSTRUCTION_EXPOSURE_FIELDS - {"slot_key"} | {LEGACY_SLOT_KEY}
 PLACERS = frozenset({"interceptor", "host"})
 # The channel the interceptor places in, and the modes it places with (``InjectionMode``).
 TOOL_OUTPUT = "tool_output"
@@ -274,9 +292,9 @@ UNPLACED: dict[str, Any] = {"payload_sha256": None, "slot": None}
 def _read_back(receipt: dict[str, Any], out: Path) -> None:
     """Read the receipt through its installed contract before this writer hands it on.
 
-    Every document this parser writes is an ``execution-receipt-v1`` document, so the
-    installed spec accepts it. A document the reader refuses is a defect here, not a
-    saved outcome: the error names the path and the spec's own reason.
+    Every document this parser writes is an ``execution-receipt-v2`` document with its
+    envelope, so the installed spec accepts it. A document the reader refuses is a defect
+    here, not a saved outcome: the error names the path and the spec's own reason.
     """
 
     try:
@@ -343,17 +361,17 @@ def parse_sealed(
     *,
     tool_revision: str | None = None,
     adapter_revision: str | None = None,
-    route: str = DEFAULT_ROUTE,
+    driver: str = DEFAULT_ROUTE,
     delivery_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Write the receipt of one sealed episode to ``out_path`` and return it.
+    """Write the receipt of one sealed evaluation to ``out_path`` and return it.
 
-    ``route`` names the client that drove this run of the episode (one of ``ROUTES``), and
-    ``delivery_path`` the runner's ``delivery.json`` of the snapshot, if it wrote one.
+    ``driver`` names the client that drove this run of the evaluation (one of ``ROUTES``),
+    and ``delivery_path`` the runner's ``delivery.json`` of the snapshot, if it wrote one.
     """
 
-    if route not in ROUTES:
-        raise ParseError(f"unknown route {route!r}; the routes are {list(ROUTES)}")
+    if driver not in ROUTES:
+        raise ParseError(f"unknown driver {driver!r}; the drivers are {list(ROUTES)}")
     compiled = read_compiled(Path(episode_dir))
     out = Path(out_path)
     snapshot, reason = read_document(Path(snapshot_path), "snapshot", snapshot_shape)
@@ -385,8 +403,9 @@ def parse_sealed(
         "incomplete_reason": reason,
         "attempts": [attempt] if attempt else [],
         "native": native_files(tuple(native), out.parent),
-        "episode": episode_block(route, snapshot, verdict, delivery, plan),
+        "evaluation": evaluation_block(driver, snapshot, verdict, delivery, plan),
     }
+    receipt = write_receipt(receipt, writer=RECEIPT_WRITER, writer_version=RECEIPT_WRITER_VERSION)
     _read_back(receipt, out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(canonical_text(receipt), encoding="utf-8")
@@ -515,6 +534,17 @@ def _optional_text(value: Any) -> bool:
     return value is None or isinstance(value, str)
 
 
+def slot_key_of(item: dict[str, Any]) -> Any:
+    """Return an outcome's or a delivery fact's slot key: ``slot_key``, else v1's ``probe_key``.
+
+    A seal or a delivery document recorded before term.5a names it ``probe_key``; MiDojo
+    writes ``slot_key`` since the rename, and the receipt's current version names the field
+    that way. A document that names both reads ``slot_key``.
+    """
+
+    return item.get("slot_key", item.get(LEGACY_SLOT_KEY))
+
+
 def _one_of(value: Any, allowed: Any) -> bool:
     """Whether ``value`` is text or None and one of ``allowed``; a list or an object is not,
     and never reaches the membership test, which cannot hash it."""
@@ -556,18 +586,27 @@ def _details_shape(call: dict[str, Any]) -> bool:
 
 
 def _outcome_shape(outcome: Any) -> bool:
-    """``CallInjectionOutcome``: the instruction's index in the plan (from 0), its probe, which
+    """``CallInjectionOutcome``: the instruction's index in the plan (from 0), its slot key
+    (``slot_key``; ``probe_key`` in a seal recorded before term.5a), which
     matching call of the instruction's this was (from 1, or 0 for an ``unmatched`` call whose
     arguments did not match the instruction's ``call_arguments`` or whose result did not
     match its ``result_record``), its status and why, and, sealed from 13d5487, its delivery
     facts."""
 
+    if not isinstance(outcome, dict):
+        return False
+    fields = set(outcome) - PLACEMENT_FIELDS
     return (
-        isinstance(outcome, dict)
-        and set(outcome) - PLACEMENT_FIELDS in (OUTCOME_FIELDS, OUTCOME_FIELDS | FACT_FIELDS)
+        fields
+        in (
+            OUTCOME_FIELDS,
+            OUTCOME_FIELDS | FACT_FIELDS,
+            LEGACY_OUTCOME_FIELDS,
+            LEGACY_OUTCOME_FIELDS | FACT_FIELDS,
+        )
         and type(outcome["instruction_index"]) is int
         and outcome["instruction_index"] >= 0
-        and _optional_text(outcome["probe_key"])
+        and _optional_text(slot_key_of(outcome))
         and isinstance(outcome["detail"], str)
         and _facts_shape(outcome)
         and _placement_shape(outcome)
@@ -731,26 +770,38 @@ def _three_valued(value: Any) -> bool:
 
 
 def delivery_shape(document: dict[str, Any]) -> bool:
-    """The runner's ``delivery.json``: ``midojo-delivery-v1``, the evaluation and snapshot it
-    describes, MiDojo's ``DeliveryFact`` list and its ``Exposure``, field for field.
+    """The runner's ``delivery.json``: ``midojo-delivery-v2``, or the ``midojo-delivery-v1`` a
+    run recorded before term.5a wrote, the evaluation and snapshot it describes, MiDojo's
+    ``DeliveryFact`` list and its ``Exposure``, field for field.
 
-    A document that carries the self-identifying envelope adds the ``contract`` block; the
-    installed-spec reader validates that block, and this shape leaves it out.
+    Each version names the instruction's slot key its own way, ``slot_key`` or the v1
+    ``probe_key``; a document that mixes the two is not either version. A document that
+    carries the self-identifying envelope adds the ``contract`` block; the installed-spec
+    reader validates that block, and this shape leaves it out.
     """
 
     exposure = document.get("exposure")
+    version = document.get("schema_version")
+    current = version == DELIVERY_SCHEMA_VERSION
+    if not current and version != LEGACY_DELIVERY_SCHEMA_VERSION:
+        return False
+    fact_fields = DELIVERY_FACT_FIELDS if current else LEGACY_DELIVERY_FACT_FIELDS
+    item_fields = INSTRUCTION_EXPOSURE_FIELDS if current else LEGACY_INSTRUCTION_EXPOSURE_FIELDS
+    slot = "slot_key" if current else LEGACY_SLOT_KEY
     return (
         set(document) - {ENVELOPE_FIELD} == DELIVERY_FIELDS
-        and document["schema_version"] == DELIVERY_SCHEMA_VERSION
         and isinstance(document["evaluation_id"], str)
         and isinstance(document["snapshot_id"], str)
         and isinstance(document["delivery"], list)
-        and all(_delivery_fact_shape(fact) for fact in document["delivery"])
+        and all(_delivery_fact_shape(fact, fact_fields, slot) for fact in document["delivery"])
         and isinstance(exposure, dict)
         and set(exposure) == {*BOUNDARIES, "instructions"}
         and all(_one_of(exposure[boundary], EXPOSURE_STATUSES) for boundary in BOUNDARIES)
         and isinstance(exposure["instructions"], list)
-        and all(_instruction_exposure_shape(item) for item in exposure["instructions"])
+        and all(
+            _instruction_exposure_shape(item, item_fields, slot)
+            for item in exposure["instructions"]
+        )
     )
 
 
@@ -758,29 +809,29 @@ def _index(value: Any) -> bool:
     return type(value) is int and value >= 0
 
 
-def _delivery_fact_shape(fact: Any) -> bool:
+def _delivery_fact_shape(fact: Any, fields: frozenset[str], slot: str) -> bool:
     return (
         isinstance(fact, dict)
-        and set(fact) - PLACEMENT_FIELDS == DELIVERY_FACT_FIELDS
+        and set(fact) - PLACEMENT_FIELDS == fields
         and isinstance(fact["call_id"], str)
         and isinstance(fact["function"], str)
         and _one_of(fact["disposition"], DISPOSITIONS)
         and (fact["turn"] is None or type(fact["turn"]) is int)
         and _index(fact["interceptor_instruction_index"])
         and (fact["plan_instruction_index"] is None or _index(fact["plan_instruction_index"]))
-        and _optional_text(fact["probe_key"])
+        and _optional_text(fact[slot])
         and _facts_shape(fact)
         and _placement_shape(fact)
     )
 
 
-def _instruction_exposure_shape(item: Any) -> bool:
+def _instruction_exposure_shape(item: Any, fields: frozenset[str], slot: str) -> bool:
     return (
         isinstance(item, dict)
-        and set(item) == INSTRUCTION_EXPOSURE_FIELDS
+        and set(item) == fields
         and _index(item["plan_instruction_index"])
         and isinstance(item["channel"], str)
-        and _optional_text(item["probe_key"])
+        and _optional_text(item[slot])
         and _one_of(item["placed_by"], PLACERS)
         and isinstance(item["exposure"], dict)
         and all(
@@ -1058,24 +1109,24 @@ def judge_of(level: str, grade: dict[str, Any], outcome: str) -> dict[str, Any] 
     }
 
 
-def episode_block(
-    route: str,
+def evaluation_block(
+    driver: str,
     snapshot: dict[str, Any] | None,
     verdict: dict[str, Any] | None,
     delivery: dict[str, Any] | None = None,
     plan: Plan | None = None,
 ) -> dict[str, Any]:
-    """Return what the receipt names of the episode's run; a file that cannot be read is null.
+    """Return what the receipt names of the evaluation's run; a file that cannot be read is null.
 
     An attack outcome field the grade lacks (sealed before 13d5487) is null, as are
     ``delivery`` and ``exposure`` without a delivery document: unknown, never False. ``plan``
-    is the episode's plan (``read_plan``), or None when the sealed result does not hold
+    is the evaluation's plan (``read_plan``), or None when the sealed result does not hold
     together, so the outcomes' placements cannot be established.
     """
 
     grade = verdict["grade"] if verdict else None
     return {
-        "route": route,
+        "driver": driver,
         "evaluation_id": snapshot["evaluation_id"] if snapshot else None,
         "snapshot_id": snapshot["snapshot_id"] if snapshot else None,
         "evidence_status": snapshot["evidence_status"] if snapshot else None,
@@ -1093,15 +1144,53 @@ def episode_block(
         "delivery": None
         if delivery is None
         else [_unplaced(fact) for fact in delivery["delivery"]],
-        "exposure": None if delivery is None else delivery["exposure"],
+        "exposure": None if delivery is None else _exposure(delivery["exposure"]),
     }
 
 
 def _unplaced(item: dict[str, Any]) -> dict[str, Any]:
-    """``item`` without what MiDojo sealed of its placement (``PLACEMENT_FIELDS``): the receipt
-    carries an outcome's placement as ``payload_sha256`` and ``slot`` (``placed_fields``)."""
+    """``item`` without what MiDojo sealed of its placement (``PLACEMENT_FIELDS``), and with its
+    slot key under the receipt's current name: the receipt carries an outcome's placement as
+    ``payload_sha256`` and ``slot`` (``placed_fields``)."""
 
-    return {key: value for key, value in item.items() if key not in PLACEMENT_FIELDS}
+    return _renamed_slot_key(
+        {key: value for key, value in item.items() if key not in PLACEMENT_FIELDS}
+    )
+
+
+def _renamed_slot_key(item: dict[str, Any]) -> dict[str, Any]:
+    """Return ``item`` with its slot key under the receipt's current name (``slot_key``).
+
+    A seal or a delivery document recorded before term.5a names it ``probe_key``; the
+    receipt's current version never does.
+    """
+
+    slot = slot_key_of(item)
+    renamed: dict[str, Any] = {}
+    named = False
+    for key, value in item.items():
+        if key == "slot_key":
+            renamed["slot_key"] = slot
+            named = True
+        elif key == LEGACY_SLOT_KEY:
+            if not named:
+                renamed["slot_key"] = slot
+                named = True
+        else:
+            renamed[key] = value
+    if not named:
+        renamed["slot_key"] = slot
+    return renamed
+
+
+def _exposure(exposure: dict[str, Any]) -> dict[str, Any]:
+    """Return a delivery document's exposure as the receipt carries it: its instruction items
+    with their slot key under the current name."""
+
+    return {
+        **exposure,
+        "instructions": [_renamed_slot_key(item) for item in exposure["instructions"]],
+    }
 
 
 def call_injections(
@@ -1187,11 +1276,11 @@ def _instruction(
     """Return the plan's instruction an outcome names, or None when it does not resolve.
 
     The outcome's ``instruction_index`` counts the plan's tool-output instructions; it names
-    an instruction of ``plan`` as MiDojo's ``delivery_facts`` maps it (the same probe key, a
-    target tool that is the call's or none), and with a delivery document (``facts``: the plan
-    indexes its facts for each call, instruction and occurrence name) only when its facts for
-    the outcome all name that instruction. Facts that name different instructions for one
-    outcome are ambiguous, and so is the instruction.
+    an instruction of ``plan`` as MiDojo's ``delivery_facts`` maps it (the same slot key, a
+    target tool that is the call's or none). With a delivery document (``facts``: the plan
+    indexes its facts for each call, instruction and occurrence name) it names that
+    instruction only when its facts for the outcome all name it. Facts that name different
+    instructions for one outcome are ambiguous, and so is the instruction.
     """
 
     index = outcome["instruction_index"]
@@ -1200,7 +1289,7 @@ def _instruction(
     placed = plan.instructions[index]
     if (
         placed is None
-        or placed.probe_key != outcome["probe_key"]
+        or placed.probe_key != slot_key_of(outcome)
         or placed.tool not in (None, call["function"])
         or (
             facts is not None

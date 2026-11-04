@@ -8,7 +8,8 @@ A reader selects one of its installed specs by the document's contract id and ve
 It never fetches or trusts a schema the document points to: ``spec.json`` names
 ``schema.json`` beside it. A v1 document without the envelope is a legacy document and is
 read by its ``schema_version``; a v2 document must carry the envelope, and its
-``spec_digest`` must be exactly the installed spec's.
+``spec_digest`` must be exactly the installed spec's. Both versions stay installed, so a
+delivery document recorded before the ``probe_key`` to ``slot_key`` rename still reads.
 """
 
 from __future__ import annotations
@@ -20,6 +21,9 @@ from typing import Any
 from asago_contracts_core import ContractSpec, SpecSet, load_specs
 
 CONTRACTS_DIR = Path(__file__).resolve().parent / "contracts"
+CONTRACT = "midojo-delivery"
+VERSION = "midojo-delivery-v2"
+LEGACY_VERSION = "midojo-delivery-v1"
 
 
 @cache

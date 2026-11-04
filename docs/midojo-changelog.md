@@ -4,10 +4,13 @@ This page holds the MiDojo adapter's revision history, fixture provenance and
 implementation notes, moved out of the agent guide (`CLAUDE.md`) so that guide
 stays short.
 
-The adapter currently pins `midojo-sdk` at `162233f`, which moves the rubric
+The adapter currently pins `midojo-sdk` at `24b0b23`, which renames the sealed
+outcome's, the delivery fact's and the exposure item's `probe_key` to `slot_key` and
+keeps a reader for the old key; `InjectionInstruction.probe_key` (the plan's own field)
+stays. Before it, `162233f` moved the rubric
 judge into the SDK (`midojo_sdk.rubric_judge`, stdlib only; the consumer's
-`authoring/rubric_judge.py` now re-exports it) and pins the console goldens to a
-fixed height. Before it, `9e1f90f` retired the tool-call-condition v1 fixtures
+`authoring/rubric_judge.py` now re-exports it) and pinned the console goldens to a
+fixed height, `9e1f90f` retired the tool-call-condition v1 fixtures
 from MiDojo's test suite, and the SDK was unchanged since `6198645` (the
 held-request fix on top of `1d0e240`'s binding-conformance fixes: a request
 waiting at a binding's `/b/<id>/mcp` before `bound` answers 401, never 500, when
@@ -88,8 +91,8 @@ records a past revision.
   slot, or a `{{name}}` placeholder in a user turn), state_effect
   claims and a seed the interceptor cannot place in an MCP tool result are capability gaps
   (exit 3). `parse_sealed` (`sealed.py`, CLI `parse --snapshot --verdict
-  [--delivery] [--route]`) reads the snapshot (`GET .../snapshot`) and the verdict (`evaluation_id`,
-  `snapshot_id`, `grade`) into `execution-receipt-v1`, after recomputing the snapshot ID,
+  [--delivery] [--driver]`) reads the snapshot (`GET .../snapshot`) and the verdict (`evaluation_id`,
+  `snapshot_id`, `grade`) into `execution-receipt-v2`, after recomputing the snapshot ID,
   MiDojo's digest of the content (`midojo_sdk.snapshot`, `verified`), and requiring every
   call to be the
   interceptor's record: security true/false/null is detected/not_detected/inconclusive,
@@ -116,10 +119,11 @@ records a past revision.
   by the `placements` of the plan instructions with that target), for static and generated
   plans alike; a key not sealed falls back to a static plan's payload and `placements`; a
   static plan that disagrees with the sealed digest nulls both; else null. `--delivery`
-  names the runner's `delivery.json` (`contracts/midojo-delivery/`, `midojo-delivery-v1`:
-  the evaluation and snapshot IDs and `midojo.delivery`'s facts and exposure), carried into
-  `episode.delivery`/`exposure` (null without it); missing, malformed or another snapshot's
-  fails the receipt.
+  names the runner's `delivery.json` (`contracts/midojo-delivery/`, read as the v1 a run
+  recorded before term.5a wrote it or the v2 document a current run writes: the evaluation
+  and snapshot IDs and `midojo.delivery`'s facts and exposure), carried into
+  `evaluation.delivery`/`exposure` (null without it); missing, malformed or another
+  snapshot's fails the receipt.
   The tests compile against the fixture target (`tests/fixtures/targets/piggybank/`);
   `tests/fixtures/episode/` holds compiled episodes and the snapshots and verdicts MiDojo
   produced from them at 3824922 through its interceptor in front of that target

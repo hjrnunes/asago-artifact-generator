@@ -257,7 +257,7 @@ def call(
 def injection_outcome(
     *,
     index: int = 0,
-    probe_key: str = "planted_item:seed_0",
+    slot_key: str = "planted_item:seed_0",
     occurrence: int = 1,
     status: str = "applied",
     detail: str = "exact selector matched; mirrored text re-serialised",
@@ -274,7 +274,7 @@ def injection_outcome(
 
     found: dict[str, Any] = {
         "instruction_index": index,
-        "probe_key": probe_key,
+        "slot_key": slot_key,
         "occurrence": occurrence,
         "status": status,
         "detail": detail,
@@ -297,7 +297,7 @@ def delivery_fact(
     disposition: str = "forwarded",
     turn: int = 0,
     index: int = 0,
-    probe_key: str = "planted_item:seed_0",
+    slot_key: str = "planted_item:seed_0",
     occurrence: int = 1,
     status: str = "applied",
     selected: bool = True,
@@ -317,7 +317,7 @@ def delivery_fact(
         "turn": turn,
         "interceptor_instruction_index": index,
         "plan_instruction_index": index,
-        "probe_key": probe_key,
+        "slot_key": slot_key,
         "occurrence": occurrence,
         "status": status,
         "selected": selected,

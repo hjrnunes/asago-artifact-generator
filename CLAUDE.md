@@ -164,8 +164,9 @@ missing path.
   `testing` package builders, the `mcp_records` readers of the orchestrator's boundary
   records, and the `conformance` helper that round-trips `compile`, `instantiate` and
   `parse` of an adapter and returns failure messages). `receipt_contract` and
-  `bundle_contract` ship the consumer's `execution-receipt-v1` and `tool-bundle-v1` specs as
-  package data and read every receipt and bundle an adapter writes through `SpecSet.read`;
+  `bundle_contract` ship the consumer's `execution-receipt-v1` and `execution-receipt-v2`
+  specs (and `tool-bundle-v1`) as package data and read every receipt and bundle an
+  adapter writes through `SpecSet.read`;
   `contracts/execution-receipt/` and `contracts/tool-bundle/` are the authorities, and a
   test refuses a copy that differs. `schema.manifest_errors` reads a manifest through
   `bundle_contract` before it applies the schema, and `check_round_trip` reads the receipt
@@ -211,16 +212,17 @@ missing path.
   `judge.verdict` states that same decision in the receipt's judge vocabulary:
   `supported` for a detection, `contradicted` for a decided resistance, and `unresolved`
   for every other grade, so an obeyed or undecided reply never reads as resisted. A report
-  of one chain also fills the receipt's `episode` block: route `garak.midojo.InjectionSpecProbe`,
+  of one chain also fills the receipt's `evaluation` block: driver
+  `garak.midojo.InjectionSpecProbe`,
   the evaluation and snapshot the probe sealed, the evidence status of that snapshot, and
   its verdict, which states `attempted`, `blocked` and `effect_observed` as sealed; a chain
   sealed short names its evaluation but no snapshot or verdict, and a report of several
   chains leaves the block out. A report recorded before the rename names the old plugins and
   notes; `parse` reads both forms. `parse` exits 1 and names the path on stderr
   when the bundle directory or the report is not there: missing input is not a failed run.
-  **Garak planted receipt.** The `episode` block is a planted-item receipt's evidence
+  **Garak planted receipt.** The `evaluation` block is a planted-item receipt's evidence
   record, and every member comes from the trace the probe sealed, never from the run's
-  intent. `route` is `garak.midojo.InjectionSpecProbe`; `evaluation_id` and `snapshot_id`
+  intent. `driver` is `garak.midojo.InjectionSpecProbe`; `evaluation_id` and `snapshot_id`
   name the evaluation and the snapshot MiDojo sealed and graded; `evidence_status` is that
   snapshot's own map of how completely each source was collected; `verdict` states the
   grade as sealed, with `security` three-valued and `validity` (`valid`/`invalid`) saying

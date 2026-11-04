@@ -20,7 +20,7 @@ every trace carries MiDojo's `delivery` and `exposure` rather than null.
 `expected.json` names the receipt's status (`execution_status`, completed for every
 case but `tampered`, which the sealed reader refuses), the probe's `outcome`, the
 reason where one applies, the attempt count (0 for `tampered`, whose refused seal
-states no attempt, and 1 for every other case) and the repeat count, the route, the
+states no attempt, and 1 for every other case) and the repeat count, the driver, the
 three detectors, and the payload's `probe_key` mapped to `slot`: the seed slot and
 record the compiled placement names (the entry's `placements`) and the mode its
 instruction placed it in. `slot` is the `id`, `record` and `mode` the receipt states
@@ -48,7 +48,7 @@ the attempt would have decided from.
 | `report.jsonl` | the probe's attempt lines: one per turn at status 1, then the sealed turn at status 2 with `notes.evaluation_trace` and the detectors' records |
 | `snapshot.json` | the snapshot MiDojo served, as `GET /runs/{id}/snapshot` returns it (`tampered` edits it after the seal) |
 | `verdict.json` | `midojo.grade`'s verdict of that snapshot, with the evaluation and snapshot IDs |
-| `delivery.json` | `midojo-delivery-v1`: MiDojo's delivery facts and the exposure it derives |
+| `delivery.json` | `midojo-delivery-v2`, with the contract's envelope: MiDojo's delivery facts and the exposure it derives |
 | `ipi-episodes.json` | the compiled probe source entry: the injection spec, its placements and its metadata |
 | `expected.json` | what the receipt must say about the case |
 

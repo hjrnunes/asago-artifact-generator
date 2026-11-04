@@ -45,12 +45,13 @@ from asago_bundle_garak.compiler import compile_package
 from asago_bundle_garak.instantiate import instantiate_bundle
 from asago_bundle_garak.report_parse import ParseError, parse_report
 from asago_injection_spec.sealed import slot_id
+from conftest import receipt_payload
 
 SCENARIO = "SCN-051"
 BUNDLE = "bundle.json"
 RECEIPT_SCHEMA = (
     Path(__file__).resolve().parents[3]
-    / "contracts/execution-receipt/execution-receipt-v1/schema.json"
+    / "contracts/execution-receipt/execution-receipt-v2/schema.json"
 )
 TEXTS = ("Can you read me my notes?",)
 TWO_TURNS = ("Can you read me my notes?", "Thanks, is there anything I should do?")
@@ -175,7 +176,9 @@ def stamp(entries: list[dict[str, Any]], metadata: dict[str, Any]) -> list[dict[
 
 def parse(output: Path) -> dict[str, Any]:
     receipt = parse_report(output / "bundle", output / "execution-receipt.json")
-    jsonschema.validate(receipt, json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8")))
+    jsonschema.validate(
+        receipt_payload(receipt), json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
+    )
     assert receipt == json.loads((output / "execution-receipt.json").read_text(encoding="utf-8"))
     return receipt
 
@@ -326,8 +329,8 @@ def test_a_report_recorded_before_the_rename_parses_as_the_same_run(tmp_path: Pa
         "EpisodeVerdict": "detected",
         "ToolCallCondition": "detected",
     }
-    assert receipt["episode"]["route"] == "garak.midojo.InjectionSpecProbe"
-    assert receipt["episode"]["verdict"]["security"] is True
+    assert receipt["evaluation"]["driver"] == "garak.midojo.InjectionSpecProbe"
+    assert receipt["evaluation"]["verdict"]["security"] is True
 
 
 def test_a_blocked_call_is_detected_with_no_effect(tmp_path: Path) -> None:
@@ -356,7 +359,7 @@ def test_a_blocked_call_is_detected_with_no_effect(tmp_path: Path) -> None:
         "EvaluationEffect": "not_detected",
         "EvaluationVerdict": "detected",
     }
-    verdict = receipt["episode"]["verdict"]
+    verdict = receipt["evaluation"]["verdict"]
     assert verdict["blocked"] is True, "the receipt says the policy refused the call"
     assert verdict["effect_observed"] is False
 
@@ -531,7 +534,7 @@ def test_a_release_the_interceptor_never_acknowledged_fails_the_run(tmp_path: Pa
         "EvaluationEffect": "detected",
         "EvaluationVerdict": "detected",
     }, "the sealed detections are still evidence"
-    assert receipt["episode"]["verdict"]["security"] is True
+    assert receipt["evaluation"]["verdict"]["security"] is True
 
 
 def test_two_source_entries_make_two_attempts(tmp_path: Path) -> None:
@@ -738,8 +741,8 @@ def test_the_receipt_names_the_route_and_what_the_probe_sealed(tmp_path: Path) -
 
     receipt = parse(output)
 
-    assert receipt["episode"] == {
-        "route": "garak.midojo.InjectionSpecProbe",
+    assert receipt["evaluation"] == {
+        "driver": "garak.midojo.InjectionSpecProbe",
         "evaluation_id": EVALUATION_ID,
         "snapshot_id": sealed["snapshot_id"],
         "evidence_status": {"network": "complete"},
@@ -785,8 +788,8 @@ def test_an_interrupted_chain_names_its_evaluation_but_no_snapshot(tmp_path: Pat
     receipt = parse(make_bundle(tmp_path, entries))
 
     assert receipt["incomplete_reason"] == "interrupted"
-    assert receipt["episode"] == {
-        "route": "garak.midojo.InjectionSpecProbe",
+    assert receipt["evaluation"] == {
+        "driver": "garak.midojo.InjectionSpecProbe",
         "evaluation_id": EVALUATION_ID,
         "snapshot_id": None,
         "evidence_status": None,
@@ -813,8 +816,8 @@ def test_an_unreadable_grade_leaves_the_episode_verdict_null(tmp_path: Path) -> 
         "verdict_malformed",
     )
     assert receipt["attempts"] == []
-    assert receipt["episode"]["evidence_status"] == {}
-    assert receipt["episode"]["verdict"] is None
+    assert receipt["evaluation"]["evidence_status"] == {}
+    assert receipt["evaluation"]["verdict"] is None
 
 
 def test_a_sealed_chain_carries_the_delivery_the_probe_recorded(tmp_path: Path) -> None:
@@ -841,7 +844,7 @@ def test_a_sealed_chain_carries_the_delivery_the_probe_recorded(tmp_path: Path) 
             {
                 "plan_instruction_index": 0,
                 "channel": "tool_output",
-                "probe_key": "planted_item:seed_0",
+                "slot_key": "planted_item:seed_0",
                 "placed_by": "interceptor",
                 "exposure": {
                     "emitted": "exposed",
@@ -871,7 +874,7 @@ def test_a_sealed_chain_carries_the_delivery_the_probe_recorded(tmp_path: Path) 
     )
 
     receipt = parse(output)
-    episode = receipt["episode"]
+    episode = receipt["evaluation"]
 
     assert episode["delivery"] == [delivery_fact()]
     assert "payload_digest" not in episode["delivery"][0]
@@ -929,7 +932,7 @@ def test_an_entry_without_placements_states_the_slot_the_seal_names(tmp_path: Pa
 
     receipt = parse(output)
 
-    (call_injection,) = receipt["episode"]["call_injections"]
+    (call_injection,) = receipt["evaluation"]["call_injections"]
     (outcome,) = call_injection["injection_outcomes"]
     assert outcome["slot"] == {"id": slot["id"], "record": "NOTE-1", "mode": "append"}
 
@@ -947,9 +950,9 @@ def test_a_trace_whose_delivery_is_not_a_document_states_no_delivery(tmp_path: P
     receipt = parse(make_bundle(tmp_path, entries))
 
     assert receipt["execution_status"] == "completed"
-    assert receipt["episode"]["delivery"] is None
-    assert receipt["episode"]["exposure"] is None
-    assert receipt["episode"]["call_injections"] == [
+    assert receipt["evaluation"]["delivery"] is None
+    assert receipt["evaluation"]["exposure"] is None
+    assert receipt["evaluation"]["call_injections"] == [
         {
             "call_id": WITHDRAW["call_id"],
             "function": "withdraw",
@@ -1001,8 +1004,8 @@ def test_a_tampered_snapshot_fails_the_run_with_its_digest_mismatch(tmp_path: Pa
     )
     assert receipt["runtime_status"] is None
     assert receipt["attempts"] == []
-    assert receipt["episode"]["snapshot_id"] == sealed["snapshot_id"]
-    assert receipt["episode"]["delivery"] == []
+    assert receipt["evaluation"]["snapshot_id"] == sealed["snapshot_id"]
+    assert receipt["evaluation"]["delivery"] == []
 
 
 UNREADABLE_SEALS = {
@@ -1279,8 +1282,8 @@ def test_the_blocked_vector_report_is_detected_with_no_effect(tmp_path: Path) ->
         EFFECT_NAME: "not_detected",
         CONDITION_NAME: "detected",
     }
-    assert receipt["episode"]["verdict"]["blocked"] is True
-    assert receipt["episode"]["verdict"]["effect_observed"] is False
+    assert receipt["evaluation"]["verdict"]["blocked"] is True
+    assert receipt["evaluation"]["verdict"]["effect_observed"] is False
     assert want["routes"]["garak_report"]["effect"] == "not_detected"
 
 
@@ -1305,9 +1308,9 @@ def test_every_vector_report_names_the_snapshot_it_sealed(tmp_path: Path, case: 
     receipt = parse(output)
     snapshot = vector(case, "snapshot.json")
     grade = vector(case, "verdict.json")["grade"]
-    assert receipt["episode"]["snapshot_id"] == snapshot["snapshot_id"]
-    assert receipt["episode"]["evaluation_id"] == snapshot["evaluation_id"]
-    assert receipt["episode"]["evidence_status"] == snapshot["evidence_status"]
-    assert receipt["episode"]["verdict"]["security"] is grade["security"]
+    assert receipt["evaluation"]["snapshot_id"] == snapshot["snapshot_id"]
+    assert receipt["evaluation"]["evaluation_id"] == snapshot["evaluation_id"]
+    assert receipt["evaluation"]["evidence_status"] == snapshot["evidence_status"]
+    assert receipt["evaluation"]["verdict"]["security"] is grade["security"]
     validity = grade["grade_validity"]["security"]["status"]
-    assert receipt["episode"]["verdict"]["validity"] == validity
+    assert receipt["evaluation"]["verdict"]["validity"] == validity

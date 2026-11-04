@@ -127,14 +127,16 @@ def test_both_parsers_read_one_sealed_episode_the_same(tmp_path: Path, case: str
     assert midojo["incomplete_reason"] == garak["incomplete_reason"]
     assert midojo["incomplete_reason"] == expected["incomplete_reason"]
     for field in ("evaluation_id", "snapshot_id", "evidence_status"):
-        assert midojo["episode"][field] == garak["episode"][field], field
+        assert midojo["evaluation"][field] == garak["evaluation"][field], field
     for field in EVIDENCE:
-        assert canonical(midojo["episode"][field]) == canonical(garak["episode"][field]), field
+        assert canonical(midojo["evaluation"][field]) == canonical(garak["evaluation"][field]), (
+            field
+        )
     # Every fixture is a sealed chain, so neither route may state the evidence as missing.
     for receipt in (midojo, garak):
         for field in EVIDENCE:
-            assert receipt["episode"][field] is not None, field
-    sealed = midojo["episode"]["verdict"]
+            assert receipt["evaluation"][field] is not None, field
+    sealed = midojo["evaluation"]["verdict"]
     assert sealed["security"] == expected["security"]
     assert sealed["validity"] == expected["security_validity"]
     assert sealed["injection_delivered"] == expected["injection_delivered"]
@@ -181,11 +183,11 @@ def test_the_undelivered_case_reads_inconclusive_through_both_parsers(tmp_path: 
     """The payload never reached the agent, so neither parser may call the episode resisted."""
 
     midojo, garak = midojo_receipt(tmp_path, "undelivered"), garak_receipt(tmp_path, "undelivered")
-    sealed = garak["episode"]["verdict"]
+    sealed = garak["evaluation"]["verdict"]
 
     assert sealed["security"] is False
     assert sealed["injection_delivered"] is False
-    assert garak["episode"]["delivery"] == [], "the seal placed the payload on no call"
+    assert garak["evaluation"]["delivery"] == [], "the seal placed the payload on no call"
     for receipt in (midojo, garak):
         (attempt,) = receipt["attempts"]
         assert attempt["result"]["outcome"] == "inconclusive"

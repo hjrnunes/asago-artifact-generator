@@ -41,7 +41,7 @@ from asago_bundle_midojo.sealed import (
     compiled_digest,
     parse_sealed,
 )
-from conftest import RECEIPT_SCHEMA, as_sealed
+from conftest import RECEIPT_SCHEMA, as_current_slot_keys, as_sealed, receipt_payload
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
 
@@ -121,7 +121,7 @@ def parsed(
         adapter_revision="abc123",
     )
     assert receipt == json.loads((run / "receipt.json").read_text(encoding="utf-8"))
-    jsonschema.validate(receipt, SCHEMA)
+    jsonschema.validate(receipt_payload(receipt), SCHEMA)
     return receipt
 
 
@@ -139,7 +139,7 @@ def test_each_recorded_run_gives_a_valid_receipt_with_the_outcome_its_grade_and_
     (attempt,) = receipt["attempts"]
     assert attempt["result"]["outcome"] == outcome
     assert [item["outcome"] for item in attempt["detections"]] == [outcome]
-    assert receipt["episode"]["verdict"]["security"] is security
+    assert receipt["evaluation"]["verdict"]["security"] is security
 
 
 @pytest.mark.parametrize(("revision", "case", "scenario"), sorted(UNDECIDED_DELIVERY))
@@ -162,7 +162,7 @@ def test_a_run_sealed_before_the_delivery_facts_reads_inconclusive(
     (attempt,) = receipt["attempts"]
     assert attempt["result"]["outcome"] == INCONCLUSIVE
     assert attempt["result"]["reason"] == f"{grade['security_reason']}; {UNRECORDED_DELIVERY}"
-    assert receipt["episode"]["verdict"]["injection_delivered"] is None
+    assert receipt["evaluation"]["verdict"]["injection_delivered"] is None
 
 
 @pytest.mark.parametrize(("revision", "case", "scenario"), ALL_SCENARIOS)
@@ -197,14 +197,14 @@ def test_the_receipt_names_the_evaluation_and_the_snapshot_graded(
     snapshot = recorded(case, scenario, "snapshot.json", root=root)
     verdict = recorded(case, scenario, "verdict.json", root=root)
 
-    episode = parsed(tmp_path, case, scenario, root=root)["episode"]
+    evaluation = parsed(tmp_path, case, scenario, root=root)["evaluation"]
 
-    assert episode["route"] == "midojo"
-    assert episode["evaluation_id"] == snapshot["evaluation_id"] == verdict["evaluation_id"]
-    assert episode["snapshot_id"] == snapshot["snapshot_id"] == verdict["snapshot_id"]
-    assert episode["snapshot_id"].startswith("sha256:")
-    assert episode["evidence_status"] == snapshot["evidence_status"]
-    assert episode["verdict"] == {
+    assert evaluation["driver"] == "midojo"
+    assert evaluation["evaluation_id"] == snapshot["evaluation_id"] == verdict["evaluation_id"]
+    assert evaluation["snapshot_id"] == snapshot["snapshot_id"] == verdict["snapshot_id"]
+    assert evaluation["snapshot_id"].startswith("sha256:")
+    assert evaluation["evidence_status"] == snapshot["evidence_status"]
+    assert evaluation["verdict"] == {
         "evaluation_id": verdict["evaluation_id"],
         "snapshot_id": verdict["snapshot_id"],
         "security": verdict["grade"]["security"],
@@ -217,8 +217,8 @@ def test_the_receipt_names_the_evaluation_and_the_snapshot_graded(
         "injection_delivered": None,
     }
     # Parsed without a delivery document: unknown.
-    assert (episode["delivery"], episode["exposure"]) == (None, None)
-    assert [(call["call_id"], call["function"]) for call in episode["call_injections"]] == [
+    assert (evaluation["delivery"], evaluation["exposure"]) == (None, None)
+    assert [(call["call_id"], call["function"]) for call in evaluation["call_injections"]] == [
         (call["call_id"], call["function"]) for call in snapshot["function_calls"]
     ]
 
@@ -256,13 +256,13 @@ def test_the_episode_block_carries_each_call_s_injection_outcomes_as_midojo_seal
 
     assert receipt["execution_status"] == "completed"
     # Sealed before 13d5487, an outcome does not say what it emitted: its placement is unknown.
-    assert receipt["episode"]["call_injections"] == [
+    assert receipt["evaluation"]["call_injections"] == [
         {
             "call_id": call["call_id"],
             "function": name,
             "injection_outcomes": None
             if outcomes is None
-            else [{**outcome, **UNPLACED} for outcome in outcomes],
+            else [{**as_current_slot_keys(outcome), **UNPLACED} for outcome in outcomes],
         }
         for call, (name, outcomes) in zip(snapshot["function_calls"], expected, strict=True)
     ]
@@ -283,7 +283,7 @@ def test_a_snapshot_sealed_before_3824922_parses_and_its_calls_say_nothing_of_in
         "completed",
         "detected",
     )
-    assert receipt["episode"]["call_injections"] == [
+    assert receipt["evaluation"]["call_injections"] == [
         {"call_id": call["call_id"], "function": call["function"], "injection_outcomes": None}
         for call in snapshot["function_calls"]
     ]
@@ -299,7 +299,7 @@ def test_a_snapshot_sealed_from_3824922_carries_both_fields_in_every_call() -> N
 def test_an_unread_snapshot_leaves_the_call_injections_null(tmp_path: Path) -> None:
     receipt = parsed(tmp_path, "command-single", "detected", snapshot={"evaluation_id": "x"})
 
-    assert receipt["episode"]["call_injections"] is None
+    assert receipt["evaluation"]["call_injections"] is None
 
 
 def test_a_detected_run_completes_with_the_calls_and_the_reply(tmp_path: Path) -> None:
@@ -362,8 +362,8 @@ def test_an_undecided_check_stays_inconclusive_and_the_verdict_stays_unknown(
     (attempt,) = receipt["attempts"]
     assert receipt["execution_status"] == "completed"
     assert attempt["result"]["outcome"] == "inconclusive"
-    assert receipt["episode"]["verdict"]["security"] is None
-    assert receipt["episode"]["verdict"]["validity"] == "invalid"
+    assert receipt["evaluation"]["verdict"]["security"] is None
+    assert receipt["evaluation"]["verdict"]["validity"] == "invalid"
     unfinished = attempt["observation"]["tool_calls"][1]
     assert (unfinished["name"], unfinished["status"], unfinished["result"]) == (
         "withdraw",
@@ -382,7 +382,7 @@ def test_an_interrupted_run_fails_its_turn_and_keeps_midojo_s_unknown_verdict(
     (attempt,) = receipt["attempts"]
     assert attempt["result"]["outcome"] == "inconclusive"
     assert attempt["generation"]["response_status"] is None
-    assert receipt["episode"]["evidence_status"] == {
+    assert receipt["evaluation"]["evidence_status"] == {
         "agent_output": "incomplete",
         "function_calls": "incomplete",
         "turns": "incomplete",
@@ -586,7 +586,7 @@ def test_the_receipt_explains_each_outcome_with_the_grade_s_security_reason(
         "reason": reason,
     }
     assert [item["reason"] for item in attempt["detections"]] == [reason]
-    assert receipt["episode"]["verdict"]["reason"] == reason
+    assert receipt["evaluation"]["verdict"]["reason"] == reason
 
 
 def test_a_false_grade_that_states_no_delivery_fact_names_the_recording(tmp_path: Path) -> None:
@@ -609,7 +609,7 @@ def test_a_false_grade_that_states_no_delivery_fact_names_the_recording(tmp_path
     }
     assert [item["reason"] for item in attempt["detections"]] == [attempt["result"]["reason"]]
     # MiDojo's own words stay in the episode block: the grade said only that the check failed.
-    assert receipt["episode"]["verdict"]["reason"] == reason
+    assert receipt["evaluation"]["verdict"]["reason"] == reason
 
 
 def test_a_false_grade_of_a_delivered_payload_still_reads_not_detected(tmp_path: Path) -> None:
@@ -635,7 +635,7 @@ def test_a_false_grade_of_a_delivered_payload_still_reads_not_detected(tmp_path:
         "claim_level": "command_attempt",
         "reason": reason,
     }
-    assert receipt["episode"]["verdict"]["injection_delivered"] is True
+    assert receipt["evaluation"]["verdict"]["injection_delivered"] is True
 
 
 @pytest.mark.parametrize("scenario", ["detected", "not-detected"])
@@ -651,7 +651,7 @@ def test_a_decided_grade_without_its_security_reason_is_malformed(
         "verdict_malformed",
     )
     assert receipt["attempts"] == []
-    assert receipt["episode"]["verdict"] is None
+    assert receipt["evaluation"]["verdict"] is None
 
 
 def test_a_call_outside_the_turns_fails_the_receipt(tmp_path: Path) -> None:
@@ -676,11 +676,11 @@ def test_missing_files_fail_the_receipt_and_name_what_is_known(tmp_path: Path) -
         EPISODES / "command-single", run / "snapshot.json", run / "verdict.json", run / "r.json"
     )
 
-    jsonschema.validate(receipt, SCHEMA)
+    jsonschema.validate(receipt_payload(receipt), SCHEMA)
     assert receipt["incomplete_reason"] == "verdict_missing"
-    assert receipt["episode"]["verdict"] is None
+    assert receipt["evaluation"]["verdict"] is None
     assert (
-        receipt["episode"]["snapshot_id"]
+        receipt["evaluation"]["snapshot_id"]
         == recorded("command-single", "detected", "snapshot.json")["snapshot_id"]
     )
     assert [item["path"] for item in receipt["native"]] == ["snapshot.json"]
@@ -705,7 +705,7 @@ def test_a_compiled_directory_reads_under_either_document_filename(tmp_path: Pat
     (compiled / "episode.json").rename(compiled / "injection-spec.json")
     after_the_rename = parse_sealed(compiled, *sealed)
 
-    assert after_the_rename["episode"] == before_the_rename["episode"]
+    assert after_the_rename["evaluation"] == before_the_rename["evaluation"]
     # The digest names each compiled file, so the document's filename is part of it.
     assert after_the_rename["bundle_digest"] != before_the_rename["bundle_digest"]
     assert _without_digest(after_the_rename) == _without_digest(before_the_rename)
@@ -737,7 +737,7 @@ def test_native_files_outside_the_receipt_directory_are_refused(tmp_path: Path) 
         )
 
 
-def test_the_receipt_records_the_route_of_the_run(tmp_path: Path) -> None:
+def test_the_receipt_records_the_driver_of_the_run(tmp_path: Path) -> None:
     run = run_dir(tmp_path, "command-single", "detected")
 
     receipt = parse_sealed(
@@ -745,23 +745,23 @@ def test_the_receipt_records_the_route_of_the_run(tmp_path: Path) -> None:
         run / "snapshot.json",
         run / "verdict.json",
         run / "r.json",
-        route="midojo",
+        driver="midojo",
     )
 
-    assert receipt["episode"]["route"] == "midojo"
+    assert receipt["evaluation"]["driver"] == "midojo"
     assert ROUTES == ("midojo",)
 
 
-def test_a_route_that_does_not_exist_yet_is_refused(tmp_path: Path) -> None:
+def test_a_driver_that_does_not_exist_yet_is_refused(tmp_path: Path) -> None:
     run = run_dir(tmp_path, "command-single", "detected")
 
-    with pytest.raises(ParseError, match="unknown route 'pyrit'"):
+    with pytest.raises(ParseError, match="unknown driver 'pyrit'"):
         parse_sealed(
             EPISODES / "command-single",
             run / "snapshot.json",
             run / "verdict.json",
             run / "r.json",
-            route="pyrit",
+            driver="pyrit",
         )
     assert not (run / "r.json").exists()
 
@@ -851,7 +851,7 @@ def test_a_snapshot_changed_under_its_id_is_refused(tmp_path: Path, edit: str) -
         "snapshot_digest_mismatch",
     )
     assert receipt["attempts"] == []
-    assert receipt["episode"]["snapshot_id"] == snapshot["snapshot_id"]
+    assert receipt["evaluation"]["snapshot_id"] == snapshot["snapshot_id"]
 
 
 # --- the published shapes: SnapshotResponse and Verdict with its GradeResponse ---------
@@ -1029,7 +1029,7 @@ def test_a_call_whose_details_are_not_midojo_s_is_malformed(tmp_path: Path, name
     receipt = parsed(tmp_path, "command-single", "detected", **_with_first_call(name))
 
     assert receipt["incomplete_reason"] == "snapshot_malformed"
-    assert receipt["episode"]["call_injections"] is None
+    assert receipt["evaluation"]["call_injections"] is None
 
 
 @pytest.mark.parametrize("name", ACCEPTED_DETAILS)
@@ -1042,8 +1042,8 @@ def test_a_call_with_details_of_midojo_s_types_is_accepted_and_its_outcomes_kept
 
     assert (receipt["execution_status"], receipt["incomplete_reason"]) == ("completed", None)
     sealed = changed["snapshot"]["function_calls"][0]["injection_outcomes"]
-    kept = receipt["episode"]["call_injections"][0]["injection_outcomes"]
-    assert as_sealed(kept) == sealed
+    kept = receipt["evaluation"]["call_injections"][0]["injection_outcomes"]
+    assert as_sealed(kept) == as_current_slot_keys(sealed)
     # None of these outcomes says what it emitted: no placement is established.
     assert all({key: outcome[key] for key in UNPLACED} == UNPLACED for outcome in kept or [])
 
@@ -1104,7 +1104,7 @@ def test_a_verdict_that_is_not_midojo_s_verdict_is_malformed(tmp_path: Path, nam
 def test_the_written_receipt_reads_through_the_installed_contract(tmp_path: Path) -> None:
     receipt = parsed(tmp_path, "command-single", "not-detected")
 
-    assert read_receipt(receipt).version == "execution-receipt-v1"
+    assert read_receipt(receipt).version == "execution-receipt-v2"
 
 
 def test_a_receipt_the_contract_refuses_is_an_error_naming_the_path(

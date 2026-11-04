@@ -144,7 +144,7 @@ def test_parse_writes_the_receipt(tmp_path: Path) -> None:
             str(run / "receipt.json"),
             "--tool-revision",
             "3824922f",
-            "--route",
+            "--driver",
             "midojo",
         ]
     )
@@ -152,7 +152,7 @@ def test_parse_writes_the_receipt(tmp_path: Path) -> None:
     assert code == 0
     receipt = json.loads((run / "receipt.json").read_text(encoding="utf-8"))
     assert receipt["tool"]["revision"] == "3824922f"
-    assert receipt["episode"]["route"] == "midojo"
+    assert receipt["evaluation"]["driver"] == "midojo"
     assert receipt["attempts"][0]["result"]["outcome"] == "detected"
 
 
@@ -179,9 +179,11 @@ def test_parse_without_a_document_exits_1(
     assert capsys.readouterr().err.startswith("parse: ")
 
 
-def test_parse_offers_only_the_routes_that_exist(capsys: pytest.CaptureFixture[str]) -> None:
+def test_parse_offers_only_the_drivers_that_exist(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as raised:
-        main(["parse", "e", "--snapshot", "s", "--verdict", "v", "--out", "o", "--route", "garak"])
+        main(
+            ["parse", "e", "--snapshot", "s", "--verdict", "v", "--out", "o", "--driver", "garak"]
+        )
 
     assert raised.value.code == 2
     assert "invalid choice: 'garak'" in capsys.readouterr().err

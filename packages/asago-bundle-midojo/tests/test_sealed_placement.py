@@ -25,7 +25,7 @@ from midojo_sdk.snapshot import snapshot_digest
 from result_record_cases import CLINIC_PLANTED, RESULT_RECORDS
 
 from asago_bundle_midojo.sealed import UNPLACED, parse_sealed
-from conftest import RECEIPT_SCHEMA, REPO, as_sealed
+from conftest import RECEIPT_SCHEMA, REPO, as_sealed, receipt_payload
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
 REPORTED = REGRADED / "reported" / "command-single" / "detected"
@@ -34,7 +34,7 @@ NOTE_SLOT = {"id": "piggybank.note.body", "record": "NOTE-1", "mode": "append"}
 REFERRAL_SLOT = {"id": "clinic.referral.reason", "record": "REF-101", "mode": "append"}
 CONTRACT_CASE = (
     REPO
-    / "contracts/execution-receipt/execution-receipt-v1/cases/valid/midojo-episode-placement.json"
+    / "contracts/execution-receipt/execution-receipt-v2/cases/valid/midojo-episode-placement.json"
 )
 RESULT_RECORD_REVISION = json.loads((RESULT_RECORDS / "recording.json").read_text())[
     "midojo_revision"
@@ -96,14 +96,14 @@ def parsed(
         work / "receipt.json",
         delivery_path=delivery_path,
     )
-    jsonschema.validate(receipt, SCHEMA)
+    jsonschema.validate(receipt_payload(receipt), SCHEMA)
     return receipt
 
 
 def outcomes(receipt: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         outcome
-        for call in receipt["episode"]["call_injections"]
+        for call in receipt["evaluation"]["call_injections"]
         for outcome in call["injection_outcomes"] or []
     ]
 
@@ -270,7 +270,7 @@ def test_each_instruction_and_occurrence_maps_to_its_own_payload(tmp_path: Path)
     assert receipt["execution_status"] == "completed"
     assert [
         [(outcome["payload_sha256"], outcome["slot"]) for outcome in call["injection_outcomes"]]
-        for call in receipt["episode"]["call_injections"]
+        for call in receipt["evaluation"]["call_injections"]
     ] == [
         [(sha256(PLANTED), NOTE_SLOT), (None, None)],
         [(None, None), (sha256(SECOND), {**NOTE_SLOT, "record": "NOTE-2"})],
@@ -492,10 +492,10 @@ def test_the_receipt_schema_refuses_a_malformed_placement(
     tmp_path: Path, field: str, value: Any
 ) -> None:
     receipt = parsed(tmp_path)
-    receipt["episode"]["call_injections"][0]["injection_outcomes"][0][field] = value
+    receipt["evaluation"]["call_injections"][0]["injection_outcomes"][0][field] = value
 
     with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(receipt, SCHEMA)
+        jsonschema.validate(receipt_payload(receipt), SCHEMA)
 
 
 def test_a_receipt_without_the_fields_still_validates(tmp_path: Path) -> None:
@@ -503,7 +503,7 @@ def test_a_receipt_without_the_fields_still_validates(tmp_path: Path) -> None:
     for outcome in outcomes(receipt):
         del outcome["payload_sha256"], outcome["slot"]
 
-    jsonschema.validate(receipt, SCHEMA)
+    jsonschema.validate(receipt_payload(receipt), SCHEMA)
 
 
 def test_the_contract_s_placement_case_is_parse_s_receipt_of_the_result_record_run(
@@ -520,4 +520,4 @@ def test_the_contract_s_placement_case_is_parse_s_receipt_of_the_result_record_r
         tool_revision=RESULT_RECORD_REVISION,
     )
 
-    assert receipt == _read(CONTRACT_CASE)
+    assert receipt_payload(receipt) == _read(CONTRACT_CASE)

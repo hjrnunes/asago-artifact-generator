@@ -33,7 +33,13 @@ from asago_bundle_midojo.sealed import (
     parse_sealed,
 )
 from asago_injection_spec.delivery_contract import installed_specs
-from conftest import DELIVERY_CONTRACT, RECEIPT_SCHEMA, as_sealed
+from conftest import (
+    DELIVERY_CONTRACT,
+    RECEIPT_SCHEMA,
+    as_current_slot_keys,
+    as_sealed,
+    receipt_payload,
+)
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
 DELIVERY_SCHEMA = json.loads(
@@ -96,7 +102,7 @@ def parsed(
         run / "receipt.json",
         delivery_path=delivery_path,
     )
-    jsonschema.validate(receipt, SCHEMA)
+    jsonschema.validate(receipt_payload(receipt), SCHEMA)
     return receipt
 
 
@@ -114,7 +120,7 @@ def test_a_run_graded_at_13d5487_carries_its_attack_outcome_into_the_receipt(
 
     receipt = parsed(tmp_path, case, scenario, root=root)
 
-    verdict = receipt["episode"]["verdict"]
+    verdict = receipt["evaluation"]["verdict"]
     assert {name: verdict[name] for name in ATTACK_OUTCOME} == {
         name: grade[name] for name in ATTACK_OUTCOME
     }
@@ -150,7 +156,7 @@ def test_each_attack_outcome_field_is_kept_as_midojo_gave_it(
     receipt = parsed(tmp_path, "command-single", "detected", verdict=verdict)
 
     assert receipt["execution_status"] == "completed"
-    verdict_block = receipt["episode"]["verdict"]
+    verdict_block = receipt["evaluation"]["verdict"]
     assert [verdict_block[name] for name in ATTACK_OUTCOME] == [value] * 4
     # Unknown is never made a fail, and never changes the security outcome.
     assert receipt["attempts"][0]["result"]["outcome"] == "detected"
@@ -193,7 +199,7 @@ def test_a_false_grade_of_a_delivered_payload_reads_not_detected(tmp_path: Path)
         "claim_level": "command_attempt",
         "reason": verdict["grade"]["security_reason"],
     }
-    assert receipt["episode"]["verdict"]["injection_delivered"] is True
+    assert receipt["evaluation"]["verdict"]["injection_delivered"] is True
 
 
 def test_a_verdict_sealed_before_the_fields_reads_them_as_unknown(tmp_path: Path) -> None:
@@ -203,9 +209,8 @@ def test_a_verdict_sealed_before_the_fields_reads_them_as_unknown(tmp_path: Path
     receipt = parsed(tmp_path, "command-single", "detected", root=EPISODES, delivery=None)
 
     assert receipt["execution_status"] == "completed"
-    assert {name: receipt["episode"]["verdict"][name] for name in ATTACK_OUTCOME} == dict.fromkeys(
-        ATTACK_OUTCOME
-    )
+    stated = {name: receipt["evaluation"]["verdict"][name] for name in ATTACK_OUTCOME}
+    assert stated == dict.fromkeys(ATTACK_OUTCOME)
 
 
 def _grade_variant(name: str) -> dict[str, Any]:
@@ -238,7 +243,7 @@ def test_a_grade_with_an_unknown_key_or_a_partial_or_mistyped_outcome_is_malform
         "failed",
         "verdict_malformed",
     )
-    assert receipt["episode"]["verdict"] is None
+    assert receipt["evaluation"]["verdict"] is None
 
 
 @pytest.mark.parametrize("value", ["yes", 1, [True], {"value": True}])
@@ -248,10 +253,10 @@ def test_the_receipt_schema_holds_each_attack_outcome_field_to_true_false_or_nul
     receipt = parsed(tmp_path, "command-single", "detected")
     for name in ATTACK_OUTCOME:
         changed = copy.deepcopy(receipt)
-        changed["episode"]["verdict"][name] = value
+        changed["evaluation"]["verdict"][name] = value
 
         with pytest.raises(jsonschema.ValidationError):
-            jsonschema.validate(changed, SCHEMA)
+            jsonschema.validate(receipt_payload(changed), SCHEMA)
 
 
 # --- delivery facts in each sealed outcome ---------------------------------------------
@@ -334,7 +339,9 @@ def test_an_outcome_with_delivery_facts_of_midojo_s_types_is_kept(
 
     assert (receipt["execution_status"], receipt["incomplete_reason"]) == ("completed", None)
     sealed = snapshot["function_calls"][0]["injection_outcomes"]
-    assert as_sealed(receipt["episode"]["call_injections"][0]["injection_outcomes"]) == sealed
+    assert as_sealed(
+        receipt["evaluation"]["call_injections"][0]["injection_outcomes"]
+    ) == as_current_slot_keys(sealed)
 
 
 @pytest.mark.parametrize(
@@ -376,8 +383,8 @@ def test_a_delivery_document_is_carried_into_the_receipt_and_listed_as_native(
 
     receipt = parsed(tmp_path, case, scenario, root=root)
 
-    assert receipt["episode"]["delivery"] == delivery["delivery"]
-    assert receipt["episode"]["exposure"] == delivery["exposure"]
+    assert receipt["evaluation"]["delivery"] == as_current_slot_keys(delivery["delivery"])
+    assert receipt["evaluation"]["exposure"] == as_current_slot_keys(delivery["exposure"])
     assert [item["path"] for item in receipt["native"]] == [
         "snapshot.json",
         "verdict.json",
@@ -390,26 +397,26 @@ def test_the_reported_run_shows_the_payload_emitted_and_nothing_past_the_interce
 ) -> None:
     receipt = parsed(tmp_path, "command-single", "detected", root=REPORTED)
 
-    exposure = receipt["episode"]["exposure"]
+    exposure = receipt["evaluation"]["exposure"]
     assert (exposure["emitted"], exposure["agent_tool_result"], exposure["model_input"]) == (
         "exposed",
         "unknown",
         "unknown",
     )
-    (fact,) = receipt["episode"]["delivery"]
+    (fact,) = receipt["evaluation"]["delivery"]
     assert (fact["selected"], fact["transformation"], fact["emitted"]) == (
         True,
         "identity",
         ["structured_content", "content_block"],
     )
-    assert receipt["episode"]["verdict"]["injection_delivered"] is True
+    assert receipt["evaluation"]["verdict"]["injection_delivered"] is True
 
 
 def test_without_a_delivery_document_delivery_and_exposure_are_unknown(tmp_path: Path) -> None:
     receipt = parsed(tmp_path, "command-single", "detected", delivery=None)
 
     assert receipt["execution_status"] == "completed"
-    assert (receipt["episode"]["delivery"], receipt["episode"]["exposure"]) == (None, None)
+    assert (receipt["evaluation"]["delivery"], receipt["evaluation"]["exposure"]) == (None, None)
     assert [item["path"] for item in receipt["native"]] == ["snapshot.json", "verdict.json"]
 
 
@@ -426,7 +433,7 @@ def test_a_delivery_document_named_but_absent_fails_the_receipt(tmp_path: Path) 
         delivery_path=run / "delivery.json",
     )
 
-    jsonschema.validate(receipt, SCHEMA)
+    jsonschema.validate(receipt_payload(receipt), SCHEMA)
     assert (receipt["execution_status"], receipt["incomplete_reason"]) == (
         "failed",
         "delivery_missing",
@@ -515,7 +522,7 @@ def test_a_delivery_document_that_is_not_midojo_s_fails_the_receipt(
         "delivery_malformed",
     )
     assert receipt["attempts"] == []
-    assert (receipt["episode"]["delivery"], receipt["episode"]["exposure"]) == (None, None)
+    assert (receipt["evaluation"]["delivery"], receipt["evaluation"]["exposure"]) == (None, None)
 
 
 @pytest.mark.parametrize("name", DELIVERY_VARIANTS)
@@ -538,7 +545,7 @@ def test_a_delivery_document_with_the_envelope_is_read_through_its_installed_spe
     receipt = parsed(tmp_path, "command-single", "detected", root=REPORTED, delivery=document)
 
     assert receipt["execution_status"] == "completed"
-    assert receipt["episode"]["exposure"]["emitted"] == "exposed"
+    assert receipt["evaluation"]["exposure"]["emitted"] == "exposed"
 
 
 def test_a_delivery_document_naming_an_unsupported_version_fails_the_receipt(
@@ -587,7 +594,7 @@ def test_a_delivery_document_of_another_snapshot_fails_the_receipt(
     )
     assert receipt["attempts"] == []
     # What the document says is kept as evidence, as a mismatched verdict is.
-    assert receipt["episode"]["delivery"] == document["delivery"]
+    assert receipt["evaluation"]["delivery"] == as_current_slot_keys(document["delivery"])
 
 
 @pytest.mark.parametrize("field", ["evaluation_id", "snapshot_id"])
@@ -598,7 +605,7 @@ def test_a_delivery_document_of_another_snapshot_leaves_every_placement_unknown(
     for name in ("matched", "mismatched"):
         (tmp_path / name).mkdir()
     matched = parsed(tmp_path / "matched", "command-single", "detected", root=REPORTED)
-    (outcome,) = matched["episode"]["call_injections"][0]["injection_outcomes"]
+    (outcome,) = matched["evaluation"]["call_injections"][0]["injection_outcomes"]
     # With its own delivery document the outcome emitted, and both fields are established.
     assert outcome["emitted"] and outcome["payload_sha256"] and outcome["slot"]
     document[field] = "sha256:" + "0" * 64 if field == "snapshot_id" else "another"
@@ -608,7 +615,7 @@ def test_a_delivery_document_of_another_snapshot_leaves_every_placement_unknown(
     )
 
     assert receipt["incomplete_reason"] == "delivery_mismatch"
-    (outcome,) = receipt["episode"]["call_injections"][0]["injection_outcomes"]
+    (outcome,) = receipt["evaluation"]["call_injections"][0]["injection_outcomes"]
     assert outcome["emitted"]
     assert (outcome["payload_sha256"], outcome["slot"]) == (None, None)
 
@@ -640,8 +647,8 @@ def test_parse_reads_the_delivery_document_it_is_given(tmp_path: Path) -> None:
 
     with_delivery = _read(run / "r.json")
     bare = _read(run / "bare.json")
-    assert with_delivery["episode"]["exposure"]["emitted"] == "exposed"
-    assert (bare["episode"]["delivery"], bare["episode"]["exposure"]) == (None, None)
+    assert with_delivery["evaluation"]["exposure"]["emitted"] == "exposed"
+    assert (bare["evaluation"]["delivery"], bare["evaluation"]["exposure"]) == (None, None)
 
 
 @pytest.mark.parametrize(
@@ -700,7 +707,7 @@ def test_a_file_that_is_not_utf_8_fails_the_receipt_as_malformed(
         delivery_path=run / "delivery.json",
     )
 
-    jsonschema.validate(receipt, SCHEMA)
+    jsonschema.validate(receipt_payload(receipt), SCHEMA)
     assert (receipt["execution_status"], receipt["incomplete_reason"]) == ("failed", reason)
     assert receipt["attempts"] == []
 

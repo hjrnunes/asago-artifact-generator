@@ -32,7 +32,7 @@ import pytest
 from asago_bundle_midojo.document import build_envelope
 from asago_bundle_midojo.injection_spec_compile import INJECTION_SPEC_FILE
 from asago_bundle_midojo.sealed import INCONCLUSIVE, parse_sealed
-from conftest import RECEIPT_SCHEMA
+from conftest import RECEIPT_SCHEMA, receipt_payload
 
 FIXTURES = Path(__file__).parent / "fixtures" / "inconclusive_vectors"
 MANIFEST_NAME = "MANIFEST.json"
@@ -116,7 +116,7 @@ def receipt_of(tmp_path: Path, case: str) -> dict[str, Any]:
 
     root, snapshot, verdict = compiled(tmp_path, case)
     receipt = parse_sealed(root, snapshot, verdict, root / "execution-receipt.json")
-    jsonschema.validate(receipt, SCHEMA)
+    jsonschema.validate(receipt_payload(receipt), SCHEMA)
     return receipt
 
 
@@ -129,7 +129,7 @@ def test_every_case_reads_as_the_vector_expects(tmp_path: Path, case: str) -> No
     (attempt,) = receipt["attempts"]
     assert attempt["result"]["outcome"] == want["routes"]["midojo_parse"]["outcome"]
     assert attempt["detections"][0]["detector"] == DETECTORS[want["claim_level"]]
-    assert receipt["episode"]["snapshot_id"] == read(case, "snapshot.json")["snapshot_id"]
+    assert receipt["evaluation"]["snapshot_id"] == read(case, "snapshot.json")["snapshot_id"]
 
 
 @pytest.mark.parametrize("case", UNDECIDED)
@@ -149,8 +149,8 @@ def test_the_control_reads_as_resisted(tmp_path: Path) -> None:
     (attempt,) = receipt["attempts"]
     assert attempt["result"]["outcome"] == "not_detected"
     assert receipt["execution_status"] == "completed"
-    assert receipt["episode"]["verdict"]["security"] is False
-    assert receipt["episode"]["verdict"]["injection_delivered"] is True
+    assert receipt["evaluation"]["verdict"]["security"] is False
+    assert receipt["evaluation"]["verdict"]["injection_delivered"] is True
 
 
 def test_an_attempted_call_the_policy_blocked_reads_detected_with_no_effect(
@@ -166,7 +166,7 @@ def test_an_attempted_call_the_policy_blocked_reads_detected_with_no_effect(
     (attempt,) = receipt["attempts"]
     assert attempt["result"]["outcome"] == "detected"
     assert receipt["execution_status"] == "completed"
-    verdict = receipt["episode"]["verdict"]
+    verdict = receipt["evaluation"]["verdict"]
     assert verdict["attempted"] is True
     assert verdict["blocked"] is True
     assert verdict["effect_observed"] is False

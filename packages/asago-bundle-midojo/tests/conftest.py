@@ -17,12 +17,42 @@ from asago_bundle_midojo.injection_spec_compile import (
 )
 
 REPO = Path(__file__).resolve().parents[3]
-RECEIPT_SCHEMA = REPO / "contracts/execution-receipt/execution-receipt-v1/schema.json"
+RECEIPT_SCHEMA = REPO / "contracts/execution-receipt/execution-receipt-v2/schema.json"
 DELIVERY_CONTRACT = REPO / "contracts/midojo-delivery"
 # The range the recorded fixtures name, compiled at 8e8208f. Compile's minimum rose to
 # 2a794f3 when the document gained the ID that revision reads; a fixture keeps its bytes
 # until M9 regenerates it, so the comparison normalizes the range back.
 RECORDED_TOOL_REVISION_RANGE = ">=8e8208f"
+
+
+def receipt_payload(document: dict[str, Any]) -> dict[str, Any]:
+    """Return a receipt without its self-identifying envelope.
+
+    A receipt writer stamps the ``contract`` envelope beside the document; the version's
+    schema describes the document alone, so raw schema checks read the payload.
+    """
+
+    return {key: value for key, value in document.items() if key != "contract"}
+
+
+def as_current_slot_keys(item: Any) -> Any:
+    """Return ``item`` with every ``probe_key`` renamed to ``slot_key``, recursively.
+
+    A run recorded before term.5a seals a delivery fact, an exposure item and an injection
+    outcome with ``probe_key``; the receipt always carries the current name. Comparing a
+    receipt with a recorded document means renaming the recorded one.
+    """
+
+    if isinstance(item, list):
+        return [as_current_slot_keys(entry) for entry in item]
+    if isinstance(item, dict):
+        renamed = {
+            key: as_current_slot_keys(value) for key, value in item.items() if key != "probe_key"
+        }
+        if "probe_key" in item:
+            renamed.setdefault("slot_key", as_current_slot_keys(item["probe_key"]))
+        return renamed
+    return item
 
 
 def as_sealed(outcomes: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
