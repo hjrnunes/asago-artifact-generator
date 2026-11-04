@@ -131,18 +131,30 @@ from .sequential_turns import (
     sequential_plan_findings,
 )
 from .shape_gate import shape_refusal_findings
+from .stage_loop import (
+    Author,
+    Authored,
+    AuthorStopped,
+    Correct,
+    Corrected,
+    CorrectionStopped,
+    Halt,
+    Review,
+    ReviewAnswered,
+    ReviewSkipped,
+    ReviewStopped,
+    StageAction,
+    StageEvent,
+    StageLoopState,
+    Started,
+    _ReviewOutcome,
+    _StageStop,
+    step,
+)
 from .transport import RequestSession
 
 CRASH_FINDING_CODE = "authoring_crashed"
 _CRASH_MESSAGE_LIMIT = 200
-
-
-@dataclass(frozen=True)
-class _StageStop:
-    """One terminal stop of the stage-local orchestration state machine."""
-
-    status: str
-    findings: tuple[Finding, ...] = ()
 
 
 def _preflight_stop(exc: PromptPreflightError, stage: str) -> _StageStop:
@@ -289,29 +301,6 @@ class _Stage:
     @property
     def review_stage(self) -> str:
         return f"{self.key}_review"
-
-
-@dataclass(frozen=True)
-class _Revision:
-    """Semantic review findings that send the candidate back for a revision."""
-
-    findings: tuple[Finding, ...]
-    # The in-scope findings as the reviewer wrote them.
-    records: tuple[dict[str, Any], ...] = ()
-
-
-@dataclass(frozen=True)
-class _ReviewOutcome:
-    """One completed semantic-review dispatch and its closed classification."""
-
-    decision: str
-    findings: tuple[dict[str, Any], ...] = ()
-    stop: _StageStop | None = None
-    raw: bytes = b""
-    # A response that failed its checks while the stage's review-retry allowance
-    # had room, and the dispatch that returned it; the review asks again.
-    rejected: RejectedReviewResponse | None = None
-    rejected_dispatch: int | None = None
 
 
 class AuthoringOrchestrator:
@@ -1065,42 +1054,57 @@ class AuthoringOrchestrator:
         inventory: dict[str, Any],
         runtime_contract: dict[str, Any],
     ) -> dict[str, Any] | _StageStop:
-        """Author, check, correct, and review one stage within its allowances."""
+        """Author, check, correct, and review one stage within its allowances.
+
+        ``step`` decides the next action from the loop state and the last event;
+        this method performs each action and records its evidence.
+        """
 
         self._active_stage = stage.key
-        try:
-            packet = stage.author_packet()
-        except PromptPreflightError as exc:
-            return _preflight_stop(exc, stage.author)
-        candidate, pending, raw = self._author(packet, stage)
-        if any(finding.code == "prompt_preflight" for finding in pending):
-            return _StageStop("failed", tuple(pending))
-        review_driven = False
-        prior_round: PriorReviewRound | None = None
+        state = StageLoopState(review_blocked_status=stage.review_blocked_status)
+        event: StageEvent = Started()
         while True:
-            while candidate is None:
-                corrected = self._correction_round(
-                    stage,
-                    pending,
-                    raw,
-                    review_driven=review_driven,
-                    view=view,
-                    inventory=inventory,
-                    runtime_contract=runtime_contract,
-                )
-                if isinstance(corrected, _StageStop):
-                    return corrected
-                review_driven = False
-                candidate, pending, raw = corrected
-            reviewed = self._review_candidate(stage, candidate, prior_round)
-            if not isinstance(reviewed, _Revision):
-                return reviewed
-            # Semantic revise findings join the stage correction path but spend
-            # the stage's separate review-revision allowance.
-            pending = list(reviewed.findings)
-            prior_round = PriorReviewRound(reviewed.records, candidate)
-            review_driven = True
-            candidate = None
+            state, action = step(state, event)
+            if isinstance(action, (Correct, Halt)) and action.review_status is not None:
+                self._review_status[stage.key] = action.review_status
+            if isinstance(action, Halt):
+                return action.result
+            event = self._stage_event(action, stage, view, inventory, runtime_contract)
+
+    def _stage_event(
+        self,
+        action: StageAction,
+        stage: _Stage,
+        view: InputView,
+        inventory: dict[str, Any],
+        runtime_contract: dict[str, Any],
+    ) -> StageEvent:
+        """Perform one stage action and report what happened to ``step``."""
+
+        assert not isinstance(action, Halt)
+        if isinstance(action, Author):
+            try:
+                packet = stage.author_packet()
+            except PromptPreflightError as exc:
+                return AuthorStopped(_preflight_stop(exc, stage.author))
+            candidate, pending, raw = self._author(packet, stage)
+            return Authored(candidate, tuple(pending), raw)
+        if isinstance(action, Correct):
+            corrected = self._correction_round(
+                stage,
+                action.findings,
+                action.raw,
+                review_driven=action.review_driven,
+                view=view,
+                inventory=inventory,
+                runtime_contract=runtime_contract,
+            )
+            if isinstance(corrected, _StageStop):
+                return CorrectionStopped(corrected)
+            candidate, pending, raw = corrected
+            return Corrected(candidate, tuple(pending), raw)
+        assert isinstance(action, Review)
+        return self._review_event(action, stage)
 
     def _correction_round(
         self,
@@ -1157,48 +1161,28 @@ class AuthoringOrchestrator:
             return stop
         return _StageStop("unresolved", tuple(self._findings or pending))
 
-    def _review_candidate(
-        self,
-        stage: _Stage,
-        candidate: dict[str, Any],
-        prior: PriorReviewRound | None = None,
-    ) -> dict[str, Any] | _StageStop | _Revision:
-        """Review a checked candidate.
+    def _review_event(self, action: Review, stage: _Stage) -> StageEvent:
+        """Dispatch the review packet ``action`` names and report its closed outcome.
 
-        Return the accepted candidate, the stage stop, or the revise findings
-        that send the candidate back through correction.  A response that
-        fails its checks asks the same review again, with that response and
-        its findings, while the stage's review-retry allowance lasts.
+        A blocked plan ends the stage here, before any review packet exists, and
+        a stage with no review packet accepts its checked candidate unchanged.
         """
 
-        if stage.may_block and _is_blocked_plan(candidate):
-            _persist_blocked_plan(self.package_dir, candidate)
-            return _StageStop("blocked")
+        if stage.may_block and _is_blocked_plan(action.candidate):
+            _persist_blocked_plan(self.package_dir, action.candidate)
+            return ReviewStopped(_StageStop("blocked"))
         if stage.review_packet is None:
-            self._review_status[stage.key] = "not_requested"
-            return candidate
-        outcome = _ReviewOutcome(decision="")
-        while True:
-            try:
-                review_packet = stage.review_packet(candidate, prior, outcome.rejected)
-            except PromptPreflightError as exc:
-                return _preflight_stop(exc, stage.review_stage)
-            outcome = self._semantic_review(
-                stage.key, review_packet, retries_dispatch=outcome.rejected_dispatch
-            )
-            if outcome.rejected is None:
-                break
-        if outcome.stop is not None:
-            return outcome.stop
-        if outcome.decision == "accept":
-            self._review_status[stage.key] = "accepted"
-            return candidate
-        findings = self._semantic_finding_objects(outcome, stage.key)
-        if outcome.decision == "blocked":
-            self._review_status[stage.key] = "blocked"
-            return _StageStop(stage.review_blocked_status, findings)
-        self._review_status[stage.key] = "revise"
-        return _Revision(findings, outcome.findings)
+            return ReviewSkipped(action.candidate)
+        try:
+            packet = stage.review_packet(action.candidate, action.prior_round, action.rejected)
+        except PromptPreflightError as exc:
+            return ReviewStopped(_preflight_stop(exc, stage.review_stage))
+        outcome = self._semantic_review(
+            stage.key, packet, retries_dispatch=action.rejected_dispatch
+        )
+        return ReviewAnswered(
+            action.candidate, outcome, self._semantic_finding_objects(outcome, stage.key)
+        )
 
     def _semantic_review(
         self, review_key: str, packet: PromptPacket, *, retries_dispatch: int | None = None
