@@ -1,5 +1,11 @@
 {
   "content_sha256": {
+    "companions/feature-companion-comments.json": "0875d9a1673c5031ee70933272ad8994a3a44eb62ed2b2fd1278378d06b8595e",
+    "companions/feature-companion-feature-line.json": "f382bead00448acf962c344304f5d211eab0d1e4b8f9e1b5c11718babb80afd8",
+    "companions/feature-companion-holds.json": "4dc59085c83cfb0a3b2056a965be725f033899c77ef6dec76474442a78fce58f",
+    "companions/feature-companion-scenario-line.json": "3f733c1b3deb5c5cb44d9306df09ed6b23c8dc4a07e70bc315f38bbcb6d21140",
+    "companions/feature-companion-steps.json": "d01308bb948fbb4d741410386a984b077f5741ab3dc45af306a0c8473a8c289b",
+    "conformance-cases.json": "544c6422599675fe292474a349462aa2088ff9352bdb7346c75ab23594ada5ac",
     "expected-violations.json": "ceb584916b04e2d2217978e14a36f5343c8954095160f3c9e4fed6615e32eb0b",
     "invalid/failure-call-blank-operation.json": "db857586e1f5493ccbe381fd010dc40bb5955e2cddfbfb5c84874367475450ba",
     "invalid/failure-call-kind-not-enumerated.json": "26f058550ab7ec4a24651e304eebee3248634c1b870c863fda0c7c9e684dfea9",
