@@ -14,13 +14,13 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
+from asago_report_kit import KitError, check_headline, metric, read_metrics
 from jsonschema import Draft202012Validator
 from typer.testing import CliRunner
 
 from asago_artifact_generator import cli
 from asago_artifact_generator.report.author_report import SCHEMA, build_report, write_report
 from asago_artifact_generator.report.model import load_run
-from asago_artifact_generator.report_kit import KitError, check_headline, metric, read_metrics
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "author_report"
 

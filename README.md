@@ -890,9 +890,9 @@ failed scenario shows its terminal reason with a one-line meaning from
 `report/reasons.py`, its cause, the signals that repeat across requests, and
 every request in order. A before-and-after panel appears only when both
 reviewed candidates hash to their recorded digests. The page links to the
-generate report when `<scenarios>/../report/index.html` exists. The HTML kit
-under `report_kit/` mirrors the scenario generator's `report-kit` contract byte
-for byte; the orchestrator keeps the same copy.
+generate report when `<scenarios>/../report/index.html` exists. The HTML kit is
+the producer's `asago-report-kit` workspace member, which the orchestrator reads
+too.
 
 ### Runtime bindings
 

@@ -8,9 +8,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from asago_report_kit import Markup, Turn, artifact, badge, chip, compare, conversation, esc
+
 from ..authoring.review import ARTIFACT_REVIEW_QUESTION_IDS, PLAN_REVIEW_QUESTION_IDS
 from ..authoring.templates import prose
-from ..report_kit import Markup, Turn, artifact, badge, chip, compare, conversation, esc
 from .analysis import is_absent
 from .model import EVIDENCE_SUFFIX, Authoring, Finding, Package, Scenario, Step
 

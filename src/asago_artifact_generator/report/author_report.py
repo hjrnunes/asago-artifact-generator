@@ -11,9 +11,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from asago_report_kit import (
+    STAGE_SUMMARY_VERSION,
+    Markup,
+    check_headline,
+    page,
+    stage_summary_schema,
+)
 from jsonschema import Draft202012Validator
 
-from ..report_kit import STAGE_SUMMARY_VERSION, Markup, check_headline, page
 from .analysis import CAUSES, analyse
 from .model import AuthorRun, load_run
 from .sections import (
@@ -34,7 +40,7 @@ from .views import STAGE_LABEL, Links
 
 INDEX = "index.html"
 SUMMARY = "stage-summary.json"
-SCHEMA = Path(__file__).resolve().parent.parent / "report_kit" / "stage-summary-v1.schema.json"
+SCHEMA = stage_summary_schema()
 BANNER = "Confidential: contains test attacks and system responses"
 EXTRA_CSS = (
     ".tl{list-style:none;margin:6px 0;padding:0 0 0 14px;border-left:2px solid var(--line)}"

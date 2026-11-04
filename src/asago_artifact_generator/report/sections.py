@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..report_kit import (
+from asago_report_kit import (
     Column,
     Markup,
     Row,
@@ -22,6 +22,7 @@ from ..report_kit import (
     section,
     table,
 )
+
 from .analysis import CAUSE_ORDER, CAUSES, asked_again
 from .model import EVIDENCE_SUFFIX, Authoring, AuthorRun, Finding
 from .reasons import reason_meaning

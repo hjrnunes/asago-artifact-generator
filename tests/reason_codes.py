@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[1] / "src" / "asago_artifact_generator"
-SKIPPED_PARTS = frozenset({"report", "report_kit"})
+SKIPPED_PARTS = frozenset({"report"})
 
 # (callee name, positional index, keyword) of each argument that becomes a reason.
 REASON_ARGUMENTS: tuple[tuple[str, int, str], ...] = (

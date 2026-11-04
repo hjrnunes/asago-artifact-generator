@@ -55,6 +55,7 @@ dependencies = [
     { name = "asago-contracts-core" },
     { name = "asago-handoff" },
     { name = "asago-package" },
+    { name = "asago-report-kit" },
     { name = "jinja2" },
     { name = "jsonschema" },
     { name = "openai" },
@@ -84,6 +85,7 @@ requires-dist = [
     { name = "asago-contracts-core", editable = "../asago-scenario-generator/packages/asago-contracts-core" },
     { name = "asago-handoff", editable = "../asago-scenario-generator/packages/asago-handoff" },
     { name = "asago-package", editable = "packages/asago-package" },
+    { name = "asago-report-kit", editable = "../asago-scenario-generator/packages/asago-report-kit" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "jsonschema", specifier = ">=4.0" },
     { name = "openai", specifier = ">=1.0" },
@@ -235,12 +237,23 @@ requires-dist = [
 ]
 
 [[package]]
+name = "asago-report-kit"
+version = "0.1.0"
+source = { editable = "../asago-scenario-generator/packages/asago-report-kit" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest" }]
+
+[[package]]
 name = "asago-scenario-generator"
 version = "0.1.0"
 source = { editable = "../asago-scenario-generator" }
 dependencies = [
     { name = "asago-handoff" },
     { name = "asago-package" },
+    { name = "asago-report-kit" },
     { name = "jinja2" },
     { name = "jsonschema" },
     { name = "openai" },
@@ -253,6 +266,7 @@ dependencies = [
 requires-dist = [
     { name = "asago-handoff", editable = "../asago-scenario-generator/packages/asago-handoff" },
     { name = "asago-package", editable = "packages/asago-package" },
+    { name = "asago-report-kit", editable = "../asago-scenario-generator/packages/asago-report-kit" },
     { name = "asago-target-discovery", marker = "extra == 'target-discovery'", editable = "../asago-scenario-generator/packages/asago-target-discovery" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "jsonschema", specifier = ">=4.0" },
