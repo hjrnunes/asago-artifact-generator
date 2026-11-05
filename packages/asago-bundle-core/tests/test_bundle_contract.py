@@ -160,6 +160,7 @@ def test_a_missing_replay_corpus_fails_and_names_the_path(
     assert str(missing) in str(raised.value)
 
 
+@pytest.mark.replay_corpus
 def test_every_recorded_bundle_still_reads() -> None:
     """Every bundle recorded outside the contract cases reads as a v1 document.
 

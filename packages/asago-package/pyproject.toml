@@ -21,3 +21,6 @@ packages = ["src/asago_package"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "replay_corpus: reads the replay corpus named by ASAGO_REPLAY_CORPUS (default: the workspace replay-corpus folder); CI deselects it because it has no corpus",
+]

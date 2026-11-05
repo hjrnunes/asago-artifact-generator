@@ -97,6 +97,11 @@ select = ["E", "F", "W", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# A test marked ``replay_corpus`` reads the corpus outside every repository, so it
+# needs a real corpus; CI deselects the marker because the corpus is never committed.
+markers = [
+    "replay_corpus: reads the replay corpus named by ASAGO_REPLAY_CORPUS (default: the workspace replay-corpus folder); CI deselects it because it has no corpus",
+]
 # The replay gate is development tooling in scripts/, outside the package.
 pythonpath = ["scripts"]
 norecursedirs = [

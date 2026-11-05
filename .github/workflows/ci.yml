@@ -50,7 +50,9 @@ jobs:
           packages/asago-bundle-core/src/asago_bundle_core/contracts
           packages/asago-injection-spec/src/asago_injection_spec/contracts
       - run: ./scripts/quality.sh
-      - run: uv run pytest tests/ -q
+      # `replay_corpus` tests read the corpus, which lives outside every repository
+      # and is never committed, so CI cannot run them.
+      - run: uv run pytest tests/ -q -m 'not replay_corpus'
       # The package tests import `from conftest import ...`, which names one module
       # per session, so each package runs in its own pytest session.
       - name: Package tests
@@ -62,7 +64,7 @@ jobs:
               status=1
               continue
             fi
-            uv run pytest "${dir}tests" -q || status=1
+            uv run pytest "${dir}tests" -q -m 'not replay_corpus' || status=1
           done
           exit "$status"
 
@@ -72,7 +74,8 @@ jobs:
   # members it declares and pytest, so an import of the authoring application fails and
   # names the leak. `bundle-garak` declares the injection-spec library, not the MiDojo
   # adapter: its parity test (the only test that reads both adapters) is marked `parity` and
-  # deselected here.
+  # deselected here. Tests marked `replay_corpus` read the corpus, which is never committed,
+  # so every adapter deselects that marker too.
   adapter-isolation:
     name: ${{ matrix.adapter }} without the authoring application (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -96,25 +99,25 @@ jobs:
           - adapter: asago-bundle-core
             module: asago_bundle_core
             libraries: --with ./packages/asago-package
-            pytest_args: ""
+            pytest_args: -m "not replay_corpus"
           - adapter: asago-bundle-garak
             module: asago_bundle_garak
             libraries: >-
               --with ./packages/asago-package
               --with ./packages/asago-bundle-core
               --with ./packages/asago-injection-spec
-            pytest_args: -m "not parity"
+            pytest_args: -m "not parity and not replay_corpus"
           - adapter: asago-bundle-midojo
             module: asago_bundle_midojo
             libraries: >-
               --with ./packages/asago-package
               --with ./packages/asago-bundle-core
               --with ./packages/asago-injection-spec
-            pytest_args: ""
+            pytest_args: -m "not replay_corpus"
           - adapter: asago-injection-spec
             module: asago_injection_spec
             libraries: --with ./packages/asago-package --with ./packages/asago-bundle-core
-            pytest_args: ""
+            pytest_args: -m "not replay_corpus"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
