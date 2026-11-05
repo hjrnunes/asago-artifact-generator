@@ -136,6 +136,19 @@ def test_a_v2_document_without_the_envelope_is_refused(case: Path) -> None:
         read_delivery(_json(case))
 
 
+def test_the_reader_accepts_both_versions() -> None:
+    v1 = _case(LEGACY_VERSION, "placed")
+    v2 = write_envelope(
+        _case(VERSION, "placed"),
+        _spec(VERSION),
+        writer="tests.delivery_contract",
+        writer_version="0.1.0",
+    )
+
+    assert read_delivery(v1).version == LEGACY_VERSION
+    assert read_delivery(v2).version == VERSION
+
+
 def _recorded_v1() -> list[Path]:
     """Every delivery document a pre-rename run recorded, read by its ``schema_version``."""
 

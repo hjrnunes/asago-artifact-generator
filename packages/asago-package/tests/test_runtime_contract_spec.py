@@ -148,14 +148,36 @@ def test_the_reader_accepts_every_valid_case_with_the_envelope(case: Path, versi
 
 def test_the_writer_stamps_the_installed_v3_envelope() -> None:
     case = _json(_valid_cases()[0])
+    spec = _spec()
 
     written = write_runtime_contract(
         case, writer="tests.runtime_contract_spec", writer_version="0.1.0"
     )
 
-    assert written["contract"]["version"] == VERSION
-    assert written["contract"]["provenance"]["writer"] == "tests.runtime_contract_spec"
+    assert written[ENVELOPE_FIELD] == {
+        "id": CONTRACT,
+        "version": VERSION,
+        "spec_digest": spec.spec_digest,
+        "requires": [],
+        "provenance": {
+            "writer": "tests.runtime_contract_spec",
+            "writer_version": "0.1.0",
+            "validator_version": "asago-contracts-core 0.1.0",
+        },
+    }
     assert read_runtime_contract(written).version == VERSION
+
+
+def test_the_reader_accepts_both_versions() -> None:
+    v2 = _json(_valid_cases(LEGACY_VERSION)[0])
+    v3 = write_runtime_contract(
+        _json(_valid_cases()[0]),
+        writer="tests.runtime_contract_spec",
+        writer_version="0.1.0",
+    )
+
+    assert read_runtime_contract(v2).version == LEGACY_VERSION
+    assert read_runtime_contract(v3).version == VERSION
 
 
 def test_the_writer_refuses_a_document_that_still_names_v2() -> None:

@@ -36,6 +36,7 @@ from asago_bundle_core.receipt_contract import (
     VERSION,
     installed_specs,
     read_receipt,
+    write_receipt,
 )
 
 REPO = Path(__file__).resolve().parents[3]
@@ -143,6 +144,35 @@ def test_the_reader_accepts_every_v2_valid_case_with_the_envelope(case: Path) ->
 def test_a_v2_document_without_the_envelope_is_refused(case: Path) -> None:
     with pytest.raises(MissingEnvelopeError, match=CONTRACT):
         read_receipt(_json(case))
+
+
+def test_the_writer_stamps_the_v2_envelope() -> None:
+    spec = _spec(VERSION)
+
+    written = write_receipt(
+        _case(VERSION), writer="tests.receipt_contract", writer_version="0.1.0"
+    )
+
+    assert written[ENVELOPE_FIELD] == {
+        "id": CONTRACT,
+        "version": VERSION,
+        "spec_digest": spec.spec_digest,
+        "requires": [],
+        "provenance": {
+            "writer": "tests.receipt_contract",
+            "writer_version": "0.1.0",
+            "validator_version": "asago-contracts-core 0.1.0",
+        },
+    }
+    assert read_receipt(written).version == VERSION
+
+
+def test_the_reader_accepts_both_versions() -> None:
+    v1 = _case(LEGACY_VERSION)
+    v2 = write_receipt(_case(VERSION), writer="tests.receipt_contract", writer_version="0.1.0")
+
+    assert read_receipt(v1).version == LEGACY_VERSION
+    assert read_receipt(v2).version == VERSION
 
 
 def test_every_recorded_receipt_still_reads() -> None:

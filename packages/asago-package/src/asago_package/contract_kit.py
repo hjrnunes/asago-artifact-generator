@@ -94,19 +94,27 @@ def verify_contract_lock(
     metadata: dict[str, str],
     metadata_message: str,
 ) -> None:
-    """Check a vendored contract's lock metadata and every locked file digest.
+    """Check a vendored contract's lock metadata and its complete file set.
 
-    Each failure raises ``error`` with a message naming the contract, so each
-    reader keeps its own exception type and wording.
+    The lock must name every file under ``root`` except ``CONTRACT.lock``, and
+    every name it holds must digest-match the file beside it. Each failure
+    raises ``error`` with a message naming the contract or file, so each reader
+    keeps its own exception type and wording.
     """
 
     lock = load_json_file(root / "CONTRACT.lock", error, f"cannot read {lock_label}")
     if any(lock.get(key) != value for key, value in metadata.items()):
         raise error(metadata_message)
-    for relative, expected in lock.get("files", {}).items():
+    locked = lock.get("files", {})
+    for relative, expected in locked.items():
         member = root / relative
         if not member.is_file() or sha256_hex(member.read_bytes()) != expected:
             raise error(f"{member_label} digest mismatch: {relative}")
+    walked = {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file()}
+    walked.discard("CONTRACT.lock")
+    unlocked = sorted(walked - set(locked))
+    if unlocked:
+        raise error(f"{member_label} file is not named by the lock: {unlocked[0]}")
 
 
 def _normalize_unicode(value: Any) -> Any:

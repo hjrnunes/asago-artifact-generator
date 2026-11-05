@@ -123,6 +123,19 @@ def test_the_mirror_installs_both_versions() -> None:
     assert installed == set(VERSIONS)
 
 
+def test_the_reader_accepts_both_versions() -> None:
+    v5 = _valid_case(V5)
+    v6 = write_envelope(
+        _valid_case(V6),
+        _spec(V6),
+        writer="tests.handoff_contract",
+        writer_version="0.1.0",
+    )
+
+    assert read_handoff(v5).version == V5
+    assert read_handoff(v6).version == V6
+
+
 @pytest.mark.parametrize("case", _cases(LEGACY_VERSION, "valid"), ids=lambda case: case.stem)
 def test_the_reader_accepts_every_valid_v5_case_as_a_legacy_document(case: Path) -> None:
     """A v5 document without the envelope still reads; the recorded handoffs never had one."""

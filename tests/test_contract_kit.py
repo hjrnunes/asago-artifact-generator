@@ -119,6 +119,38 @@ def test_verify_contract_lock_accepts_matching_metadata_and_digests(tmp_path: Pa
     _verify(tmp_path)
 
 
+def test_verify_contract_lock_refuses_a_file_the_lock_does_not_name(tmp_path: Path) -> None:
+    (tmp_path / "member.json").write_bytes(b"{}")
+    (tmp_path / "stray.json").write_bytes(b"{}")
+    lock = {
+        "authority": "owner",
+        "contract": "kit",
+        "files": {"member.json": sha256_hex(b"{}")},
+    }
+    (tmp_path / "CONTRACT.lock").write_text(json.dumps(lock), encoding="utf-8")
+
+    with pytest.raises(_KitError, match=r"stray\.json"):
+        _verify(tmp_path)
+
+
+def test_verify_contract_lock_refuses_a_locked_file_the_directory_omits(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "member.json").write_bytes(b"{}")
+    lock = {
+        "authority": "owner",
+        "contract": "kit",
+        "files": {
+            "member.json": sha256_hex(b"{}"),
+            "missing.json": sha256_hex(b"{}"),
+        },
+    }
+    (tmp_path / "CONTRACT.lock").write_text(json.dumps(lock), encoding="utf-8")
+
+    with pytest.raises(_KitError, match=r"missing\.json"):
+        _verify(tmp_path)
+
+
 _HANDOFF_SCHEMA = (
     Path(__file__).resolve().parents[1]
     / "contracts/scenario-handoff/scenario-handoff-v5/schema.json"

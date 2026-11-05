@@ -291,6 +291,12 @@ def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V5) -> _H
     file of the version a document states, declares nothing this reader can use.
     """
 
+    lock = load_json_file(
+        _HANDOFF_ROOT / "CONTRACT.lock", InputSourceError, "cannot read vendored handoff lock"
+    )
+    locked = {relative.split("/", 1)[0] for relative in lock.get("files", {})}
+    if lock.get("schema_version") not in _HANDOFF_VERSIONS or kind.value not in locked:
+        raise InputSourceError(f"vendored handoff lock does not declare {kind.value}")
     verify_contract_lock(
         _HANDOFF_ROOT,
         InputSourceError,
@@ -299,12 +305,6 @@ def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V5) -> _H
         metadata={"authority": "asago-scenario-generator"},
         metadata_message="vendored handoff kit authority mismatch",
     )
-    lock = load_json_file(
-        _HANDOFF_ROOT / "CONTRACT.lock", InputSourceError, "cannot read vendored handoff lock"
-    )
-    locked = {relative.split("/", 1)[0] for relative in lock.get("files", {})}
-    if lock.get("schema_version") not in _HANDOFF_VERSIONS or kind.value not in locked:
-        raise InputSourceError(f"vendored handoff lock does not declare {kind.value}")
     return _HandoffVersion(kind, kind.value, kind.value)
 
 

@@ -67,6 +67,26 @@ def test_the_writer_verifies_the_artifact_package_lock() -> None:
     validate_artifact_package_contract()
 
 
+def test_a_contract_with_an_unlocked_file_is_refused(tmp_path: Path) -> None:
+    copy = tmp_path / "artifact-package"
+    shutil.copytree(contract_dir("artifact-package"), copy)
+    (copy / "artifact-package-v5" / "stray.json").write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(PackageIntegrityError, match=r"stray\.json"):
+        _verify(copy, "artifact-package")
+
+
+def test_a_contract_missing_a_locked_file_is_refused(tmp_path: Path) -> None:
+    copy = tmp_path / "artifact-package"
+    shutil.copytree(contract_dir("artifact-package"), copy)
+    lock = json.loads((copy / "CONTRACT.lock").read_text(encoding="utf-8"))
+    relative = sorted(lock["files"])[0]
+    (copy / relative).unlink()
+
+    with pytest.raises(PackageIntegrityError, match=relative):
+        _verify(copy, "artifact-package")
+
+
 @pytest.mark.parametrize("name", sorted(LOCKS))
 def test_a_tampered_contract_file_fails_its_lock(name: str, tmp_path: Path) -> None:
     copy = tmp_path / name
