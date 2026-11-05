@@ -9,6 +9,9 @@ description = "Garak adapter: compiles an artifact package into a Garak bundle a
 requires-python = ">=3.12"
 dependencies = [
     "asago-bundle-core",
+    # ``report_parse`` names the core's envelope error, so the adapter declares the
+    # core directly instead of reading it through ``bundle-core``'s resolution.
+    "asago-contracts-core>=0.1,<0.2",
     "asago-injection-spec>=0.1,<0.2",
     "asago-package>=0.1,<0.2",
 ]

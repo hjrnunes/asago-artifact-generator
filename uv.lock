@@ -132,6 +132,7 @@ version = "0.1.0"
 source = { editable = "packages/asago-bundle-garak" }
 dependencies = [
     { name = "asago-bundle-core" },
+    { name = "asago-contracts-core" },
     { name = "asago-injection-spec" },
     { name = "asago-package" },
 ]
@@ -144,6 +145,7 @@ parity = [
 [package.metadata]
 requires-dist = [
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
+    { name = "asago-contracts-core", editable = "../asago-scenario-generator/packages/asago-contracts-core" },
     { name = "asago-injection-spec", editable = "packages/asago-injection-spec" },
     { name = "asago-package", editable = "packages/asago-package" },
 ]
@@ -257,6 +259,7 @@ name = "asago-scenario-generator"
 version = "0.1.0"
 source = { editable = "../asago-scenario-generator" }
 dependencies = [
+    { name = "asago-contracts-core" },
     { name = "asago-handoff" },
     { name = "asago-package" },
     { name = "asago-report-kit" },
@@ -270,6 +273,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "asago-contracts-core", editable = "../asago-scenario-generator/packages/asago-contracts-core" },
     { name = "asago-handoff", editable = "../asago-scenario-generator/packages/asago-handoff" },
     { name = "asago-package", editable = "packages/asago-package" },
     { name = "asago-report-kit", editable = "../asago-scenario-generator/packages/asago-report-kit" },
