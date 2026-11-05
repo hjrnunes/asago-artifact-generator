@@ -409,20 +409,20 @@ finish reason separate. Absent, null, empty, text, and non-text final content
 remain distinct, and reasoning is never parsed as the final answer.
 
 The producer owns scenario meaning. From the producer repository root, run the
-normal producer command and then hand the resulting `scenario-handoff-v5`
-input to `generate`:
+normal producer command and then hand the resulting scenario handoff
+(`scenario-handoff-v5`; the adapter also reads `scenario-handoff-v6`) to
+`generate`:
 
 ```bash
 cd <producer-repo-root>
-uv sync --locked
-uv run asago-scenario-generator run \
+uv sync --locked --all-extras
+uv run asago-scenario-generator generate \
   --use-case @use-case.txt \
   --risk-extraction risk-extraction.json \
   --qualification-facts qualification-facts.yaml \
-  --taxonomy-inputs obligation-inputs.yaml \
+  --sssom risk-to-llm.sssom.tsv \
   --output-dir output/my-system \
-  --sp1-profile <profile-name> --sp2-profile <profile-name> \
-  --sp3-profile <profile-name>
+  --profile <profile-name>
 ```
 
 The consumer remains target-free. The orchestrator owns downstream
@@ -436,19 +436,28 @@ Run the final broad gate once, after the last required execution:
 cd <consumer-repo-root>
 ./scripts/quality.sh
 uv run pytest tests/ -q
+for dir in packages/*/; do uv run pytest "${dir}tests" -q; done
 
 # Producer repository
 cd <producer-repo-root>
 ./scripts/quality.sh
-export ASAGO_SCENARIO_GENERATOR_APS_ROOT=/absolute/path/to/Acceptance-Pipeline-Specification
-./scripts/acceptance.sh
+uv run pytest tests/ -q
 ```
+
+Each `packages/*` member runs in its own pytest session, so the loop starts one
+session per member. [Development](#development) covers the tests that need the
+replay corpus.
 
 ## Setup
 
 Asago Artifact Generator requires Python 3.12 or newer: every workspace member declares
 `requires-python = ">=3.12"`, Ruff targets `py312`, and CI runs Python 3.12 and 3.14. The
 lock file is the authoritative development environment.
+
+The lock resolves the producer packages from `../asago-scenario-generator`
+(`asago-contracts-core`, `asago-handoff` and `asago-report-kit` as path sources, and the
+producer application in the `dev` group; `pyproject.toml`, `[tool.uv.sources]`). Check out
+the producer beside this repository before you sync; the sync fails without it.
 
 ```bash
 uv sync --locked
@@ -463,7 +472,9 @@ credential from the named profile passed to `generate --profile`.
 The authoring path accepts producer-owned discovery outputs and one scenario
 handoff:
 
-- `scenario-handoff-v5` JSON or YAML for scenario meaning.
+- `scenario-handoff-v5` or `scenario-handoff-v6` JSON or YAML for scenario meaning. The
+  producer's `generate` writes v5. Version 6 renames `party_relation.controller` to
+  `controlling_party` and requires the contract envelope.
 - `execution-target-profile-v1` JSON for the observed target inventory.
 - Optional `runtime-context.json` (`runtime-context-v1`, written by the orchestrator's discover stage) for state and read observations.
 - A target-free runtime contract (`artifact-runtime-contract-v3`, and
@@ -478,18 +489,19 @@ Use `asago_artifact_generator.input_adapter.load_input` to validate the
 installed handoff kit, preserve authoritative narrative and Gherkin bytes, and
 record SHA-256 source pins. The shared core ships the kit as package data and
 `input_adapter` reads it there; its `CONTRACT.lock` declares
-`scenario-handoff-v5` with its kit directory and digest domain. The adapter
-verifies `content_digest` in the `scenario-handoff-v5` domain, and packages
-record that version as `input_kind`. The shared `asago_handoff` validator owns
-the schema-version rule: a document that states another version, including
-`scenario-handoff-v1` to `v4`, or none, is refused with the kit's
+the newest version, `scenario-handoff-v6`, and lists the files of both the v5 and v6 kit
+directories; each version's digest domain is its own name. The adapter verifies
+`content_digest` in the domain of the version the document states, and packages record
+that version as `input_kind`. The shared `asago_handoff`
+validator owns the schema-version rule: a document that states a version other than v5 or
+v6, including `scenario-handoff-v1` to `v4`, or none, is refused with the kit's
 `schema_violation:schema_version` and `schema_violation:attack_shape` codes; a
 document that is not a JSON object gets `schema_violation:<root>`.
 
 Before the digest check, the adapter runs the producer's
 `asago_handoff.validate_handoff` over the installed
-`scenario-handoff-v5/schema.json` and
-`ownership-rules.json`: the schema's rules, the ownership boundary, and the
+`schema.json` and `ownership-rules.json` of the document's version kit
+(`scenario-handoff-v5/` or `scenario-handoff-v6/`): the schema's rules, the ownership boundary, and the
 hand rules the schema cannot state (non-blank text, the observation-contract
 format, cross-field pairings, and the procedure chain). The
 schema states the rules it can express, so a break it reports comes first. A
@@ -1478,6 +1490,19 @@ The unit test suite is deterministic and does not require an LLM endpoint.
 Each workspace member runs in its own session, for example
 `uv run pytest packages/asago-package/tests -q` and
 `uv run pytest packages/asago-bundle-core/tests -q`.
+
+Tests marked `replay_corpus` (`tests/test_handoff_contract.py` and the
+`asago-package` and `asago-bundle-core` member tests) read the replay corpus, a
+folder outside every repository that is never committed. They read
+`$ASAGO_REPLAY_CORPUS`, or the `replay-corpus` folder beside this repository
+(`../replay-corpus`) when the variable is unset. When the corpus directory does
+not exist, they fail and name the missing path. CI deselects them with
+`-m 'not replay_corpus'` in the root tests, the package loop and the
+adapter-isolation jobs. To run without a corpus:
+
+```bash
+uv run pytest tests/ -q -m 'not replay_corpus'
+```
 
 The MiDojo adapter's tests hold byte copies of MiDojo's own files
 (`packages/asago-bundle-midojo/tests/fixtures/midojo/`: the injection-spec documents, the
