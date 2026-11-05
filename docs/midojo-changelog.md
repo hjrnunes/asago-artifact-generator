@@ -4,10 +4,11 @@ This page holds the MiDojo adapter's revision history, fixture provenance and
 implementation notes, moved out of the agent guide (`CLAUDE.md`) so that guide
 stays short.
 
-The adapter currently pins `midojo-sdk` at `24b0b23`, which renames the sealed
-outcome's, the delivery fact's and the exposure item's `probe_key` to `slot_key` and
-keeps a reader for the old key; `InjectionInstruction.probe_key` (the plan's own field)
-stays. Before it, `162233f` moved the rubric
+The adapter currently pins `midojo-sdk` at `adb4c0d`, which removes the pre-rename
+`episode` names (see "M9: the pre-rename names are gone" below). Before it, `24b0b23`
+renamed the sealed outcome's, the delivery fact's and the exposure item's `probe_key` to
+`slot_key` and keeps a reader for the old key; `InjectionInstruction.probe_key` (the
+plan's own field) stays. Before that, `162233f` moved the rubric
 judge into the SDK (`midojo_sdk.rubric_judge`, stdlib only; the consumer's
 `authoring/rubric_judge.py` now re-exports it) and pinned the console goldens to a
 fixed height, `9e1f90f` retired the tool-call-condition v1 fixtures

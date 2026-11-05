@@ -275,9 +275,11 @@ missing path.
   only test that also reads `bundle-midojo`, and it is marked `parity` because the MiDojo
   adapter is a test-only dependency.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member (the compile and
-  parse CLIs and the judge service). Its deprecated modules re-export the injection-spec
-  library under the old paths until M9. Its revision history, fixture provenance
-  and implementation notes are in `docs/midojo-changelog.md`.
+  parse CLIs and the judge service). Its `declared`, `document`, `injection_spec`,
+  `injection_spec_compile`, `placement`, `reachable`, `route` and `sealed` modules
+  re-export the injection-spec library; the pre-rename `episode` modules are gone. Its
+  revision history, fixture provenance and implementation notes are in
+  `docs/midojo-changelog.md`.
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-package/tests -q`.

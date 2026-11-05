@@ -63,7 +63,7 @@ asago-report-kit = { path = "../asago-scenario-generator/packages/asago-report-k
 # MiDojo's light SDK: the injection-spec document v1 schema and the snapshot digest. The
 # adapter depends on the SDK alone; the harness (``midojo``) never enters this workspace. The
 # revision is a pushed ``asago/main`` SHA, and the subdirectory is the SDK's workspace member.
-midojo-sdk = { git = "https://github.com/hjrnunes/midojo.git", subdirectory = "interception/python-sdk", rev = "24b0b239aa1a534c2e6da8d1134d0f0a8900add3" }
+midojo-sdk = { git = "https://github.com/hjrnunes/midojo.git", subdirectory = "interception/python-sdk", rev = "adb4c0d620cb006898091123b509d239c3fecad9" }
 asago-scenario-generator = { path = "../asago-scenario-generator", editable = true }
 
 [tool.hatch.build.targets.wheel]
