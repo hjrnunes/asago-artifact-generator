@@ -35,6 +35,7 @@ from asago_injection_spec.delivery_contract import (
     VERSION,
     installed_specs,
     read_delivery,
+    write_delivery,
 )
 
 _REPO = Path(__file__).resolve().parents[3]
@@ -134,6 +135,27 @@ def test_the_reader_accepts_every_v2_valid_case_with_its_envelope(case: Path) ->
 def test_a_v2_document_without_the_envelope_is_refused(case: Path) -> None:
     with pytest.raises(MissingEnvelopeError, match=CONTRACT):
         read_delivery(_json(case))
+
+
+def test_the_writer_stamps_the_v2_envelope() -> None:
+    spec = _spec(VERSION)
+
+    written = write_delivery(
+        _case(VERSION, "placed"), writer="tests.delivery_contract", writer_version="0.1.0"
+    )
+
+    assert written[ENVELOPE_FIELD] == {
+        "id": CONTRACT,
+        "version": VERSION,
+        "spec_digest": spec.spec_digest,
+        "requires": [],
+        "provenance": {
+            "writer": "tests.delivery_contract",
+            "writer_version": "0.1.0",
+            "validator_version": "asago-contracts-core 0.1.0",
+        },
+    }
+    assert read_delivery(written).version == VERSION
 
 
 def test_the_reader_accepts_both_versions() -> None:
