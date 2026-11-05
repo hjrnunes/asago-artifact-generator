@@ -89,29 +89,29 @@ def read_template(template_dir: str | Path) -> Template:
 
     The manifest must satisfy the installed ``tool-bundle`` spec, whose v1 and v2 both
     read, and name exactly a conversation and a run template, each a file inside the
-    template directory holding a JSON object. The slot markers are the ones core ``fill``
-    replaces (``$value`` and ``$bundle``); any other object, ``$``-prefixed keys included,
-    is data. Every ``$value`` must name a text key and every ``$bundle`` a relative path
-    inside the bundle. ``values_required`` (v1: ``requires``) must list exactly the
-    ``$value`` keys plus the entrypoint's value keys (``ENTRYPOINT_VALUES``), each one this
-    adapter checks (``check_for``), and the entrypoint may hold no placeholder
-    ``render_entrypoint`` does not render besides ``{tool_python}``. A manifest that lists
-    ``files`` must name only files that exist beside the templates, and instantiate copies
-    them into the bundle unchanged. What is left to ``fill_template`` is the values
-    themselves.
+    template directory holding a JSON object. The installed spec reads a manifest that is
+    an object first, so its reason reaches the caller before the template shape check; a
+    document that is not an object is refused as not a template manifest. The slot markers
+    are the ones core ``fill`` replaces (``$value`` and ``$bundle``); any other object,
+    ``$``-prefixed keys included, is data. Every ``$value`` must name a text key and every
+    ``$bundle`` a relative path inside the bundle. ``values_required`` (v1: ``requires``)
+    must list exactly the ``$value`` keys plus the entrypoint's value keys
+    (``ENTRYPOINT_VALUES``), each one this adapter checks (``check_for``), and the
+    entrypoint may hold no placeholder ``render_entrypoint`` does not render besides
+    ``{tool_python}``. A manifest that lists ``files`` must name only files that exist
+    beside the templates, and instantiate copies them into the bundle unchanged. What is
+    left to ``fill_template`` is the values themselves.
     """
 
     template = Path(template_dir)
     manifest = _read_json(template / BUNDLE_FILE)
-    if (
-        not isinstance(manifest, dict)
-        or not TEMPLATE_KEYS <= manifest.keys()
-        or not VALUE_KEY_FIELDS & manifest.keys()
-    ):
+    if not isinstance(manifest, dict):
         raise InstantiateError(f"{BUNDLE_FILE} is not a bundle template manifest")
     errors = manifest_errors(manifest)
     if errors:
         raise InstantiateError(f"{BUNDLE_FILE} is not a tool-bundle template: {errors[0]}")
+    if not TEMPLATE_KEYS <= manifest.keys() or not VALUE_KEY_FIELDS & manifest.keys():
+        raise InstantiateError(f"{BUNDLE_FILE} is not a bundle template manifest")
     names = manifest["templates"]
     if set(names) != TEMPLATE_ROLES:
         raise InstantiateError(f"{BUNDLE_FILE} templates must name {sorted(TEMPLATE_ROLES)}")

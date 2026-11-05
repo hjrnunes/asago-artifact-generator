@@ -49,6 +49,8 @@ _STATUS = {
     LEGACY_VERSION: ("published", "optional"),
     VERSION: ("published", "required"),
 }
+#: The workspace checkout holds the replay corpus beside this repository.
+_REPLAY_CORPUS = REPO.parent / "replay-corpus"
 
 
 def _json(path: Path) -> Any:
@@ -197,15 +199,40 @@ def test_the_reader_refuses_every_invalid_case(case: Path, version: str) -> None
         read_runtime_contract(document)
 
 
+def _replay_corpus() -> Path:
+    """Return the replay corpus the recorded runtime contracts live in.
+
+    VAL-SAFETY-006: a test that reads the corpus fails loudly when the
+    configured directory is missing; it must not read nothing and pass.
+    """
+
+    corpus = Path(os.environ.get("ASAGO_REPLAY_CORPUS", _REPLAY_CORPUS))
+    if not corpus.is_dir():
+        pytest.fail(f"the replay corpus directory does not exist: {corpus}")
+    return corpus
+
+
+def test_a_missing_replay_corpus_fails_and_names_the_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    missing = tmp_path / "no-such-corpus"
+    monkeypatch.setenv("ASAGO_REPLAY_CORPUS", str(missing))
+
+    with pytest.raises(pytest.fail.Exception) as raised:
+        _replay_corpus()
+
+    assert str(missing) in str(raised.value)
+
+
 def test_every_recorded_contract_still_reads() -> None:
     """Every contract recorded outside the cases reads as a v2 or v3 document.
 
-    The replay corpus holds the runtime contracts the recorded runs captured. A checkout
-    without the corpus still reads the cases above.
+    The replay corpus holds the runtime contracts the recorded runs captured. A missing
+    corpus fails; one without such documents still reads the cases above.
     """
 
-    corpus = Path(os.environ.get("ASAGO_REPLAY_CORPUS", REPO.parent / "replay-corpus"))
-    recorded = sorted(corpus.rglob("runtime-contract.json")) if corpus.is_dir() else []
+    corpus = _replay_corpus()
+    recorded = sorted(corpus.rglob("runtime-contract.json"))
     if not recorded:
         pytest.skip(f"no recorded runtime contracts under {corpus}")
 

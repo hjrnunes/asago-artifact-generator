@@ -43,6 +43,8 @@ VERSIONS = (V5, V6)
 _ENVELOPE = {V5: "optional", V6: "required"}
 _KIND = {V5: InputKind.SCENARIO_HANDOFF_V5, V6: InputKind.SCENARIO_HANDOFF_V6}
 _CONTRACT_DIR = CONTRACT_DIR
+#: The workspace checkout holds the replay corpus beside this repository.
+_REPLAY_CORPUS = Path(__file__).resolve().parents[1].parent / "replay-corpus"
 
 
 def _json(path: Path) -> Any:
@@ -87,14 +89,35 @@ def _enveloped(spec: ContractSpec, document: dict[str, Any], **overrides: Any) -
     return {**document, ENVELOPE_FIELD: envelope}
 
 
-def _recorded_documents() -> list[Path]:
-    """Return every recorded handoff the reader must keep reading."""
+def _replay_corpus() -> Path:
+    """Return the replay corpus the recorded handoffs live in.
 
-    documents = _cases(LEGACY_VERSION, "valid")
-    corpus = os.environ.get("ASAGO_REPLAY_CORPUS")
-    if corpus:
-        documents = documents + sorted(Path(corpus).rglob("handoff.json"))
-    return documents
+    VAL-SAFETY-006: a test that reads the corpus fails loudly when the
+    configured directory is missing; it must not read nothing and pass.
+    """
+
+    corpus = Path(os.environ.get("ASAGO_REPLAY_CORPUS", _REPLAY_CORPUS))
+    if not corpus.is_dir():
+        pytest.fail(f"the replay corpus directory does not exist: {corpus}")
+    return corpus
+
+
+def test_a_missing_replay_corpus_fails_and_names_the_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    missing = tmp_path / "no-such-corpus"
+    monkeypatch.setenv("ASAGO_REPLAY_CORPUS", str(missing))
+
+    with pytest.raises(pytest.fail.Exception) as raised:
+        _replay_corpus()
+
+    assert str(missing) in str(raised.value)
+
+
+def _recorded_documents() -> list[Path]:
+    """Return every handoff case the reader must keep reading."""
+
+    return _cases(LEGACY_VERSION, "valid")
 
 
 @pytest.mark.parametrize("version", VERSIONS)
@@ -175,6 +198,19 @@ def test_every_recorded_handoff_still_reads(case: Path) -> None:
 
     assert document.get("schema_version") == LEGACY_VERSION
     assert read_handoff(document).version == LEGACY_VERSION
+
+
+def test_every_handoff_the_replay_corpus_records_still_reads() -> None:
+    """Every handoff recorded outside the cases reads as a v5 document.
+
+    A missing corpus fails; one without such documents still reads the cases above.
+    """
+
+    for path in sorted(_replay_corpus().rglob("handoff.json")):
+        document = _json(path)
+
+        assert document.get("schema_version") == LEGACY_VERSION, path
+        assert read_handoff(document).version == LEGACY_VERSION, path
 
 
 @pytest.mark.parametrize("version", VERSIONS)

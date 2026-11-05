@@ -45,6 +45,8 @@ _INSTALLED_ROOT = (
     Path(__file__).resolve().parents[1] / "src/asago_bundle_core/contracts/tool-bundle"
 )
 _VERSIONS = (LEGACY_VERSION, VERSION)
+#: The workspace checkout holds the replay corpus beside this repository.
+_REPLAY_CORPUS = REPO.parent / "replay-corpus"
 
 
 def _json(path: Path) -> Any:
@@ -133,18 +135,43 @@ def test_the_reader_accepts_every_valid_case(version: str, case: Path) -> None:
             read_bundle(document)
 
 
+def _replay_corpus() -> Path:
+    """Return the replay corpus the recorded bundles live in.
+
+    VAL-SAFETY-006: a test that reads the corpus fails loudly when the
+    configured directory is missing; it must not read nothing and pass.
+    """
+
+    corpus = Path(os.environ.get("ASAGO_REPLAY_CORPUS", _REPLAY_CORPUS))
+    if not corpus.is_dir():
+        pytest.fail(f"the replay corpus directory does not exist: {corpus}")
+    return corpus
+
+
+def test_a_missing_replay_corpus_fails_and_names_the_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    missing = tmp_path / "no-such-corpus"
+    monkeypatch.setenv("ASAGO_REPLAY_CORPUS", str(missing))
+
+    with pytest.raises(pytest.fail.Exception) as raised:
+        _replay_corpus()
+
+    assert str(missing) in str(raised.value)
+
+
 def test_every_recorded_bundle_still_reads() -> None:
     """Every bundle recorded outside the contract cases reads as a v1 document.
 
     The replay corpus holds the bundle manifests the recorded runs captured, including the
-    pre-M2 and M5 packages RECEIPT-REPLAY re-parses. A checkout without the corpus still
-    reads the cases above.
+    pre-M2 and M5 packages RECEIPT-REPLAY re-parses. A missing corpus, or one with no
+    bundles, fails: a test that reads nothing must not pass.
     """
 
-    corpus = Path(os.environ.get("ASAGO_REPLAY_CORPUS", REPO.parent / "replay-corpus"))
-    recorded = sorted(corpus.rglob("bundle.json")) if corpus.is_dir() else []
+    corpus = _replay_corpus()
+    recorded = sorted(corpus.rglob("bundle.json"))
     if not recorded:
-        pytest.skip(f"no recorded bundles under {corpus}")
+        pytest.fail(f"no recorded bundles under {corpus}")
 
     for path in recorded:
         assert read_bundle(_json(path)).version == LEGACY_VERSION, path

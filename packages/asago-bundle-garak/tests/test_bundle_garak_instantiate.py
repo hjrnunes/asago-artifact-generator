@@ -11,8 +11,8 @@ import pytest
 from asago_bundle_core.schema import manifest_errors
 from asago_bundle_core.testing import CONDITION, JUDGE, MOCK_TARGET
 from asago_bundle_core.text import jsonl_lines
-from asago_bundle_garak.compiler import compile_package
-from asago_bundle_garak.instantiate import InstantiateError, instantiate_bundle
+from asago_bundle_garak.compiler import BUNDLE_FILE, compile_package
+from asago_bundle_garak.instantiate import InstantiateError, instantiate_bundle, read_template
 from asago_bundle_garak.report_parse import read_bundle
 
 MESSAGES = [
@@ -230,3 +230,50 @@ def test_non_empty_output_directory_is_refused(command_template: Path, tmp_path:
 
     with pytest.raises(InstantiateError, match="not empty"):
         instantiate_bundle(command_template, values(), out, target=MOCK_TARGET)
+
+
+def _write_manifest(root: Path, manifest: dict[str, Any]) -> Path:
+    root.mkdir()
+    (root / BUNDLE_FILE).write_text(json.dumps(manifest), encoding="utf-8")
+    return root
+
+
+def test_read_template_refuses_an_unsupported_version_before_the_shape_check(
+    tmp_path: Path,
+) -> None:
+    template = _write_manifest(tmp_path / "template", {"schema_version": "tool-bundle-v9"})
+
+    with pytest.raises(InstantiateError) as raised:
+        read_template(template)
+
+    message = str(raised.value)
+    assert "is not a tool-bundle template" in message
+    assert "tool-bundle-v9" in message
+    assert "tool-bundle-v1" in message
+    assert "tool-bundle-v2" in message
+
+
+def test_read_template_reports_the_readers_unknown_requires_message(tmp_path: Path) -> None:
+    template = _write_manifest(
+        tmp_path / "template",
+        {
+            "schema_version": "tool-bundle-v2",
+            "contract": {
+                "id": "tool-bundle",
+                "version": "tool-bundle-v2",
+                "spec_digest": "sha256:" + "0" * 64,
+                "requires": ["x-unknown"],
+                "provenance": {
+                    "writer": "tests.test_bundle_garak_instantiate",
+                    "writer_version": "0.1.0",
+                    "validator_version": "asago-contracts-core 0.1.0",
+                },
+            },
+        },
+    )
+
+    with pytest.raises(InstantiateError) as raised:
+        read_template(template)
+
+    assert "unknown requires 'x-unknown'" in str(raised.value)
+    assert "the spec supports: none" in str(raised.value)
