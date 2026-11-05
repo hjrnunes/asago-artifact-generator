@@ -13,7 +13,7 @@ dev`` there), and the reply case compiled by this adapter (``tests/injection_spe
 
 then copy ``<empty dir>`` over ``fixtures/reply-judge-4e5176a/``.
 
-It runs no episode. It builds ``midojo.episode.Episode`` from the compiled
+It runs no episode. It builds the injection spec from the compiled
 ``episode.json`` (the ``reply_judge`` check is parsed then), starts the adapter's judge
 service with ``judge-serve --port 0`` in front of a fake OpenAI-compatible model on
 127.0.0.1 that answers a scripted reply and keeps each request, sets ``JUDGE_URL`` and
@@ -60,7 +60,7 @@ from compiled import document_path
 from midojo.control_plane.client import snapshot_from_response
 from midojo.control_plane.models import SnapshotResponse
 from midojo.control_plane.state import _canonical, _dumps
-from midojo.episode import Episode
+from midojo_api import InjectionSpec
 from midojo_sdk.injection import InjectionPlan
 
 SUPPORTED = json.dumps({"verdict": "supported", "evidence_refs": ["messages[0].content"]})
@@ -140,8 +140,8 @@ def judge_service(command: str, model_url: str) -> Iterator[str]:
         assert process.returncode == 0, process.returncode
 
 
-def episode(data: dict[str, Any]) -> Episode:
-    return Episode(
+def episode(data: dict[str, Any]) -> InjectionSpec:
+    return InjectionSpec(
         runtime=data["runtime"],
         turns=data["turns"],
         plan=InjectionPlan.from_data(data["plan"]),

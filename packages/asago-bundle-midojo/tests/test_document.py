@@ -168,7 +168,7 @@ def test_read_envelope_takes_a_path() -> None:
 
 
 def test_a_v1_document_under_the_old_id_still_reads() -> None:
-    """A recorded v1 envelope holds the document's old ID until M9; the reader takes it."""
+    """A recorded v1 envelope holds the document's old ID; the reader takes it."""
 
     episode = _read(DOCUMENTS / "v1_single.json") | {
         "schema_version": LEGACY_INJECTION_SPEC_DOCUMENT_V1

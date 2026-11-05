@@ -25,6 +25,31 @@ deprecated aliases until M9, and `bundle-garak` reads the library, so it declare
 dependency on this adapter. This page describes the code where it lives now unless it
 records a past revision.
 
+## M9: the pre-rename names are gone
+
+`asago_bundle_midojo.episode_compile` and `asago_bundle_midojo.episode`, and the test
+helper `episode_cases`, are removed; nothing imported them at M9. Import the library
+instead: `asago_injection_spec.injection_spec_compile` and `.injection_spec`, and the
+tests' `injection_spec_cases`. The adapter's eight current-name modules (`declared`,
+`document`, `injection_spec`, `injection_spec_compile`, `placement`, `reachable`, `route`,
+`sealed`) stay as re-exports of the library that owns them.
+
+Readers of recorded data stay indefinitely: `midojo-episode-v1` and `midojo-episode-v2`
+documents, the envelope's `episode` member, the filename `episode.json`,
+`execution-receipt-v1` documents, the `episode_trace` and `ipi_episode` notes in a sealed
+trace, and `seed.delivery` `start`.
+
+The recorded fixtures under `packages/asago-bundle-midojo/tests/fixtures/` are not
+regenerated at M9. They were compiled at `8e8208f` and later recompiled, so a rerun of a
+generator at the revision its `recording.json` names does not reproduce them: the
+recorded `command-single/episode.json` carries `schema_version`, `environment_type`,
+`interception`, `tools` and `verifiers`, which the `3824922` writer does not emit (the
+drift m2-fix-oldnames-lint measured, mission evidence
+`evidence/m2-injection-spec-rename/consumer-midojo/VAL-RENAME-021-generator-equivalence.txt`).
+Re-recording them is an owner decision, not a side effect of removing an alias, so they
+keep their bytes, their document ID and their `>=8e8208f` range, and the tests normalize
+the range and the document ID back when they compare a new compile.
+
 ## Adapter notes
 
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. Its compile and
@@ -47,7 +72,7 @@ records a past revision.
   `runtime-spec.yaml` (`declared.py`) and writes one `injection-spec.json` as a package
   envelope (`document.py`, `asago-midojo-package-v1`): the Asago fields `package_id`,
   `scenario_id`, `package_digest`, `claim_level`, `delivery`, `placements` and
-  `tool_revision_range`, and `episode` (the key the envelope keeps until M9), exactly
+  `tool_revision_range`, and `episode` (the key every recorded package states), exactly
   MiDojo's `midojo-injection-spec-v1` document (`injection_spec.py`, validated against
   `midojo_sdk.injection_spec_schema`): host `interception` (the runner gives the
   interceptor the target's `endpoint.mcp_url`; the agent gets only the interceptor's
@@ -55,11 +80,12 @@ records a past revision.
   `tools` and their write disposition (`forward` by default), `verifiers` `[]`, and
   `InjectionSpec`'s fields as plain data with no environment. `read_envelope` also reads the
   older `midojo-episode-v2` wrapper, the bare episode with `tools` and `placements` at the
-  top level, for one release, and it reads a document that keeps the old ID
-  `midojo-episode-v1`, warning that it is deprecated; it refuses any other version, naming
-  it. `parse` reads a directory compiled before the rename, which holds `episode.json`, for
-  the same release. The pre-rename modules `episode_compile` and `episode` remain as
-  deprecated aliases of `injection_spec_compile` and `injection_spec`. Each seed item
+  top level, and it reads a document that keeps the old ID `midojo-episode-v1`, warning that
+  it is deprecated; it refuses any other version, naming it. `parse` reads a directory
+  compiled before the rename, which holds `episode.json`. Those readers of recorded data
+  stay: the M9 alias removal takes code names away, never a document a run already wrote.
+  The pre-rename modules `episode_compile` and `episode` are gone; their importers name
+  `asago_injection_spec.injection_spec_compile` and `.injection_spec`. Each seed item
   becomes one strict `tool_output` instruction from its runtime contract slot
   (`placement.py`): carrier, field path, mode, `max_chars`, and the record by the slot's
   declared `record_key` (from the target's `runtime-spec.yaml` or the runtime contract,

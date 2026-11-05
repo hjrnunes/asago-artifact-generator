@@ -20,8 +20,8 @@ REPO = Path(__file__).resolve().parents[3]
 RECEIPT_SCHEMA = REPO / "contracts/execution-receipt/execution-receipt-v2/schema.json"
 DELIVERY_CONTRACT = REPO / "contracts/midojo-delivery"
 # The range the recorded fixtures name, compiled at 8e8208f. Compile's minimum rose to
-# 2a794f3 when the document gained the ID that revision reads; a fixture keeps its bytes
-# until M9 regenerates it, so the comparison normalizes the range back.
+# 2a794f3 when the document gained the ID that revision reads; a recorded fixture keeps
+# its bytes (see docs/midojo-changelog.md), so the comparison normalizes the range back.
 RECORDED_TOOL_REVISION_RANGE = ">=8e8208f"
 
 
@@ -71,7 +71,7 @@ def as_written(fixture: Path) -> dict[str, bytes]:
     """One recorded fixture directory's compiled document, as compile writes it now.
 
     The recorded fixtures keep the document's pre-rename filename, ID and revision range
-    (``episode.json``, ``midojo-episode-v1``, ``>=8e8208f``) until M9 regenerates them;
+    (``episode.json``, ``midojo-episode-v1``, ``>=8e8208f``) as recorded;
     compile writes ``injection-spec.json`` holding ``midojo-injection-spec-v1`` and names
     the first revision that reads it. The rest of the bytes are what a new compile writes,
     so the comparison stays byte for byte.

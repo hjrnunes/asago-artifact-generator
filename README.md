@@ -1082,9 +1082,8 @@ the plan, the snapshot digest and the rubric judge are the SDK's
 (`midojo_sdk.injection_spec_schema`, `midojo_sdk.injection`, `midojo_sdk.snapshot` and
 `midojo_sdk.rubric_judge`).
 The runner runs the injection spec with the same revision, `asago/main` at `24b0b23`. It
-reads the v1 document under either ID: `midojo.episode_handle.open`, the deprecated alias
-of `midojo.evaluation_handle`, with `HostInterception`
-(`src/midojo/interception_host.py`), `midojo.grade`
+reads the v1 document under either ID: `midojo.evaluation_handle.open`, with
+`HostInterception` (`src/midojo/interception_host.py`), `midojo.grade`
 (`src/midojo/control_plane/grading.py`), and, for a reply episode, MiDojo's `reply_judge`
 (`src/midojo/verifiers/judge.py`).
 
@@ -1092,7 +1091,7 @@ of `midojo.evaluation_handle`, with `HostInterception`
 asago-bundle-midojo compile PACKAGE --out INJECTION_SPEC_DIR --target target.yaml \
   [--block TOOL ...] [--judge-turns final|all]
 # the runner builds the InjectionSpec from INJECTION_SPEC_DIR/injection-spec.json and opens it
-# with midojo.episode_handle.open(..., interception=HostInterception(upstream=<the
+# with midojo.evaluation_handle.open(..., interception=HostInterception(upstream=<the
 # target's endpoint.mcp_url>)), seals it, grades the snapshot with midojo.grade,
 # and may write delivery.json from midojo.delivery; a reply episode's grade asks
 # the judge service
@@ -1114,7 +1113,7 @@ package's `package_id`, `scenario_id`, `package_digest`, `claim_level` and `deli
 contract's terms, and the slot's record key: the list item property it selects by, or,
 outside a list, the call argument or the result property it matches.
 
-`episode` (the key stays until M9) holds exactly MiDojo's `midojo-injection-spec-v1`
+`episode` (the key every recorded package states) holds exactly MiDojo's `midojo-injection-spec-v1`
 document, and `compile` validates it against `midojo_sdk.injection_spec_schema`:
 
 - `interception`: `{"mode": "host", "upstream": "endpoint.mcp_url"}`. The runner gives
@@ -1181,20 +1180,21 @@ revision that carries every capability the document uses, `b5b8c75` (a target th
 the call's arguments), `3824922` (the text block that mirrors the structured content),
 `c0bee12` (`result_record` targets) and `cab2a35` (`reply_judge`), and that reads the
 document's new ID, `midojo-injection-spec-v1`. `8e8208f`, the range the recorded fixtures
-name, reads only the old ID. The recorded fixtures keep the old ID, and the range they
-name, until M9.
+name, reads only the old ID. The recorded fixtures keep the old ID and the range they
+name: they are recorded data, read as written.
 
 `parse` and the library's `read_envelope` also read the older `midojo-episode-v2` wrapper
 that `compile` wrote before this release, the bare episode with `tools` and `placements` at
 the top level, and convert it to the v1 document. A document that keeps the old ID
 `midojo-episode-v1` reads too, warning that it is deprecated, and so does one under the
-pre-rename filename `episode.json`, which every recorded fixture keeps until M9. Any other
+pre-rename filename `episode.json`, which every recorded fixture keeps. Any other
 version, of the envelope or of its `episode` member, is refused, naming the version and
 what is supported.
 
 The adapter's modules carry the document's new name. `injection_spec_compile` writes it
-and `injection_spec` builds it; `episode_compile` and `episode` remain as deprecated
-aliases for one release, and go away at M9.
+and `injection_spec` builds it; the pre-rename `episode_compile` and `episode` modules are
+gone, and their importers name `asago_injection_spec.injection_spec_compile` and
+`.injection_spec`.
 
 A command attempt is checked by MiDojo's `tool_call_condition` predicate. A reply is
 checked by MiDojo's `reply_judge` predicate, at `episode.security.reply_judge`:

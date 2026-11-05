@@ -116,7 +116,7 @@ def test_the_recorded_fixtures_keep_the_range_they_were_compiled_with() -> None:
 
     Compile's minimum rose with the document ID: a new document names 2a794f3, the first
     revision that reads ``midojo-injection-spec-v1``, and the recorded bytes keep the
-    range they were written with until M9 regenerates them. ``fixtures/episode-a5f81e9/``
+    range they were written with, as recorded. ``fixtures/episode-a5f81e9/``
     is not swept: it keeps what compile wrote at a5f81e9 beside the snapshots MiDojo
     sealed then, so it is read as the v0 envelope and never compared with a compile.
     """

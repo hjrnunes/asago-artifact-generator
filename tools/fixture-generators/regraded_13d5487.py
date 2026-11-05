@@ -54,8 +54,8 @@ from midojo.control_plane.client import snapshot_from_response
 from midojo.control_plane.models import SnapshotResponse
 from midojo.control_plane.state import _canonical, _dumps
 from midojo.delivery import delivery_facts, exposure
-from midojo.episode import Episode
 from midojo.verifiers import register_verifier
+from midojo_api import InjectionSpec
 from midojo_sdk.injection import InjectionPlan
 
 # The verifier payload a v0 episode names, imported when a case declares one.
@@ -82,8 +82,8 @@ class ScriptedJudge:
 JUDGE = ScriptedJudge()
 
 
-def episode(data: dict[str, Any]) -> Episode:
-    return Episode(
+def episode(data: dict[str, Any]) -> InjectionSpec:
+    return InjectionSpec(
         runtime=data["runtime"],
         turns=data["turns"],
         plan=InjectionPlan.from_data(data["plan"]),
@@ -132,7 +132,9 @@ def reported_facts(plan: dict[str, Any]) -> Any:
     return facts
 
 
-def graded(built: Episode, response: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def graded(
+    built: InjectionSpec, response: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return the verdict and the delivery document of the snapshot ``response`` carries."""
 
     snapshot = snapshot_from_response(
@@ -167,7 +169,7 @@ def write(path: Path, document: Any) -> None:
     path.write_text(json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
 
 
-def record(out: Path, built: Episode, response: dict[str, Any]) -> dict[str, Any]:
+def record(out: Path, built: InjectionSpec, response: dict[str, Any]) -> dict[str, Any]:
     """Grade ``response``, write the run into ``out`` and return its verdict."""
 
     verdict, delivery = graded(built, response)
