@@ -167,7 +167,7 @@ requires-dist = [
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
     { name = "asago-injection-spec", editable = "packages/asago-injection-spec" },
     { name = "asago-package", editable = "packages/asago-package" },
-    { name = "midojo-sdk", git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=adb4c0d620cb006898091123b509d239c3fecad9" },
+    { name = "midojo-sdk", git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=d5677d358db7cabff0980f6e110e4b18abb468c6" },
 ]
 
 [[package]]
@@ -221,7 +221,7 @@ requires-dist = [
     { name = "asago-contracts-core", editable = "../asago-scenario-generator/packages/asago-contracts-core" },
     { name = "asago-handoff", editable = "../asago-scenario-generator/packages/asago-handoff" },
     { name = "asago-package", editable = "packages/asago-package" },
-    { name = "midojo-sdk", git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=adb4c0d620cb006898091123b509d239c3fecad9" },
+    { name = "midojo-sdk", git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=d5677d358db7cabff0980f6e110e4b18abb468c6" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
 
@@ -668,7 +668,7 @@ wheels = [
 [[package]]
 name = "midojo-sdk"
 version = "0.1.0"
-source = { git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=adb4c0d620cb006898091123b509d239c3fecad9#adb4c0d620cb006898091123b509d239c3fecad9" }
+source = { git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=d5677d358db7cabff0980f6e110e4b18abb468c6#d5677d358db7cabff0980f6e110e4b18abb468c6" }
 dependencies = [
     { name = "httpx" },
 ]

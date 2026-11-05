@@ -4,8 +4,11 @@ This page holds the MiDojo adapter's revision history, fixture provenance and
 implementation notes, moved out of the agent guide (`CLAUDE.md`) so that guide
 stays short.
 
-The adapter currently pins `midojo-sdk` at `adb4c0d`, which removes the pre-rename
-`episode` names (see "M9: the pre-rename names are gone" below). Before it, `24b0b23`
+The adapter currently pins `midojo-sdk` at `d5677d3`, which keeps the two host-facing
+keyword arguments `open_evaluation(episode=...)` and
+`MidojoInjectionSpecTarget(episode_for_payload=...)` as deprecated forwarding aliases for
+one cycle; its parent `adb4c0d` removed the pre-rename `episode` names (see "M9: the
+pre-rename names are gone" below). Before it, `24b0b23`
 renamed the sealed outcome's, the delivery fact's and the exposure item's `probe_key` to
 `slot_key` and keeps a reader for the old key; `InjectionInstruction.probe_key` (the
 plan's own field) stays. Before that, `162233f` moved the rubric

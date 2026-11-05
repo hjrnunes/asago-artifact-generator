@@ -1076,12 +1076,12 @@ Garak adapter reaches the same result through the Garak IPI route:
 its `compile --target` writes `ipi-episodes.json`, and Garak's `InjectionSpecProbe`
 probe plants through the same host interceptor. Neither adapter writes a `seed.json`
 into the target. The adapter reads and writes MiDojo's documents through `midojo-sdk`,
-which `pyproject.toml` pins by commit to `asago/main` at `adb4c0d` (subdirectory
+which `pyproject.toml` pins by commit to `asago/main` at `d5677d3` (subdirectory
 `interception/python-sdk`), and it never imports `midojo`: the injection-spec schema,
 the plan, the snapshot digest and the rubric judge are the SDK's
 (`midojo_sdk.injection_spec_schema`, `midojo_sdk.injection`, `midojo_sdk.snapshot` and
 `midojo_sdk.rubric_judge`).
-The runner runs the injection spec with the same revision, `asago/main` at `adb4c0d`. It
+The runner runs the injection spec with the same revision, `asago/main` at `d5677d3`. It
 reads the v1 document under either ID: `midojo.evaluation_handle.open`, with
 `HostInterception` (`src/midojo/interception_host.py`), `midojo.grade`
 (`src/midojo/control_plane/grading.py`), and, for a reply episode, MiDojo's `reply_judge`
