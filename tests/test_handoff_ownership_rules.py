@@ -1,8 +1,8 @@
-"""The reader enforces the producer's ownership rules from the mirrored kit.
+"""The reader enforces the producer's ownership rules from the installed kit.
 
-``contracts/scenario-handoff/ownership-rules.json`` is the producer's file,
-copied byte for byte and pinned by the mirrored ``CONTRACT.lock``; the reader
-keeps no list of its own.
+``scenario-handoff/ownership-rules.json`` is the producer's file, which the shared core
+ships byte for byte in its package data and pins by the installed ``CONTRACT.lock``; the
+reader keeps no list of its own.
 """
 
 from __future__ import annotations
@@ -11,11 +11,12 @@ import json
 from pathlib import Path
 
 import pytest
+from asago_contracts_core import CONTRACT_DIR
 
 from asago_artifact_generator import input_adapter
 from asago_artifact_generator.input_adapter import InputSourceError, load_input
 
-_CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
+_CONTRACT = CONTRACT_DIR
 _RULES = _CONTRACT / "ownership-rules.json"
 _KIT = _CONTRACT / "scenario-handoff-v5" / "cases"
 

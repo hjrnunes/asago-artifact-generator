@@ -156,7 +156,7 @@ missing path.
   walker, and the binding and slot rules (`binding_rules`, plus authoring's `bindings`). It
   ships the authority copies of `artifact-package`, `runtime-contract` and `capability-gap`
   as package data under `src/asago_package/contracts/`, the only authority copies in this
-  repository; the app's `contract_dir` keeps serving the seven kits the consumer still owns.
+  repository; the app's `contract_dir` keeps serving the seven kits it still holds.
   `runtime_contract_spec` reads every runtime contract through the installed spec set, and
   the app's loader and the producer's builder both call it.
 - `packages/asago-bundle-core/`: the tool-neutral core every tool adapter builds on (the
@@ -269,6 +269,8 @@ missing path.
   (`asago_injection_spec`): the compiler from a `planted_item` package to one MiDojo
   injection spec, the consumer envelope, the placement and reachability checks, the
   sealed-result readers, and the judge-turn vocabulary compile and the judge service share.
+  `delivery_contract` ships the `midojo-delivery` reader and the writer a caller uses to
+  stamp a document the MiDojo interpreter produced.
   Both adapters read it, so neither depends on the other; `bundle-garak`'s parity test is the
   only test that also reads `bundle-midojo`, and it is marked `parity` because the MiDojo
   adapter is a test-only dependency.

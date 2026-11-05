@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
+from asago_contracts_core import CONTRACT_DIR
 
 from asago_artifact_generator.authoring.contracts import _observation_claim_schema
 from asago_artifact_generator.authoring.core import _supported_claim_levels
@@ -151,10 +152,7 @@ def test_verify_contract_lock_refuses_a_locked_file_the_directory_omits(
         _verify(tmp_path)
 
 
-_HANDOFF_SCHEMA = (
-    Path(__file__).resolve().parents[1]
-    / "contracts/scenario-handoff/scenario-handoff-v5/schema.json"
-)
+_HANDOFF_SCHEMA = CONTRACT_DIR / "scenario-handoff-v5" / "schema.json"
 
 
 def test_claim_levels_are_the_handoff_contract_levels_in_order() -> None:

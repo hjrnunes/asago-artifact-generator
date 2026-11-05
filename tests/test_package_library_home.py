@@ -96,6 +96,6 @@ def test_each_moved_contract_kit_lives_only_in_the_package(name: str) -> None:
     assert not (_REPO / "contracts" / name).exists()
 
 
-def test_the_consumer_keeps_its_own_contract_kits() -> None:
-    assert application_contract_dir("scenario-handoff") == _REPO / "contracts" / "scenario-handoff"
-    assert application_contract_dir("scenario-handoff").is_dir()
+def test_the_consumer_contract_dir_serves_only_the_kits_it_still_holds() -> None:
+    assert application_contract_dir("target-profile") == _REPO / "contracts" / "target-profile"
+    assert not application_contract_dir("scenario-handoff").exists()

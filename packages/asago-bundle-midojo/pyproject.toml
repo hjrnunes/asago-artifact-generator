@@ -11,8 +11,8 @@ dependencies = [
     "asago-bundle-core",
     # The injection-spec compiler, the envelope and the sealed-result reader, which Garak
     # reads too.
-    "asago-injection-spec",
-    "asago-package",
+    "asago-injection-spec>=0.1,<0.2",
+    "asago-package>=0.1,<0.2",
     # The judge service and the CLI; the SDK carries no part of the harness.
     "midojo-sdk",
 ]

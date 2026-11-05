@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from asago_contracts_core import CONTRACT_DIR
 from asago_handoff import Violation, feature_violations, validate_handoff
 from asago_handoff.contract import (
     Contract,
@@ -28,7 +29,6 @@ from asago_handoff.shape import attack_shape_violation
 
 from .contract_kit import (
     canonical_json,
-    contract_dir,
     framed_digest,
     load_json_file,
     parse_document,
@@ -41,7 +41,7 @@ _HANDOFF_CONDITION_FIELDS = (
     "condition_check",
     "condition_omitted_reason",
 )
-_HANDOFF_ROOT = contract_dir("scenario-handoff")
+_HANDOFF_ROOT = CONTRACT_DIR
 
 
 class InputKind(StrEnum):
@@ -51,7 +51,7 @@ class InputKind(StrEnum):
     SCENARIO_HANDOFF_V6 = "scenario-handoff-v6"
 
 
-#: The versions the mirrored kit publishes, by the name a document states.
+#: The versions the installed kit publishes, by the name a document states.
 _HANDOFF_VERSIONS = {kind.value: kind for kind in InputKind}
 
 
@@ -283,7 +283,7 @@ def _handoff_view(
 
 
 def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V5) -> _HandoffVersion:
-    """Verify the mirrored lock and return the version entry it declares for ``kind``.
+    """Verify the installed lock and return the version entry it declares for ``kind``.
 
     The lock names the newest published version at its top level, and its rows
     cover every published version's directory; the digest domain is the
@@ -326,12 +326,11 @@ def _read_ownership_rules(
 
 
 def _handoff_contract() -> Contract:
-    """Read the mirrored contract documents the shared validator walks.
+    """Read the installed contract documents the shared validator walks.
 
-    The mirror publishes both versions, so the contract carries each version's
-    schema and the shared validator selects by the document's own
-    ``schema_version``; ``schema`` is the newest, which a reader with no version
-    uses.
+    The shared core's package data publishes both versions, so the contract carries each
+    version's schema and the shared validator selects by the document's own
+    ``schema_version``; ``schema`` is the newest, which a reader with no version uses.
     """
 
     try:

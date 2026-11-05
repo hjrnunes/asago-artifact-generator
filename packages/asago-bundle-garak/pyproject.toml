@@ -9,8 +9,8 @@ description = "Garak adapter: compiles an artifact package into a Garak bundle a
 requires-python = ">=3.12"
 dependencies = [
     "asago-bundle-core",
-    "asago-injection-spec",
-    "asago-package",
+    "asago-injection-spec>=0.1,<0.2",
+    "asago-package>=0.1,<0.2",
 ]
 
 [project.scripts]

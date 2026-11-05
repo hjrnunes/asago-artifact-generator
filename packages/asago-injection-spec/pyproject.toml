@@ -11,7 +11,7 @@ dependencies = [
     "asago-bundle-core",
     "asago-contracts-core>=0.1,<0.2",
     "asago-handoff>=0.1,<0.2",
-    "asago-package",
+    "asago-package>=0.1,<0.2",
     # ``declared.py`` reads the target's tool list, which is YAML.
     "pyyaml>=6.0",
     # The SDK alone: it carries injection-spec document v1's schema and the snapshot digest,

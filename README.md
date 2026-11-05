@@ -475,8 +475,9 @@ handoff:
   the `contract` envelope; a v2 contract's envelope stays optional.
 
 Use `asago_artifact_generator.input_adapter.load_input` to validate the
-vendored handoff kit, preserve authoritative narrative and Gherkin bytes, and
-record SHA-256 source pins. The mirrored `CONTRACT.lock` declares
+installed handoff kit, preserve authoritative narrative and Gherkin bytes, and
+record SHA-256 source pins. The shared core ships the kit as package data and
+`input_adapter` reads it there; its `CONTRACT.lock` declares
 `scenario-handoff-v5` with its kit directory and digest domain. The adapter
 verifies `content_digest` in the `scenario-handoff-v5` domain, and packages
 record that version as `input_kind`. The shared `asago_handoff` validator owns
@@ -486,7 +487,7 @@ the schema-version rule: a document that states another version, including
 document that is not a JSON object gets `schema_violation:<root>`.
 
 Before the digest check, the adapter runs the producer's
-`asago_handoff.validate_handoff` over the mirrored
+`asago_handoff.validate_handoff` over the installed
 `scenario-handoff-v5/schema.json` and
 `ownership-rules.json`: the schema's rules, the ownership boundary, and the
 hand rules the schema cannot state (non-blank text, the observation-contract
@@ -1493,7 +1494,7 @@ revision they come from, which the adapter's `pyproject.toml` pin must match.
 ├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse as library entry points
 ├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): the compile and parse CLIs and the judge service; both adapters read the compiler from asago-injection-spec
 ├── packages/asago-injection-spec/   # injection-spec library (workspace member): a planted_item package to one MiDojo injection spec and a sealed result to evidence; neither adapter depends on the other
-├── contracts/                        # vendored and consumer-owned contracts the app keeps; each contract keeps a version directory (spec.json, schema.json, cases/, README.md) and a lock over its files, and the package library ships artifact-package, runtime-contract and capability-gap
+├── contracts/                        # the four consumer-owned contracts and the three producer mirrors the app keeps; each contract keeps a version directory (spec.json, schema.json, cases/, README.md) and a lock over its files, the shared core ships scenario-handoff, and the package library ships artifact-package, runtime-contract and capability-gap
 ├── scripts/                          # quality, replay, and budget tools
 ├── tools/fixture-generators/         # scripts run in MiDojo's interpreter to seal the adapter's fixtures
 ├── tests/                            # unit tests

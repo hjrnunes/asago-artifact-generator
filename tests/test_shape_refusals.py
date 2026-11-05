@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from asago_contracts_core import CONTRACT_DIR
 from typer.testing import CliRunner
 
 from asago_artifact_generator import cli
@@ -13,13 +14,7 @@ from asago_artifact_generator.input_adapter import InputView, ShapeVersionMalfor
 
 from .support import ScriptedAuthoringTransport, load_failure_evidence, stage_local_orchestrator
 
-_KIT = (
-    Path(__file__).resolve().parents[1]
-    / "contracts"
-    / "scenario-handoff"
-    / "scenario-handoff-v5"
-    / "cases"
-)
+_KIT = CONTRACT_DIR / "scenario-handoff-v5" / "cases"
 _RUNTIME: dict[str, Any] = {
     "delivery": ["direct_user_message", "sequential_user_turns"],
     "setup_permissions": [],

@@ -2,7 +2,7 @@
 
 ``scenario-handoff-v6`` states the controlling party as
 ``party_relation.controlling_party`` and requires the self-identifying envelope.
-The mirrored kit publishes both versions, and the adapter selects the version
+The installed kit publishes both versions, and the adapter selects the version
 from the document's own ``schema_version`` before it reads the digest in that
 version's domain. A v6 document without the envelope is refused; a document the
 version's schema rejects reports the producer's codes, as a v5 document does.
@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from asago_contracts_core import CONTRACT_DIR
 from asago_handoff.envelope import (
     ENVELOPE_FIELD,
     ContractSpec,
@@ -33,7 +34,7 @@ from asago_artifact_generator.input_adapter import (
 
 _V5 = "scenario-handoff-v5"
 _V6 = "scenario-handoff-v6"
-_CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
+_CONTRACT = CONTRACT_DIR
 _KIT = _CONTRACT / _V6 / "cases"
 _EXPECTED = json.loads((_KIT / "expected-violations.json").read_text(encoding="utf-8"))
 _INDIRECT = "adversarial-indirect-listing.json"

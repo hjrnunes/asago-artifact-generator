@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "asago-contracts-core>=0.1,<0.2",
     "asago-handoff>=0.1,<0.2",
-    "asago-package",
+    "asago-package>=0.1,<0.2",
     "asago-report-kit>=0.1,<0.2",
     "pyyaml>=6.0",
     "jsonschema>=4.0",
@@ -33,7 +33,7 @@ dev = [
     "asago-bundle-core",
     "asago-bundle-garak",
     "asago-bundle-midojo",
-    "asago-injection-spec",
+    "asago-injection-spec>=0.1,<0.2",
     "asago-scenario-generator",
     "pytest>=8.0",
     "ruff>=0.6",

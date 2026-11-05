@@ -1,11 +1,9 @@
-"""The scenario-handoff kit: its mirrored specs, its documents and its refusals.
+"""The scenario-handoff kit: its installed specs, its documents and its refusals.
 
-The producer owns ``data/contracts/scenario-handoff/``; this repository mirrors
-the whole contract under ``contracts/scenario-handoff`` and the adapter reads
-every input through the mirrored spec before its own checks. The mirror is byte
-for byte the authority's and publishes both versions, so the spec digest and the
-reader rules are the same on both sides: v5 still reads without the envelope and
-v6 requires it.
+The producer owns ``data/contracts/scenario-handoff/`` and the shared core ships a byte for
+byte copy as package data, which the adapter reads every input through before its own
+checks. The installed kit publishes both versions, so the spec digest and the reader rules
+are the same on both sides: v5 still reads without the envelope and v6 requires it.
 """
 
 from __future__ import annotations
@@ -17,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from asago_contracts_core import CONTRACT_DIR
 from asago_handoff import read_handoff
 from asago_handoff.envelope import (
     ENVELOPE_FIELD,
@@ -43,7 +42,7 @@ LEGACY_VERSION = V5
 VERSIONS = (V5, V6)
 _ENVELOPE = {V5: "optional", V6: "required"}
 _KIND = {V5: InputKind.SCENARIO_HANDOFF_V5, V6: InputKind.SCENARIO_HANDOFF_V6}
-_CONTRACT_DIR = Path(__file__).resolve().parents[1] / "contracts" / CONTRACT
+_CONTRACT_DIR = CONTRACT_DIR
 
 
 def _json(path: Path) -> Any:

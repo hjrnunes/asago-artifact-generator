@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from asago_contracts_core import CONTRACT_DIR
 
 from asago_artifact_generator.authoring.checks import slot_party_findings
 from asago_artifact_generator.authoring.planted_item import PlantedTarget, choose_planted_target
@@ -17,13 +18,7 @@ from asago_artifact_generator.input_adapter import load_input
 from .support import ScriptedAuthoringTransport, load_failure_evidence, stage_local_orchestrator
 from .turn_support import LISTING_SLOT
 
-_KIT = (
-    Path(__file__).resolve().parents[1]
-    / "contracts"
-    / "scenario-handoff"
-    / "scenario-handoff-v5"
-    / "cases"
-)
+_KIT = CONTRACT_DIR / "scenario-handoff-v5" / "cases"
 LISTING = "adversarial-indirect-listing.json"
 POLICY = "adversarial-indirect-policy-operator.json"
 

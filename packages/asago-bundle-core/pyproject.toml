@@ -11,7 +11,7 @@ dependencies = [
     # ``receipt_contract`` and ``bundle_contract`` select the installed specs the
     # adapters' receipts and bundle manifests are read through.
     "asago-contracts-core>=0.1,<0.2",
-    "asago-package",
+    "asago-package>=0.1,<0.2",
     "jsonschema>=4.0",
     # ``target.py`` reads the target config, which is YAML.
     "pyyaml>=6.0",

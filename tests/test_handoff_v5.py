@@ -1,12 +1,12 @@
 """The adapter keeps reading scenario-handoff-v5, and the prompts carry its analysis.
 
-The v5 kit, mirrored from the producer, carries each scenario's attack path and
-six structured-analysis fields; its ``expected-violations.json`` lists the
-producer's codes for each invalid case. The shared ``asago_handoff`` validator
-owns every rule, the schema version included: a document that states another
-version, or none, is refused with the two codes the kit expects. The adapter
-validates the attack shape with typed refusals. ``tests/test_handoff_v6.py``
-covers the newer version the same mirror publishes.
+The v5 kit ships in the shared core's package data; it carries each scenario's attack path
+and six structured-analysis fields, and its ``expected-violations.json`` lists the
+producer's codes for each invalid case. The shared ``asago_handoff`` validator owns every
+rule, the schema version included: a document that states another version, or none, is
+refused with the two codes the kit expects. The adapter validates the attack shape with
+typed refusals. ``tests/test_handoff_v6.py`` covers the newer version the same kit
+publishes.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from typing import Any
 
 import pytest
 import yaml
+from asago_contracts_core import CONTRACT_DIR
 
 from asago_artifact_generator import input_adapter
 from asago_artifact_generator.authoring.prompt_context import _case_meaning
@@ -44,7 +45,7 @@ from .support import json_section
 
 _V5 = "scenario-handoff-v5"
 _V6 = "scenario-handoff-v6"
-_CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
+_CONTRACT = CONTRACT_DIR
 _VERSION_DIR = _CONTRACT / "scenario-handoff-v5"
 _V6_DIR = _CONTRACT / _V6
 _KIT = _VERSION_DIR / "cases"

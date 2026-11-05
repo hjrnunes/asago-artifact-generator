@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from asago_contracts_core import CONTRACT_DIR
 
 from asago_artifact_generator.input_adapter import (
     HandoffSchemaInvalid,
@@ -27,7 +28,7 @@ from asago_artifact_generator.input_adapter import (
     load_input,
 )
 
-_CONTRACT = Path(__file__).resolve().parents[1] / "contracts" / "scenario-handoff"
+_CONTRACT = CONTRACT_DIR
 _KIT = _CONTRACT / "scenario-handoff-v5" / "cases"
 _EXPECTED = json.loads((_KIT / "expected-violations.json").read_text("utf-8"))
 _MANIFEST = json.loads((_KIT / "conformance-cases.json").read_text("utf-8"))

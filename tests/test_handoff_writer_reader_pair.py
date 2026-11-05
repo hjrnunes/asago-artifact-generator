@@ -25,6 +25,7 @@ from typing import Any
 
 import pytest
 import yaml
+from asago_contracts_core import CONTRACT_DIR
 from pydantic import ValidationError
 
 from asago_artifact_generator.input_adapter import (
@@ -56,15 +57,9 @@ from asago_scenario_generator.stpa.scenario_prod.handoff import (  # noqa: E402
 HANDOFFS = Path(__file__).resolve().parent / "fixtures" / "handoffs"
 # A producer-written v5 handoff with its checked-in .feature companion.
 PRODUCER_FILE = HANDOFFS / "klarna-attack-path-SCN-027.yaml"
-# The mirrored v6 kit's indirect case, which states the renamed controlling party.
+# The installed v6 kit's indirect case, which states the renamed controlling party.
 V6_CASE = (
-    Path(__file__).resolve().parents[1]
-    / "contracts"
-    / "scenario-handoff"
-    / "scenario-handoff-v6"
-    / "cases"
-    / "valid"
-    / "adversarial-indirect-listing.json"
+    CONTRACT_DIR / "scenario-handoff-v6" / "cases" / "valid" / "adversarial-indirect-listing.json"
 )
 
 
