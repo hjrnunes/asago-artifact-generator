@@ -30,6 +30,7 @@ redhat-logo.png
 .DS_Store
 .idea/
 .vscode/
+.codex/
 *.swp
 
 # Scratch and legacy
