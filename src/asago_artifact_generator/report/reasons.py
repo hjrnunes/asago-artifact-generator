@@ -9,6 +9,10 @@ from __future__ import annotations
 
 _STATUSES = {
     "accepted": "Both stages passed their checks and reviews, and the package was written.",
+    "binding_in_fixed_turn": (
+        "A planted-item stimulus turn holds a binding placeholder, but the episode sends its "
+        "turns as written."
+    ),
     "blocked": (
         "The plan author or plan reviewer declared the scenario impossible to test "
         "with the supplied facts."

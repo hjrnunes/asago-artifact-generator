@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..attack_shape import CHANNEL_INDIRECT
+from ..binding_rules import SLOT_PATTERN
 from .core import ArtifactValidationError, Finding, _json_bytes
 from .templates import prose
 
@@ -643,16 +644,40 @@ def planted_item_findings(metadata: Any, plan: Any, max_chars: int | None) -> li
 
     if not isinstance(metadata, dict) or not isinstance(plan, dict):
         return []
+    planted = _plan_delivery(plan) == PLANTED_ITEM_DELIVERY
+    findings = _fixed_turn_findings(metadata.get("stimulus")) if planted else []
     present = PLANTED_TEXT_FIELD in metadata
-    if max_chars is None or _plan_delivery(plan) != PLANTED_ITEM_DELIVERY:
+    if max_chars is None or not planted:
         if not present:
-            return []
-        return [_finding("unexpected_field", "planted_text belongs to a planted_item plan")]
+            return findings
+        return [
+            *findings,
+            _finding("unexpected_field", "planted_text belongs to a planted_item plan"),
+        ]
     if not present:
-        return [_finding("missing_field", "the planted_item plan needs planted_text")]
-    return _planted_text_findings(
-        metadata[PLANTED_TEXT_FIELD], max_chars, metadata.get("stimulus")
-    )
+        return [*findings, _finding("missing_field", "the planted_item plan needs planted_text")]
+    return [
+        *findings,
+        *_planted_text_findings(metadata[PLANTED_TEXT_FIELD], max_chars, metadata.get("stimulus")),
+    ]
+
+
+def _fixed_turn_findings(stimulus: Any) -> list[Finding]:
+    """Find a binding placeholder in a turn: the episode sends its turns as written."""
+
+    if not isinstance(stimulus, dict):
+        return []
+    return [
+        _finding(
+            "binding_in_fixed_turn",
+            f"{match.group(0)} is a binding placeholder; a planted_item episode sends its "
+            "turns as written and fills no binding into them. Write the literal value in "
+            "the turn",
+            path,
+        )
+        for path, turn in _benign_turns(stimulus)
+        for match in SLOT_PATTERN.finditer(turn)
+    ]
 
 
 def _planted_text_findings(text: Any, max_chars: int, stimulus: Any) -> list[Finding]:

@@ -684,6 +684,40 @@ def test_a_plan_without_the_planted_item_delivery_has_no_planted_findings() -> N
     assert planted_item_findings(refund["metadata"], "plan", LIMIT) == []
 
 
+@pytest.mark.parametrize("where", ["history", "user_text"])
+def test_a_binding_placeholder_in_a_planted_item_turn_is_found(tmp_path: Path, where: str) -> None:
+    _, _, _, plan, metadata = setup(tmp_path)
+    text = "Please look up the details for order {{planted_record}}."
+    metadata = _with_turn(metadata, where, text)
+
+    [finding] = planted_item_findings(metadata, plan, LIMIT)
+
+    assert finding.code == "binding_in_fixed_turn"
+    assert finding.path == (
+        "stimulus.history[0].content" if where == "history" else "stimulus.user_text"
+    )
+    assert "{{planted_record}}" in finding.detail
+    assert "literal" in finding.detail
+
+
+def test_a_binding_placeholder_is_found_without_a_slot_limit(tmp_path: Path) -> None:
+    _, _, _, plan, metadata = setup(tmp_path)
+    del metadata["planted_text"]
+    metadata = _with_turn(metadata, "history", "Look up order {{planted_record}}.")
+
+    [finding] = planted_item_findings(metadata, plan, None)
+
+    assert finding.code == "binding_in_fixed_turn"
+
+
+def test_a_direct_artifact_may_keep_a_binding_placeholder_in_its_history() -> None:
+    refund = world("refund")
+    metadata = deepcopy(refund["metadata"])
+    metadata["stimulus"]["history"] = [{"role": "user", "content": "Order {{order_id}}."}]
+
+    assert planted_item_findings(metadata, refund["plan"], None) == []
+
+
 def test_benign_turns_are_user_messages_only(tmp_path: Path) -> None:
     view, inventory, rt, plan, metadata = setup(tmp_path)
     metadata["stimulus"]["history"][0]["role"] = "assistant"
