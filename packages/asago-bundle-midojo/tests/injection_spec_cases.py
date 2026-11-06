@@ -68,6 +68,9 @@ EPISODES_A5F81E9 = FIXTURES / "episode-a5f81e9"
 # fields, and the delivery document a runner writes; ``reported/`` one run whose facts are
 # reported (``regrade.py`` says how each was made).
 REGRADED = FIXTURES / "regraded-13d5487"
+# What ``bundle-midojo parse`` wrote for ``episode/command-single/detected`` at consumer
+# fd0de5a, kept as the reference a parse with no runtime flags must still reproduce.
+RECEIPTS = FIXTURES / "receipts"
 TOOLS = json.loads((PIGGYBANK / "tools-list.json").read_text(encoding="utf-8"))["tools"]
 SPEC = yaml.safe_load((PIGGYBANK / "runtime-spec.yaml").read_text(encoding="utf-8"))
 SLOTS_BY_ID = {slot["id"]: slot for slot in SPEC["seed_slots"]}

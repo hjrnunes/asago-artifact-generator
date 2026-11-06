@@ -1,0 +1,28 @@
+{
+  "schema_version": "execution-receipt-v2",
+  "tool": {
+    "id": "midojo",
+    "revision": "3824922f",
+    "adapter_revision": "abc123"
+  },
+  "package": {
+    "id": "SCN-005",
+    "digest": "1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "bundle_digest": null,
+  "execution_status": "completed",
+  "runtime_status": "completed",
+  "incomplete_reason": null,
+  "attempts": [],
+  "native": [],
+  "evaluation": {
+    "driver": "midojo",
+    "evaluation_id": "3b4b7456ea",
+    "snapshot_id": "sha256:d54df1862004b978062e2abf7f0b4279438c6c4c7fdb0d28f82c6d71f1491582",
+    "evidence_status": {},
+    "verdict": null,
+    "runtime": {
+      "type": "unmanaged"
+    }
+  }
+}

@@ -1111,6 +1111,7 @@ JUDGE_MODEL_URL=http://127.0.0.1:8001/v1 JUDGE_MODEL=judge-name OPENAICOMPATIBLE
 JUDGE_SERVICE_TOKEN=... asago-bundle-midojo judge-serve [--port 8780]
 asago-bundle-midojo parse INJECTION_SPEC_DIR --snapshot snapshot.json --verdict verdict.json \
   [--delivery delivery.json] --out execution-receipt.json [--driver midojo] \
+  [--runtime {openshell,unmanaged}] [--runtime-evidence FACT]... \
   [--tool-revision REV]
 ```
 
@@ -1359,6 +1360,14 @@ malformed. Sealed from `13d5487` each outcome also carries its delivery facts,
 `selected`, `transformation` and `emitted` (null when the interceptor did not report
 them), all three or none; an outcome at occurrence 0 placed nothing, so its facts are
 empty.
+
+`--runtime` and its repeatable `--runtime-evidence` record how the run's target was
+hosted: `openshell` when the launcher started it in OpenShell, `unmanaged` when it
+started it without a sandbox. Each evidence item stays in the order given. `parse` writes
+them as `evaluation.runtime`, an object of `type` and `evidence`; the evidence list may be
+empty, and `--runtime-evidence` without `--runtime` is refused, because facts cannot
+support a type the receipt does not state. Without `--runtime` the receipt leaves the key
+out, so it reads as one written before the field existed.
 
 From `a19562e` a placement (`applied`, `partial` or `fallback`) may also say what it placed
 and where: `payload_digest` (`sha256:<hex>` of the payload's UTF-8 bytes before its

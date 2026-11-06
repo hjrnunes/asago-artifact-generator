@@ -8,8 +8,9 @@ agent to; the record is printed).
 
 ``compile`` writes one package's injection spec for a target config; the runner opens it
 with MiDojo's host interception in front of that target's MCP endpoint, seals it and grades
-the snapshot; ``parse`` reads the sealed snapshot, the verdict and, when named, the runner's
-delivery facts into a receipt. ``judge-serve`` runs the judge service a reply episode's
+the snapshot; ``parse`` reads the sealed snapshot, the verdict, the runner's delivery facts
+when named, and how the caller states the target was hosted, into a receipt.
+``judge-serve`` runs the judge service a reply episode's
 ``reply_judge`` check asks while MiDojo grades (``judge_service.py``): it prints
 ``judge service on http://127.0.0.1:<port>/`` once it listens and stops on SIGINT or
 SIGTERM (exit 0); a missing or unusable environment value exits 1 before it listens.
@@ -36,7 +37,7 @@ from .judge_service import (
     serve,
 )
 from .route import DEFAULT_ROUTE, ROUTES
-from .sealed import ParseError, parse_sealed
+from .sealed import RUNTIME_TYPES, ParseError, parse_sealed
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,6 +98,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_ROUTE,
         help="the driver that drove this run: midojo (MiDojo's own attacker loop)",
     )
+    parse_cmd.add_argument(
+        "--runtime",
+        choices=RUNTIME_TYPES,
+        help="how the run's target was hosted, as the run recorded it: openshell (OpenShell "
+        "started it in a sandbox) or unmanaged (no sandbox); without it the receipt records "
+        "no runtime",
+    )
+    parse_cmd.add_argument(
+        "--runtime-evidence",
+        action="append",
+        default=[],
+        metavar="FACT",
+        help="one fact that supports --runtime, in the run's order (repeatable; needs --runtime)",
+    )
     parse_cmd.add_argument("--tool-revision", help="MiDojo commit that ran the episode")
     parse_cmd.add_argument("--adapter-revision", help="consumer commit of this adapter")
     parse_cmd.set_defaults(handler=_parse)
@@ -149,6 +164,8 @@ def _parse(args: argparse.Namespace) -> int:
             adapter_revision=args.adapter_revision,
             driver=args.driver,
             delivery_path=args.delivery,
+            runtime=args.runtime,
+            runtime_evidence=args.runtime_evidence,
         )
     except ParseError as exc:
         print(f"parse: {exc}", file=sys.stderr)

@@ -18,6 +18,7 @@ import pytest
 from asago_contracts_core import (
     ENVELOPE_FIELD,
     ContractSpec,
+    InvalidDocumentError,
     MissingEnvelopeError,
     SpecDigestMismatchError,
     SpecSet,
@@ -167,6 +168,33 @@ def test_the_writer_stamps_the_v2_envelope() -> None:
         },
     }
     assert read_receipt(written).version == VERSION
+
+
+_RUNTIMES = (
+    "midojo-runtime-unmanaged.json",
+    "midojo-runtime-openshell.json",
+    "midojo-runtime-openshell-without-evidence.json",
+)
+
+
+@pytest.mark.parametrize("name", _RUNTIMES)
+def test_the_writer_keeps_the_runtime_and_its_evidence_order(name: str) -> None:
+    """The optional runtime reach the reader unchanged, evidence in the caller's order."""
+
+    document = _case(VERSION, name)
+
+    written = write_receipt(document, writer="tests.receipt_contract", writer_version="0.1.0")
+
+    assert read_receipt(written).version == VERSION
+    assert written["evaluation"]["runtime"] == document["evaluation"]["runtime"]
+
+
+def test_an_unknown_runtime_type_is_refused() -> None:
+    document = _case(VERSION, "midojo-runtime-unmanaged.json")
+    document["evaluation"]["runtime"]["type"] = "sandboxed"
+
+    with pytest.raises(InvalidDocumentError, match="sandboxed"):
+        write_receipt(document, writer="tests.receipt_contract", writer_version="0.1.0")
 
 
 def test_the_reader_accepts_both_versions() -> None:

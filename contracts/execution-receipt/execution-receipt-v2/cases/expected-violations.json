@@ -59,6 +59,18 @@
     "path": "/attempts/0/generation/request_count",
     "keyword": "minimum"
   },
+  "invalid/runtime-unknown-field.json": {
+    "path": "/evaluation/runtime",
+    "keyword": "additionalProperties"
+  },
+  "invalid/runtime-unknown-type.json": {
+    "path": "/evaluation/runtime/type",
+    "keyword": "enum"
+  },
+  "invalid/runtime-without-evidence.json": {
+    "path": "/evaluation/runtime",
+    "keyword": "required"
+  },
   "invalid/runtime-without-source.json": {
     "path": "/attempts/0/runtime_observations",
     "keyword": "required"

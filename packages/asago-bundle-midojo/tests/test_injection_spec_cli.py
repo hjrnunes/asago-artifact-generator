@@ -156,6 +156,106 @@ def test_parse_writes_the_receipt(tmp_path: Path) -> None:
     assert receipt["attempts"][0]["result"]["outcome"] == "detected"
 
 
+def test_parse_records_the_runtime_and_its_evidence_in_order(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    shutil.copytree(EPISODES / "command-single/detected", run)
+
+    code = main(
+        [
+            "parse",
+            str(EPISODES / "command-single"),
+            "--snapshot",
+            str(run / "snapshot.json"),
+            "--verdict",
+            str(run / "verdict.json"),
+            "--out",
+            str(run / "receipt.json"),
+            "--runtime",
+            "unmanaged",
+            "--runtime-evidence",
+            "a",
+            "--runtime-evidence",
+            "b",
+        ]
+    )
+
+    assert code == 0
+    receipt = json.loads((run / "receipt.json").read_text(encoding="utf-8"))
+    assert receipt["evaluation"]["runtime"] == {"type": "unmanaged", "evidence": ["a", "b"]}
+
+
+def test_parse_without_runtime_flags_records_no_runtime(tmp_path: Path) -> None:
+    run = tmp_path / "run"
+    shutil.copytree(EPISODES / "command-single/detected", run)
+
+    code = main(
+        [
+            "parse",
+            str(EPISODES / "command-single"),
+            "--snapshot",
+            str(run / "snapshot.json"),
+            "--verdict",
+            str(run / "verdict.json"),
+            "--out",
+            str(run / "receipt.json"),
+        ]
+    )
+
+    assert code == 0
+    receipt = json.loads((run / "receipt.json").read_text(encoding="utf-8"))
+    assert "runtime" not in receipt["evaluation"]
+
+
+def test_parse_refuses_a_runtime_it_does_not_know(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as raised:
+        main(
+            [
+                "parse",
+                "e",
+                "--snapshot",
+                "s",
+                "--verdict",
+                "v",
+                "--out",
+                "o",
+                "--runtime",
+                "sandboxed",
+            ]
+        )
+
+    assert raised.value.code == 2
+    written = capsys.readouterr().err
+    assert "invalid choice: 'sandboxed'" in written
+    assert "openshell" in written
+    assert "unmanaged" in written
+
+
+def test_parse_refuses_runtime_evidence_without_a_runtime(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = tmp_path / "run"
+    shutil.copytree(EPISODES / "command-single/detected", run)
+
+    code = main(
+        [
+            "parse",
+            str(EPISODES / "command-single"),
+            "--snapshot",
+            str(run / "snapshot.json"),
+            "--verdict",
+            str(run / "verdict.json"),
+            "--out",
+            str(run / "receipt.json"),
+            "--runtime-evidence",
+            "x",
+        ]
+    )
+
+    assert code == 1
+    assert capsys.readouterr().err.startswith("parse: runtime evidence needs a runtime")
+    assert not (run / "receipt.json").exists()
+
+
 def test_parse_without_a_document_exits_1(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

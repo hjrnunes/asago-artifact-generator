@@ -136,6 +136,9 @@ from .injection_spec_compile import (
 from .route import DEFAULT_ROUTE, ROUTES
 
 RECEIPT_SCHEMA_VERSION = "execution-receipt-v2"
+# How the run's target was hosted, as the caller that started it recorded it
+# (``evaluation.runtime.type``); a receipt that records no runtime leaves the key out.
+RUNTIME_TYPES = ("openshell", "unmanaged")
 # What this parser writes, and the writer its envelope names: the module and the package's
 # version (``asago-injection-spec``).
 RECEIPT_WRITER = "asago_injection_spec.sealed"
@@ -363,15 +366,21 @@ def parse_sealed(
     adapter_revision: str | None = None,
     driver: str = DEFAULT_ROUTE,
     delivery_path: str | Path | None = None,
+    runtime: str | None = None,
+    runtime_evidence: Iterable[str] = (),
 ) -> dict[str, Any]:
     """Write the receipt of one sealed evaluation to ``out_path`` and return it.
 
-    ``driver`` names the client that drove this run of the evaluation (one of ``ROUTES``),
-    and ``delivery_path`` the runner's ``delivery.json`` of the snapshot, if it wrote one.
+    ``driver`` names the client that drove this run of the evaluation (one of ``ROUTES``).
+    ``runtime`` names how the run's target was hosted (one of ``RUNTIME_TYPES``), with
+    ``runtime_evidence`` the facts that support it (``runtime_block``); a caller that records
+    neither leaves the optional ``evaluation.runtime`` out. ``delivery_path`` names the
+    runner's ``delivery.json`` of the snapshot, if it wrote one.
     """
 
     if driver not in ROUTES:
         raise ParseError(f"unknown driver {driver!r}; the drivers are {list(ROUTES)}")
+    recorded_runtime = runtime_block(runtime, runtime_evidence)
     compiled = read_compiled(Path(episode_dir))
     out = Path(out_path)
     snapshot, reason = read_document(Path(snapshot_path), "snapshot", snapshot_shape)
@@ -403,7 +412,9 @@ def parse_sealed(
         "incomplete_reason": reason,
         "attempts": [attempt] if attempt else [],
         "native": native_files(tuple(native), out.parent),
-        "evaluation": evaluation_block(driver, snapshot, verdict, delivery, plan),
+        "evaluation": evaluation_block(
+            driver, snapshot, verdict, delivery, plan, recorded_runtime
+        ),
     }
     receipt = write_receipt(receipt, writer=RECEIPT_WRITER, writer_version=RECEIPT_WRITER_VERSION)
     _read_back(receipt, out)
@@ -1109,23 +1120,47 @@ def judge_of(level: str, grade: dict[str, Any], outcome: str) -> dict[str, Any] 
     }
 
 
+def runtime_block(runtime: str | None, evidence: Iterable[str] = ()) -> dict[str, Any] | None:
+    """Return the receipt's ``evaluation.runtime``: how the run's target was hosted.
+
+    ``None`` when the caller records no runtime, so the receipt leaves the optional key out
+    and reads as one written before the field. ``runtime`` is one of ``RUNTIME_TYPES`` and
+    the evidence keeps the caller's order; the list may be empty. Evidence without a runtime
+    is refused: a receipt cannot state facts for a type it does not name.
+    """
+
+    facts = list(evidence)
+    if runtime is None:
+        if facts:
+            raise ParseError(
+                "runtime evidence needs a runtime: the evidence must support a stated runtime"
+            )
+        return None
+    if runtime not in RUNTIME_TYPES:
+        raise ParseError(f"unknown runtime {runtime!r}; the runtimes are {list(RUNTIME_TYPES)}")
+    return {"type": runtime, "evidence": facts}
+
+
 def evaluation_block(
     driver: str,
     snapshot: dict[str, Any] | None,
     verdict: dict[str, Any] | None,
     delivery: dict[str, Any] | None = None,
     plan: Plan | None = None,
+    runtime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return what the receipt names of the evaluation's run; a file that cannot be read is null.
 
     An attack outcome field the grade lacks (sealed before 13d5487) is null, as are
     ``delivery`` and ``exposure`` without a delivery document: unknown, never False. ``plan``
     is the evaluation's plan (``read_plan``), or None when the sealed result does not hold
-    together, so the outcomes' placements cannot be established.
+    together, so the outcomes' placements cannot be established. ``runtime`` is what the
+    caller recorded of how the target was hosted (``runtime_block``); the key is left out
+    when it recorded none, so the receipt reads as one written before the field existed.
     """
 
     grade = verdict["grade"] if verdict else None
-    return {
+    block = {
         "driver": driver,
         "evaluation_id": snapshot["evaluation_id"] if snapshot else None,
         "snapshot_id": snapshot["snapshot_id"] if snapshot else None,
@@ -1146,6 +1181,9 @@ def evaluation_block(
         else [_unplaced(fact) for fact in delivery["delivery"]],
         "exposure": None if delivery is None else _exposure(delivery["exposure"]),
     }
+    if runtime is not None:
+        block["runtime"] = runtime
+    return block
 
 
 def _unplaced(item: dict[str, Any]) -> dict[str, Any]:

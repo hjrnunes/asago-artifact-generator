@@ -6,9 +6,9 @@ tool. The Garak adapter and the MiDojo adapter write it as
 of execution evidence reads it: the orchestrator projects and composes it, and
 the consumer's conformance runner validates what each adapter wrote.
 
-The consumer owns this contract; `asago-orch/contracts/execution-receipt/`
-mirrors it byte for byte, and `asago-bundle-core` ships the copy its reader
-enforces.
+The consumer owns this contract and `asago-bundle-core` ships the copy its
+reader enforces; that package's test refuses a copy which differs from this
+directory.
 
 ## The document
 
@@ -18,6 +18,21 @@ attempt per repeat, the native files the tool wrote, and, for a planted-item
 run, the `evaluation` block. `schema.json` is the runtime schema, `cases/`
 holds the valid and invalid documents with `expected-violations.json`, and
 `spec.json` names them.
+
+## The recorded runtime
+
+`evaluation.runtime` is optional. A receipt whose caller recorded no runtime
+leaves the key out, so it reads as one written before the field existed. When
+the key is there, it holds exactly two members:
+
+| member | value |
+| --- | --- |
+| `type` | `openshell` when the caller started the target in OpenShell, `unmanaged` when it started the target without a sandbox |
+| `evidence` | the facts behind the type, in the caller's order; the list may be empty |
+
+`asago-bundle-midojo parse` records the type from `--runtime` and each fact
+from a repeatable `--runtime-evidence`; without the flags it records neither.
+The Garak adapter records no runtime.
 
 ## What v2 renames
 

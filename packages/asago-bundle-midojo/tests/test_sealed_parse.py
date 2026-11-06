@@ -25,6 +25,7 @@ from injection_spec_cases import (
     EPISODES,
     EPISODES_A5F81E9,
     PLANTED,
+    RECEIPTS,
     SEQUENTIAL_TURNS,
     SINGLE_TURNS,
 )
@@ -762,6 +763,109 @@ def test_a_driver_that_does_not_exist_yet_is_refused(tmp_path: Path) -> None:
             run / "verdict.json",
             run / "r.json",
             driver="pyrit",
+        )
+    assert not (run / "r.json").exists()
+
+
+def test_the_receipt_records_the_runtime_and_its_evidence_in_order(tmp_path: Path) -> None:
+    run = run_dir(tmp_path, "command-single", "detected")
+
+    receipt = parse_sealed(
+        EPISODES / "command-single",
+        run / "snapshot.json",
+        run / "verdict.json",
+        run / "r.json",
+        runtime="unmanaged",
+        runtime_evidence=("the gateway ran on the host", "the run recorded no sandbox"),
+    )
+
+    assert receipt["evaluation"]["runtime"] == {
+        "type": "unmanaged",
+        "evidence": ["the gateway ran on the host", "the run recorded no sandbox"],
+    }
+    jsonschema.validate(receipt_payload(receipt), SCHEMA)
+
+
+def test_a_runtime_may_record_no_evidence(tmp_path: Path) -> None:
+    run = run_dir(tmp_path, "command-single", "detected")
+
+    receipt = parse_sealed(
+        EPISODES / "command-single",
+        run / "snapshot.json",
+        run / "verdict.json",
+        run / "r.json",
+        runtime="openshell",
+    )
+
+    assert receipt["evaluation"]["runtime"] == {"type": "openshell", "evidence": []}
+
+
+def test_a_receipt_without_a_runtime_has_no_runtime_key(tmp_path: Path) -> None:
+    receipt = parsed(tmp_path, "command-single", "detected")
+
+    assert "runtime" not in receipt["evaluation"]
+
+
+def test_a_parse_without_a_runtime_writes_the_saved_receipt_byte_for_byte(
+    tmp_path: Path,
+) -> None:
+    """A parse with no runtime flags writes the receipt recorded before the amendment.
+
+    ``fixtures/receipts/command-single-detected.json`` is what ``parse_sealed`` wrote for this
+    run at consumer fd0de5a. The amendment moved the envelope's ``spec_digest`` (a spec's
+    identity covers its schema, and the schema now declares the optional runtime), so the
+    comparison carries that one envelope field over; every other byte must match, so a parse
+    that recorded a runtime key or reshaped anything else fails here.
+    """
+
+    run = run_dir(tmp_path, "command-single", "detected")
+    out = run / "receipt.json"
+
+    receipt = parse_sealed(
+        EPISODES / "command-single",
+        run / "snapshot.json",
+        run / "verdict.json",
+        out,
+        tool_revision="3824922f",
+        adapter_revision="abc123",
+    )
+
+    saved = _read(RECEIPTS / "command-single-detected.json")
+    written = out.read_text(encoding="utf-8")
+    recorded_digest = saved["contract"]["spec_digest"]
+
+    assert written == (RECEIPTS / "command-single-detected.json").read_text(
+        encoding="utf-8"
+    ).replace(
+        f'"spec_digest": "{recorded_digest}"',
+        f'"spec_digest": "{receipt["contract"]["spec_digest"]}"',
+    )
+
+
+def test_a_runtime_that_does_not_exist_yet_is_refused(tmp_path: Path) -> None:
+    run = run_dir(tmp_path, "command-single", "detected")
+
+    with pytest.raises(ParseError, match="unknown runtime 'sandboxed'"):
+        parse_sealed(
+            EPISODES / "command-single",
+            run / "snapshot.json",
+            run / "verdict.json",
+            run / "r.json",
+            runtime="sandboxed",
+        )
+    assert not (run / "r.json").exists()
+
+
+def test_runtime_evidence_without_a_runtime_is_refused(tmp_path: Path) -> None:
+    run = run_dir(tmp_path, "command-single", "detected")
+
+    with pytest.raises(ParseError, match="runtime evidence needs a runtime"):
+        parse_sealed(
+            EPISODES / "command-single",
+            run / "snapshot.json",
+            run / "verdict.json",
+            run / "r.json",
+            runtime_evidence=("the run recorded no sandbox",),
         )
     assert not (run / "r.json").exists()
 

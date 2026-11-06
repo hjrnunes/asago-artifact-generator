@@ -44,8 +44,8 @@
     "execution-receipt-v1/cases/valid/midojo-openshell-http-requests.json": "0a077505f764660184c70d39fb086ff8b0de0aae74c1fd1a2b7f69cd93d27190",
     "execution-receipt-v1/schema.json": "178e569b9cd6a345e9396da19eb82a11f56abce7346913035c52c0801435d1a2",
     "execution-receipt-v1/spec.json": "e920c7e5342468d903c6b314bae5ea7c6c6d4d2a91445d6f964b8553446b1f41",
-    "execution-receipt-v2/README.md": "f408c739e281a53112ee5cbb84db528070ec0c5dffd0ebd5066e3e93a1aa8b2c",
-    "execution-receipt-v2/cases/expected-violations.json": "58cc4a05a7ce8e36318f66fedf85d3ec1de8910d941a1041a3ba9a3c7d428ac1",
+    "execution-receipt-v2/README.md": "2419c543961fcfe59a8ba5fba538f9e04b35cd15c326aa843f0afa757e5a6117",
+    "execution-receipt-v2/cases/expected-violations.json": "65e7b4419c18d56c2548e076ed21d08854399277a839cb1c51cc3b103e57bcb8",
     "execution-receipt-v2/cases/invalid/blank-tool-id.json": "a02fa4b6f4be4ca63a46eaf056f45176926afef286b3d631a388f13a53024599",
     "execution-receipt-v2/cases/invalid/episode-attempted-not-three-valued.json": "c0c71fc504fa82af0f799199d0d86ded269e8a5ad348a13303b04e698b659c57",
     "execution-receipt-v2/cases/invalid/episode-exposure-unknown-status.json": "2d365f4007d40d4820ca9bba628309284140c435c0da83f2e522bf12b1a46c9f",
@@ -61,6 +61,9 @@
     "execution-receipt-v2/cases/invalid/missing-attempts.json": "186fcdb37df1e229d8deb0a0450e9b9ec105e4e43f1e03f5c8b737d6205d5d5b",
     "execution-receipt-v2/cases/invalid/native-path-escapes.json": "d3201d50d5b1c2ebcd357a4d7386178c6a3021c1e395652441485edd0a2d8300",
     "execution-receipt-v2/cases/invalid/negative-request-count.json": "f7bb33a757dbaf2594b78c6850de69c7527c6a953a9c4d764ef4479f17635476",
+    "execution-receipt-v2/cases/invalid/runtime-unknown-field.json": "b36a320bfa46e8b344a3b14439aeedba609e7349a2a5b231e9fbd2cb561ac422",
+    "execution-receipt-v2/cases/invalid/runtime-unknown-type.json": "8f05adb23a76d597fee621ef5ed0844fa2c50603f66a4623ac04fc855ad75f8a",
+    "execution-receipt-v2/cases/invalid/runtime-without-evidence.json": "6cba65373546f37dcd3d7de90658b8096c811278d0a1f5258f9e6eaaefa96127",
     "execution-receipt-v2/cases/invalid/runtime-without-source.json": "1f1102a98d0b1c4fe0bc5f64a1ae1eac1b95c2c552782c47dd0df782eaf7ef18",
     "execution-receipt-v2/cases/invalid/schema-version-v0.json": "3ae073104ea15ecd78bacd52ec503e88b8ca230a7411a7c25bc56c651162fdae",
     "execution-receipt-v2/cases/invalid/tool-call-without-turn-index.json": "fe4375ddba365391b49fd81570f68609862334ad0a8e2b649464649d950eb2b0",
@@ -83,7 +86,10 @@
     "execution-receipt-v2/cases/valid/midojo-episode-unknown.json": "a9f0ff7affa4e3f8294d80dea62909e0a78299f76f333d01c0edec20dfca1ef0",
     "execution-receipt-v2/cases/valid/midojo-openshell-http-requests-empty.json": "d6dbbb480851b74e23d780493ab0a9e7c283c4ea8f65704cbb0b375a441e4b6e",
     "execution-receipt-v2/cases/valid/midojo-openshell-http-requests.json": "711c3aae36173fee31bc18b082c5786556ade79bf56bd3356e6c4168c7b6c25c",
-    "execution-receipt-v2/schema.json": "46474ab8856c5d5dc53043697a68a19f169178bf41ef91eb1452ef2c46b1e43f",
-    "execution-receipt-v2/spec.json": "59d204940b7f6962d35522fe0d80adc5e3c79dfe6813ac81a9909a033a35f869"
+    "execution-receipt-v2/cases/valid/midojo-runtime-openshell-without-evidence.json": "66e6478607621eb040e56ddb583e29b7ce0a3af0cde0fc0cff84c99b51fa0cdb",
+    "execution-receipt-v2/cases/valid/midojo-runtime-openshell.json": "da63e29b7c5f1f1617a780a7c4aa3db158a80cd00591fc72c2c2c84716903385",
+    "execution-receipt-v2/cases/valid/midojo-runtime-unmanaged.json": "71b8cda2a2afd26f94acc1b00e48d43b93da30f2fdf5f712f20fc2f5662a1693",
+    "execution-receipt-v2/schema.json": "737da5bdde05cfd0ad3879ea540c2683501e297fbd27cdd063d2ed00f7070cd8",
+    "execution-receipt-v2/spec.json": "d8f6ad60b5c0377b1abec7caa4e339dec33d22459584cd85551231d4008ec837"
   }
 }

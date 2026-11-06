@@ -186,6 +186,20 @@
             "model_input": {"$ref": "#/$defs/exposure_status"},
             "instructions": {"type": "array", "items": {"$ref": "#/$defs/instruction_exposure"}}
           }
+        },
+        "runtime": {
+          "description": "Optional; how the run's target was hosted, as the caller that started it recorded: unmanaged when it started the target without a sandbox, openshell when it started the target in OpenShell. Absent when the receipt records no runtime, which says nothing about how the target ran.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "evidence"],
+          "properties": {
+            "type": {"enum": ["openshell", "unmanaged"]},
+            "evidence": {
+              "description": "The facts behind the type, in the caller's order; empty when it recorded none.",
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          }
         }
       }
     }
