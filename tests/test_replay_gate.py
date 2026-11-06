@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1425,6 +1426,256 @@ def test_gate_fails_an_entry_the_recording_carries_but_matches_nothing(
     assert entry.from_prompt_version in report
 
 
+# --- declared superseded items ----------------------------------------------------
+
+
+def _superseded(
+    *,
+    recording: str = "run-test",
+    item: str = TASK_ID,
+    dispatch_index: int = 1,
+    stage: str = "call1",
+    prompt_version: str = CALL1_PROMPT_VERSION_V29,
+    prompt_sha256: str = "a" * 64,
+    bead: str = "asago-t971",
+    reason: str = "t971 re-authors the recorded item",
+) -> replay_gate.SupersededItem:
+    """Return one item-level superseded declaration, as the checked-in tuple holds."""
+
+    return replay_gate.SupersededItem(
+        recording=recording,
+        item=item,
+        dispatch_index=dispatch_index,
+        stage=stage,
+        prompt_version=prompt_version,
+        prompt_sha256=prompt_sha256,
+        bead=bead,
+        reason=reason,
+    )
+
+
+def _recorded_digest_at(stage: Path, dispatch_index: int) -> str:
+    """Return the digest the recording states for one dispatch's prompt."""
+
+    document = json.loads(_evidence_path(stage).read_text(encoding="utf-8"))
+    return _prompt_digest(_recorded_attempt(document, dispatch_index))
+
+
+def _superseded_mismatch(dispatch_index: int = 1, stage: str = "call1") -> dict[str, Any]:
+    return {
+        "dispatch_index": dispatch_index,
+        "stage": stage,
+        "prompt_version": CALL1_PROMPT_VERSION_V29,
+        "detail": "user message differs from the recording",
+    }
+
+
+def test_the_shipped_superseded_declarations_name_the_two_stale_recorded_dispatches() -> None:
+    assert [
+        (
+            entry.recording,
+            entry.item,
+            entry.dispatch_index,
+            entry.stage,
+            entry.prompt_version,
+            entry.prompt_sha256,
+            entry.bead,
+        )
+        for entry in replay_gate.SUPERSEDED_ITEMS
+    ] == [
+        (
+            "gsx7-author-klarna",
+            "SCN-008",
+            5,
+            "correction",
+            "authoring-correction-v48",
+            "7cc506ba61d32ff62e51a26f4672fc12b52615f56586521bfcee269e41da9923",
+            "asago-t971",
+        ),
+        (
+            "m3-rerecord-b-klarna",
+            "SCN-003",
+            7,
+            "artifact_review",
+            "authoring-artifact-review-v27",
+            "ac58517d4ebe04d4342aef10463491987991e2caf4c17fba599534f21a00cbe3",
+            "asago-t971",
+        ),
+    ]
+    assert all(entry.reason for entry in replay_gate.SUPERSEDED_ITEMS)
+
+
+def test_gate_declares_a_superseded_item_and_passes(
+    unresolved_stage: Path, tmp_path: Path
+) -> None:
+    _rewrite_prompt(unresolved_stage, 1, user="the prompt asago-t971 replaced")
+    entry = _superseded(prompt_sha256=_recorded_digest_at(unresolved_stage, 1))
+
+    result = run_gate(unresolved_stage, work=tmp_path / "work", superseded=(entry,))
+
+    assert result.passed, result.report()
+    assert result.superseded == [entry] and result.stale_superseded == []
+    [item] = result.items
+    assert item.superseded == entry and item.passed
+    assert item.mismatches == [_superseded_mismatch()]
+    assert item.served == 0
+    report = result.report()
+    assert "superseded: 1 declared superseded items" in report
+    assert (
+        "  superseded: run-test SCN-901 dispatch 1"
+        f" (call1, {CALL1_PROMPT_VERSION_V29}): bead asago-t971:"
+        " t971 re-authors the recorded item"
+    ) in report
+    assert asdict(item)["superseded"]["recording"] == "run-test"
+
+
+def test_gate_fails_a_superseded_declaration_at_another_dispatch(
+    unresolved_stage: Path, tmp_path: Path
+) -> None:
+    _rewrite_prompt(unresolved_stage, 2, user="a later prompt asago-t971 did not declare")
+    entry = _superseded(prompt_sha256=_recorded_digest_at(unresolved_stage, 1))
+
+    result = run_gate(unresolved_stage, work=tmp_path / "work", superseded=(entry,))
+
+    assert not result.passed
+    assert result.superseded == [] and result.stale_superseded == [entry]
+    [item] = result.items
+    assert item.superseded is None and not item.passed
+    assert item.mismatches[0]["dispatch_index"] == 2
+    assert "stale superseded item" in result.report()
+
+
+def test_gate_fails_a_superseded_declaration_the_recording_no_longer_mismatches(
+    unresolved_stage: Path, tmp_path: Path
+) -> None:
+    entry = _superseded(prompt_sha256=_recorded_digest_at(unresolved_stage, 1))
+
+    result = run_gate(unresolved_stage, work=tmp_path / "work", superseded=(entry,))
+
+    assert not result.passed
+    assert result.superseded == [] and result.stale_superseded == [entry]
+    [item] = result.items
+    assert item.passed and item.superseded is None
+    report = result.report()
+    assert "superseded: 0 declared superseded items" in report
+    assert "stale superseded item" in report
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [{"recording": "another-recording"}, {"item": "SCN-902"}],
+    ids=["another-recording", "another-item"],
+)
+def test_a_superseded_declaration_for_another_recording_or_item_excuses_nothing(
+    unresolved_stage: Path, tmp_path: Path, changes: dict[str, str]
+) -> None:
+    _rewrite_prompt(unresolved_stage, 1, user="the prompt no declaration excuses")
+    entry = _superseded(prompt_sha256=_recorded_digest_at(unresolved_stage, 1), **changes)
+
+    result = run_gate(unresolved_stage, work=tmp_path / "work", superseded=(entry,))
+
+    assert not result.passed
+    assert result.superseded == [] and result.stale_superseded == []
+    [item] = result.items
+    assert item.superseded is None and not item.passed
+    assert item.mismatches[0]["dispatch_index"] == 1
+
+
+def test_gate_fails_a_superseded_declaration_with_another_prompt_digest(
+    unresolved_stage: Path, tmp_path: Path
+) -> None:
+    _rewrite_prompt(unresolved_stage, 1, user="the prompt the declared digest does not name")
+    entry = _superseded(prompt_sha256="0" * 64)
+
+    result = run_gate(unresolved_stage, work=tmp_path / "work", superseded=(entry,))
+
+    assert not result.passed
+    assert result.superseded == [] and result.stale_superseded == [entry]
+    [item] = result.items
+    assert item.superseded is None and not item.passed
+
+
+def test_a_superseded_item_still_fails_on_a_network_attempt() -> None:
+    entry = _superseded()
+    item = _item(
+        TASK_ID,
+        "unresolved",
+        exit_code=1,
+        status="transport_failure",
+        served=0,
+        mismatches=[_superseded_mismatch()],
+        network_attempts=["resolve a.invalid"],
+        superseded=entry,
+    )
+
+    assert not item.passed
+
+
+def test_stage_report_names_each_superseded_item() -> None:
+    entry = _superseded(
+        recording="gsx7-author-klarna",
+        item="SCN-008",
+        dispatch_index=5,
+        stage="correction",
+        prompt_version="authoring-correction-v48",
+        reason="fd0de5a adds the binding_in_fixed_turn finding",
+    )
+    item = _item(
+        "SCN-008",
+        "accepted",
+        exit_code=1,
+        status="transport_failure",
+        served=4,
+        unused=1,
+        mismatches=[
+            {
+                "dispatch_index": 5,
+                "stage": "correction",
+                "prompt_version": "authoring-correction-v48",
+                "detail": "user message differs from the recording",
+            }
+        ],
+        differences=[Difference("SCN-008/checks.json", "only in recording")],
+        superseded=entry,
+    )
+    result = GateResult(
+        stage_dir=Path("/corpus/consumer/gsx7-author-klarna/stages/author"),
+        work=Path("/w"),
+        items=[item],
+        superseded=[entry],
+    )
+
+    report = result.report()
+
+    assert result.passed
+    assert "superseded: 1 declared superseded items" in report
+    assert (
+        "  superseded: gsx7-author-klarna SCN-008 dispatch 5"
+        " (correction, authoring-correction-v48): bead asago-t971:"
+        " fd0de5a adds the binding_in_fixed_turn finding"
+    ) in report
+
+
+def test_stage_report_names_a_stale_superseded_item() -> None:
+    entry = _superseded()
+    result = GateResult(
+        stage_dir=Path("/corpus/consumer/run-test/stages/author"),
+        work=Path("/w"),
+        items=[_item("SCN-1", "accepted")],
+        stale_superseded=[entry],
+    )
+
+    report = result.report()
+
+    assert not result.passed
+    assert "superseded: 0 declared superseded items" in report
+    assert (
+        "  stale superseded item: run-test SCN-901 dispatch 1"
+        f" (call1, {CALL1_PROMPT_VERSION_V29}): bead asago-t971:"
+        " the recording no longer mismatches at the declared dispatch"
+    ) in report
+
+
 # --- report and command line ------------------------------------------------------
 
 
@@ -1478,6 +1729,7 @@ def test_stage_report_lists_totals_and_each_failure_in_order() -> None:
         "dispatches: 8 served",
         "declared:   0 prompt differences",
         "layout:     0 declared package layouts",
+        "superseded: 0 declared superseded items",
         "files:      12 compared",
         "time:       12.3s",
         "failed:     1",
@@ -1534,6 +1786,7 @@ def test_summary_totals_every_stage() -> None:
             "dispatches:      8 served",
             "prompt declared: 0",
             "layout declared: 0",
+            "superseded:      0",
             "prompt mismatch: 1",
             "stale entries:   0",
             "wall time:       61.0s",
@@ -1568,6 +1821,44 @@ def test_summary_fails_when_an_entry_is_stale() -> None:
     assert lines[-1] == "FAIL"
 
 
+def test_summary_counts_superseded_items() -> None:
+    entry = _superseded()
+    item = _item(
+        TASK_ID,
+        "unresolved",
+        exit_code=1,
+        status="transport_failure",
+        served=0,
+        mismatches=[_superseded_mismatch()],
+        superseded=entry,
+    )
+    result = GateResult(
+        stage_dir=Path("/a/run-test/stages/author"),
+        work=Path("/w"),
+        items=[item],
+        superseded=[entry],
+    )
+
+    lines = _summary([result], 1.0).splitlines()
+
+    assert "superseded:      1" in lines
+    assert lines[-1] == "PASS"
+
+
+def test_summary_fails_when_a_superseded_declaration_is_stale() -> None:
+    stale = GateResult(
+        stage_dir=Path("/a/run-test/stages/author"),
+        work=Path("/w"),
+        items=[_item("SCN-1", "accepted")],
+        stale_superseded=[_superseded()],
+    )
+
+    lines = _summary([stale], 1.0).splitlines()
+
+    assert "stale entries:   1" in lines
+    assert lines[-1] == "FAIL"
+
+
 def test_main_passes_a_recorded_stage_and_removes_its_temporary_scratch(
     unresolved_stage: Path,
     tmp_path: Path,
@@ -1590,6 +1881,8 @@ def test_main_passes_a_recorded_stage_and_removes_its_temporary_scratch(
     assert stage["stage_dir"] == str(unresolved_stage.resolve())
     assert [item["item_id"] for item in stage["items"]] == [TASK_ID]
     assert stage["items"][0]["served"] == 2
+    assert stage["stale"] == []
+    assert stage["superseded"] == [] and stage["stale_superseded"] == []
     assert not scratch.exists()
 
 
@@ -1602,6 +1895,28 @@ def test_main_keeps_the_scratch_directory_when_asked(
     assert replay_gate.main(["check", str(unresolved_stage), "--keep"]) == 0
 
     assert (scratch / "00-run-test" / "items" / f"{TASK_ID}.log").is_file()
+
+
+def test_main_uses_the_declared_superseded_items(
+    unresolved_stage: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _rewrite_prompt(unresolved_stage, 1, user="the prompt asago-t971 replaced")
+    entry = _superseded(prompt_sha256=_recorded_digest_at(unresolved_stage, 1))
+    monkeypatch.setattr(replay_gate, "SUPERSEDED_ITEMS", (entry,))
+
+    code = replay_gate.main(["check", str(unresolved_stage), "--work-dir", str(tmp_path / "w")])
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert (
+        "  superseded: run-test SCN-901 dispatch 1"
+        f" (call1, {CALL1_PROMPT_VERSION_V29}): bead asago-t971:"
+    ) in output
+    assert "superseded:      1" in output
+    assert output.splitlines()[-1] == "PASS"
 
 
 def test_main_fails_on_a_difference_and_keeps_the_work_dir(

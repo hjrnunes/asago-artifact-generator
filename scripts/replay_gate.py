@@ -30,6 +30,16 @@ as declared, and compares the outputs the change produces.  A difference no
 entry declares fails, and so does an entry whose from-version the replayed
 recording carries but which matches no difference: it is stale.
 
+An item the code intentionally no longer reproduces is declared superseded in
+:data:`SUPERSEDED_ITEMS` instead.  The gate still replays the item, and it
+counts as superseded only when its one prompt mismatch is the declared
+dispatch and every earlier dispatch was served identically; its divergent exit
+code, status and outputs then follow from that one change.  Each declaration
+is pinned to the recording, item, dispatch, recorded stage and version, and the
+recorded prompt digest, so a re-recorded or edited recording does not inherit
+it.  A declaration whose recording no longer mismatches at the declared
+dispatch is stale, and the gate fails.
+
 A recording made while packages still copied each request (``authoring/``
 members, ``source-hashes.json``, a manifest ledger, and the ``<ID>.authoring/``
 request files of a failed item) is compared as the current writer lays it out:
@@ -159,6 +169,73 @@ class ExpectedPromptDifference:
 # correction v47), so no entry is live: the fourteen the M1 baseline and the
 # term.2 and term.7 changes added were inert, and bead asago-sy73 lists them.
 EXPECTED_PROMPT_DIFFERENCES: tuple[ExpectedPromptDifference, ...] = ()
+
+
+@dataclass(frozen=True)
+class SupersededItem:
+    """One recorded item a later code change intentionally no longer reproduces.
+
+    *recording* is the recording's folder name under the corpus ``consumer/``
+    directory, and *item* the item id inside it.  *dispatch_index* is the
+    recorded dispatch the code no longer renders, with its *stage* and
+    *prompt_version*; *prompt_sha256* is the recorded prompt digest over the
+    stage, version and both messages.  *bead* owns the change and *reason*
+    says why the item is superseded.
+
+    The item is still replayed.  It counts as superseded only when its one
+    prompt mismatch is the declared dispatch and every earlier dispatch was
+    served identically, so its divergent exit code, status and outputs follow
+    from that one change.  A declaration whose recording replays the item
+    without that mismatch, or whose recorded dispatch carries another prompt
+    digest, is stale: remove it.
+    """
+
+    recording: str
+    item: str
+    dispatch_index: int
+    stage: str
+    prompt_version: str
+    prompt_sha256: str
+    bead: str
+    reason: str
+
+
+# Keep this list short: one entry per item the code no longer reproduces, and
+# no entry once that item is re-recorded.  Neither stale t971 item fits
+# EXPECTED_PROMPT_DIFFERENCES, which `_declared_prompt_difference` restricts
+# to a changed version at the same stage: consumer fd0de5a adds the
+# binding_in_fixed_turn finding, so the gsx7 correction prompt differs at an
+# unchanged version and m3 issues a correction where the recording holds an
+# artifact review.  Both items are replayed, and each declaration excuses only
+# the one dispatch it names.
+SUPERSEDED_ITEMS: tuple[SupersededItem, ...] = (
+    SupersededItem(
+        recording="gsx7-author-klarna",
+        item="SCN-008",
+        dispatch_index=5,
+        stage="correction",
+        prompt_version="authoring-correction-v48",
+        prompt_sha256="7cc506ba61d32ff62e51a26f4672fc12b52615f56586521bfcee269e41da9923",
+        bead="asago-t971",
+        reason=(
+            "fd0de5a adds the binding_in_fixed_turn finding to the correction user"
+            " message; the re-author records SCN-008 again"
+        ),
+    ),
+    SupersededItem(
+        recording="m3-rerecord-b-klarna",
+        item="SCN-003",
+        dispatch_index=7,
+        stage="artifact_review",
+        prompt_version="authoring-artifact-review-v27",
+        prompt_sha256="ac58517d4ebe04d4342aef10463491987991e2caf4c17fba599534f21a00cbe3",
+        bead="asago-t971",
+        reason=(
+            "fd0de5a adds the binding_in_fixed_turn finding, so the code issues a"
+            " correction where the recording holds an artifact review"
+        ),
+    ),
+)
 
 
 def prompt_template(version: str) -> str:
@@ -1179,12 +1256,25 @@ class ItemResult:
     # describes: the recorded checks.json had no findings and the replay adds
     # advisory findings alone.
     layout_declared: bool = False
+    # The declaration that supersedes this item's one prompt mismatch, when
+    # the gate matched it; see :class:`SupersededItem`.
+    superseded: SupersededItem | None = None
     error: str | None = None
     log_tail: list[str] = field(default_factory=list)
     seconds: float = 0.0
 
     @property
     def passed(self) -> bool:
+        if self.superseded is not None:
+            # The replay stops at the declared dispatch, so its exit code,
+            # status and outputs cannot match the recording.  The prefix guard
+            # is the evidence that nothing else diverged; an error or a network
+            # attempt still fails the item.
+            return (
+                self.error is None
+                and not self.network_attempts
+                and _superseded_mismatch(self) is not None
+            )
         return (
             self.error is None
             and self.exit_code == self.recorded_exit_code
@@ -1196,18 +1286,49 @@ class ItemResult:
         )
 
 
+def _superseded_mismatch(item: ItemResult) -> dict[str, Any] | None:
+    """Return the prompt mismatch a superseded declaration excuses, if it does.
+
+    The declaration excuses only the declared dispatch: the item's one prompt
+    mismatch must name its index, recorded stage and recorded version, and
+    every earlier dispatch must have been served identically.
+    """
+
+    entry = item.superseded
+    if entry is None or len(item.mismatches) != 1 or item.declared:
+        return None
+    mismatch = item.mismatches[0]
+    if (
+        mismatch.get("dispatch_index") != entry.dispatch_index
+        or mismatch.get("stage") != entry.stage
+        or mismatch.get("prompt_version") != entry.prompt_version
+        or mismatch.get("detail") not in _PROMPT_DETAILS
+    ):
+        return None
+    if item.served != entry.dispatch_index - 1:
+        return None
+    return mismatch
+
+
 @dataclass
 class GateResult:
     stage_dir: Path
     work: Path
     items: list[ItemResult] = field(default_factory=list)
     stale: list[ExpectedPromptDifference] = field(default_factory=list)
+    superseded: list[SupersededItem] = field(default_factory=list)
+    stale_superseded: list[SupersededItem] = field(default_factory=list)
     skipped: int = 0
     seconds: float = 0.0
 
     @property
     def passed(self) -> bool:
-        return bool(self.items) and not self.stale and all(item.passed for item in self.items)
+        return (
+            bool(self.items)
+            and not self.stale
+            and not self.stale_superseded
+            and all(item.passed for item in self.items)
+        )
 
     def report(self, limit: int = 10) -> str:
         failed = [item for item in self.items if not item.passed]
@@ -1221,12 +1342,25 @@ class GateResult:
             f"dispatches: {sum(item.served for item in self.items)} served",
             f"declared:   {len(declared)} prompt differences",
             f"layout:     {len(layouts)} declared package layouts",
+            f"superseded: {len(self.superseded)} declared superseded items",
             f"files:      {sum(item.files_compared for item in self.items)} compared",
             f"time:       {self.seconds:.1f}s",
             f"failed:     {len(failed)}",
         ]
         for item_id in layouts[:limit]:
             lines.append(f"  layout declared: {item_id}")
+        for entry in self.superseded[:limit]:
+            lines.append(
+                f"  superseded: {entry.recording} {entry.item} dispatch {entry.dispatch_index}"
+                f" ({entry.stage}, {entry.prompt_version}): bead {entry.bead}: {entry.reason}"
+            )
+        for entry in self.stale_superseded[:limit]:
+            lines.append(
+                f"  stale superseded item: {entry.recording} {entry.item}"
+                f" dispatch {entry.dispatch_index} ({entry.stage}, {entry.prompt_version}):"
+                f" bead {entry.bead}: the recording no longer mismatches at the"
+                " declared dispatch"
+            )
         for item_id, record in declared[:limit]:
             lines.append(
                 f"  declared: {item_id} dispatch {record['dispatch_index']}"
@@ -1250,6 +1384,73 @@ class GateResult:
 def _status_counts(items: Iterable[ItemResult], attribute: str) -> str:
     statuses = Counter(getattr(item, attribute) for item in items)
     return ", ".join(f"{name} {count}" for name, count in sorted(statuses.items(), key=str))
+
+
+def recording_id(stage_dir: Path) -> str:
+    """Return the corpus recording id of an author stage directory.
+
+    A recording sits at ``consumer/<recording>/stages/author``, so the folder
+    two levels above the stage directory names it.
+    """
+
+    return Path(stage_dir).resolve().parent.parent.name
+
+
+def _recorded_dispatch(stage_dir: Path, entry: SupersededItem) -> RecordedCall | None:
+    """Return the recorded dispatch a superseded declaration pins, if it exists."""
+
+    evidence = stage_dir / "output" / f"{entry.item}{FAILURE_EVIDENCE_SUFFIX}"
+    try:
+        calls = load_recorded_calls(evidence)
+    except (OSError, ReplayRecordError, KeyError, ValueError):
+        return None
+    return next(
+        (call for call in calls if call.dispatch_index == entry.dispatch_index),
+        None,
+    )
+
+
+def _apply_superseded_items(
+    stage_dir: Path,
+    items: Sequence[ItemResult],
+    entries: Sequence[SupersededItem],
+) -> tuple[list[SupersededItem], list[SupersededItem]]:
+    """Attach each matching superseded declaration to its item.
+
+    Returns the declarations that matched and the stale ones.  A declaration
+    applies to the recording whose folder name it names.  It is stale when that
+    recording replays its item and the declared dispatch is not the item's one
+    prompt mismatch, or when the recorded dispatch carries another prompt
+    digest.  An item this run did not replay is left alone, so ``--item``
+    narrows the replay without making the other declarations stale.
+    """
+
+    recording = recording_id(stage_dir)
+    by_id = {item.item_id: item for item in items}
+    matched: list[SupersededItem] = []
+    stale: list[SupersededItem] = []
+    for entry in entries:
+        if entry.recording != recording:
+            continue
+        item = by_id.get(entry.item)
+        if item is None:
+            continue
+        call = _recorded_dispatch(stage_dir, entry)
+        digest_matches = (
+            call is not None
+            and call.stage == entry.stage
+            and call.prompt_version == entry.prompt_version
+            and _prompt_digest(call.stage, call.prompt_version, call.system, call.user)
+            == entry.prompt_sha256
+        )
+        if digest_matches:
+            item.superseded = entry
+            if _superseded_mismatch(item) is not None:
+                matched.append(entry)
+                continue
+            item.superseded = None
+        stale.append(entry)
+    return matched, stale
 
 
 def _failure_lines(item: ItemResult, limit: int) -> list[str]:
@@ -1425,17 +1626,20 @@ def run_gate(
     jobs: int = 1,
     only: Iterable[str] | None = None,
     declared: Sequence[ExpectedPromptDifference] | None = None,
+    superseded: Sequence[SupersededItem] | None = None,
 ) -> GateResult:
     """Replay every recorded item of one author stage and compare the outputs.
 
     The recorded stage directory is only read.  *only* restricts the replay to
     the named item ids.  *declared* holds the prompt differences the replay
-    declares; it defaults to the checked-in list.
+    declares and *superseded* the items it declares superseded; both default to
+    the checked-in lists.
     """
 
     started = time.perf_counter()
     stage_dir = stage_dir.resolve()
     entries = EXPECTED_PROMPT_DIFFERENCES if declared is None else tuple(declared)
+    superseded_entries = SUPERSEDED_ITEMS if superseded is None else tuple(superseded)
     work = Path(tempfile.mkdtemp(prefix="replay-gate-")) if work is None else work
     work.mkdir(parents=True, exist_ok=True)
     work = work.resolve()
@@ -1467,6 +1671,9 @@ def run_gate(
         _recorded_prompt_identities(stage_dir, result.items),
         [record for item in result.items for record in item.declared],
         entries,
+    )
+    result.superseded, result.stale_superseded = _apply_superseded_items(
+        stage_dir, result.items, superseded_entries
     )
     result.seconds = time.perf_counter() - started
     return result
@@ -1534,7 +1741,9 @@ def _summary(results: Sequence[GateResult], seconds: float) -> str:
     mismatches = sum(len(item.mismatches) for item in items)
     declared = sum(len(item.declared) for item in items)
     layouts = [item.item_id for item in items if item.layout_declared]
+    superseded = [entry for result in results for entry in result.superseded]
     stale = [entry for result in results for entry in result.stale]
+    stale += [entry for result in results for entry in result.stale_superseded]
     layout_line = f"layout declared: {len(layouts)}"
     if layouts:
         layout_line += f" ({', '.join(layouts)})"
@@ -1547,6 +1756,7 @@ def _summary(results: Sequence[GateResult], seconds: float) -> str:
             f"dispatches:      {sum(item.served for item in items)} served",
             f"prompt declared: {declared}",
             layout_line,
+            f"superseded:      {len(superseded)}",
             f"prompt mismatch: {mismatches}",
             f"stale entries:   {len(stale)}",
             f"wall time:       {seconds:.1f}s",
@@ -1594,13 +1804,25 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _declared_superseded() -> tuple[SupersededItem, ...]:
+    """Return the superseded declarations the gate applies, read at call time."""
+
+    return SUPERSEDED_ITEMS
+
+
 def _check(options: argparse.Namespace) -> int:
     root = options.work_dir or Path(tempfile.mkdtemp(prefix="replay-gate-"))
     started = time.perf_counter()
     results = []
     for number, stage_dir in enumerate(options.stage_dirs):
         work = root / f"{number:02d}-{stage_dir.resolve().parent.parent.name}"
-        result = run_gate(stage_dir, work=work, jobs=options.jobs, only=options.item)
+        result = run_gate(
+            stage_dir,
+            work=work,
+            jobs=options.jobs,
+            only=options.item,
+            superseded=_declared_superseded(),
+        )
         print(f"== {stage_dir}")
         print(result.report(options.show), flush=True)
         results.append(result)
@@ -1621,6 +1843,8 @@ def _write_results_json(path: Path, results: list[GateResult]) -> None:
                     "stage_dir": str(result.stage_dir),
                     "items": [asdict(item) for item in result.items],
                     "stale": [asdict(entry) for entry in result.stale],
+                    "superseded": [asdict(entry) for entry in result.superseded],
+                    "stale_superseded": [asdict(entry) for entry in result.stale_superseded],
                 }
                 for result in results
             ],
