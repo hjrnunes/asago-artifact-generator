@@ -60,6 +60,7 @@ from .oracle_self_test import oracle_self_test_findings
 from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
 from .plan_triggers import (
     ESTABLISHED_TRIGGER_ROLE,
+    _not_called_operations,
     omission_states_no_trigger,
     uncited_trigger_observations,
 )
@@ -516,9 +517,9 @@ def _omission_trigger_missing_finding(
     inventory: dict[str, Any],
     condition: Mapping[str, Any] | None,
 ) -> Finding:
-    """Report an omission plan that cites no trigger observation and names no trigger."""
+    """Report an omission plan that states no trigger and cites none."""
 
-    omitted = _omission_operations(condition)
+    omitted = _not_called_operations(condition)
     observations = _supplied_result_observations(inventory)
     citable = sorted(ref for ref, tool in observations.items() if tool not in omitted)
     detail = (
@@ -527,8 +528,7 @@ def _omission_trigger_missing_finding(
         "other operation: a not_called holds when the operation is never called, "
         "so this plan fires whenever the agent answers without calling it, "
         "flagging correct replies. Cite the supplied observation that records "
-        "the triggering result in selected_evidence with role trigger or "
-        "established_trigger"
+        "the triggering result in selected_evidence"
     )
     if citable:
         detail += f"; the inventory supplies {', '.join(citable)}"
@@ -538,24 +538,6 @@ def _omission_trigger_missing_finding(
             "scenario's trigger cannot be evidenced and the package is refused"
         )
     return Finding("omission_trigger_missing", detail, "selected_evidence")
-
-
-def _omission_operations(condition: Mapping[str, Any] | None) -> tuple[str, ...]:
-    """Return the operation names a condition requires to be absent."""
-
-    if not isinstance(condition, Mapping):
-        return ()
-    comparisons = condition.get("comparisons")
-    names: list[str] = []
-    for comparison in comparisons if isinstance(comparisons, list) else []:
-        if (
-            isinstance(comparison, Mapping)
-            and comparison.get("kind") == "not_called"
-            and isinstance(comparison.get("operation"), str)
-            and comparison["operation"] not in names
-        ):
-            names.append(comparison["operation"])
-    return tuple(names)
 
 
 def collect_artifact_findings_v2(

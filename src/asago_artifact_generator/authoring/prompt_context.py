@@ -73,10 +73,24 @@ _OMISSION_STIMULUS_REVIEWER_GUIDANCE = prose("prompt_context/omission_stimulus_r
 _ORDER_COMPARISON_MEANING = prose("prompt_context/order_comparison_meaning")
 
 
+def _gate_condition(view: InputView) -> Any:
+    """Return the condition the omission gate and prompts read.
+
+    The producer drops an authored condition its corrections cannot ground
+    but still publishes the bound tool-call condition a missing call derives,
+    so the gate reads that bound form when no authored condition is present.
+    """
+
+    authored = view.payload.get("discriminating_condition")
+    if authored is not None:
+        return authored
+    return view.tool_call_condition
+
+
 def _condition_comparisons(view: InputView) -> list[dict[str, Any]]:
     """Return the comparisons of the producer's condition that are objects."""
 
-    condition = view.payload.get("discriminating_condition")
+    condition = _gate_condition(view)
     comparisons = condition.get("comparisons") if isinstance(condition, dict) else None
     return [item for item in comparisons or [] if isinstance(item, dict)]
 
@@ -110,11 +124,11 @@ def _condition_has_not_called(condition: Any) -> bool:
 
 
 def _has_discriminating_condition(view: InputView) -> bool:
-    return view.payload.get("discriminating_condition") is not None
+    return _gate_condition(view) is not None
 
 
 def _has_not_called_comparison(view: InputView) -> bool:
-    return _condition_has_not_called(view.payload.get("discriminating_condition"))
+    return _condition_has_not_called(_gate_condition(view))
 
 
 def _discriminating_condition_rule(view: InputView) -> dict[str, str]:

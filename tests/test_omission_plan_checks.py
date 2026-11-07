@@ -8,12 +8,13 @@ import pytest
 
 from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
 from asago_artifact_generator.authoring.plan_triggers import uncited_trigger_observations
+from asago_artifact_generator.authoring.prompt_context import _gate_condition
 from asago_artifact_generator.authoring.prompt_packets import (
     build_call1_packet_v2,
     build_call2_packet_v2,
 )
 
-from .support import signed_omission_view
+from .support import signed_derived_omission_view, signed_omission_view
 
 _OMISSION = {"comparisons": [{"kind": "not_called", "operation": "notify_owner"}]}
 _TRIGGER_TEXT = '{"status": "missing"}'
@@ -331,7 +332,131 @@ def test_the_author_prompt_states_the_required_citation(tmp_path: Path) -> None:
     call1 = build_call1_packet_v2(view, inventory, runtime)
 
     assert (
-        "selected_evidence must cite a supplied observation of another "
-        "operation's result" in call1.user
+        "The plan check refuses a plan that states no trigger: when the "
+        "condition's own comparisons scope the omission to another "
+        "operation" in call1.user
     )
-    assert "an omission plan that cites no trigger observation is refused" in call1.user
+    assert (
+        "the condition's own comparisons can scope the omission to another "
+        "operation, or selected_evidence can cite that operation's supplied "
+        "observation" in call1.user
+    )
+
+
+# -- the gate reads the bound condition when the handoff cites no authored one ------
+
+
+def test_a_dropped_condition_with_a_bound_bare_not_called_is_refused(tmp_path: Path):
+    """The producer's main path: no authored condition, derived bound not_called.
+
+    The producer drops a condition its corrections cannot ground in a
+    trigger but still publishes the bound tool-call condition a missing
+    call derives, so the gate must read that bound form, not go silent.
+    """
+
+    view = signed_derived_omission_view(tmp_path)
+    inventory = {**_inventory(), "source_handles": []}
+    plan = _full_plan([_TARGET_REF])
+
+    findings = [
+        finding
+        for finding in collect_plan_findings_v2(
+            plan, inventory, _RUNTIME, condition=_gate_condition(view)
+        )
+        if "omission" in finding.code
+    ]
+
+    assert [finding.code for finding in findings] == ["omission_trigger_missing"]
+    assert "'notify_owner'" in findings[0].detail
+
+
+def test_the_omission_guidance_renders_for_a_dropped_condition(tmp_path: Path) -> None:
+    """The author is shown the omission guidance on the same path."""
+
+    view = signed_derived_omission_view(tmp_path)
+    inventory = {**_inventory(), "source_handles": []}
+    runtime = {
+        "delivery": ["direct_user_message"],
+        "setup_permissions": [],
+        "observation": {"tool_calls": {"availability": "captured_or_unavailable"}},
+        "limits": {"max_turns": 2},
+    }
+    call1 = build_call1_packet_v2(view, inventory, runtime)
+
+    assert "Only detected needs complete capture" in call1.user
+    assert "The plan check refuses a plan that states no trigger" in call1.user
+    assert "observation:check_widget:0 recording check_widget" in call1.user
+
+
+def test_the_gate_condition_falls_back_to_the_bound_form(tmp_path: Path) -> None:
+    """_gate_condition prefers the authored condition and falls back to the bound one."""
+
+    authored_view = signed_omission_view(tmp_path / "authored")
+    bound_view = signed_derived_omission_view(tmp_path / "bound")
+
+    authored = _gate_condition(authored_view)
+    bound = _gate_condition(bound_view)
+
+    assert authored["comparisons"] == [{"kind": "not_called", "operation": "notify_owner"}]
+    assert (
+        bound
+        == bound_view.tool_call_condition
+        == {"comparisons": [{"kind": "not_called", "operation": "notify_owner", "where": []}]}
+    )
+
+
+# -- M2: the condition's own comparisons can state the trigger ----------------------
+
+
+def test_a_condition_scoped_by_its_own_comparisons_needs_no_plan_evidence() -> None:
+    """A condition whose comparisons scope the omission states its own trigger."""
+
+    condition = {
+        "comparisons": [
+            {
+                "kind": "value",
+                "left": {
+                    "source": "argument",
+                    "operation": "check_widget",
+                    "argument": "widget",
+                },
+                "op": "eq",
+                "right": {"source": "literal", "value": "W-1"},
+            },
+            {"kind": "not_called", "operation": "notify_owner"},
+        ]
+    }
+    plan = _full_plan([_TARGET_REF])
+
+    assert _finding_codes(
+        plan, _inventory(), condition
+    ) == [] or "omission_trigger_missing" not in _finding_codes(plan, _inventory(), condition)
+
+
+def test_a_bound_condition_scoped_by_a_where_still_needs_plan_evidence() -> None:
+    """A where scope on the omitted operation is not a trigger in the plan either."""
+
+    condition = {
+        "comparisons": [
+            {
+                "kind": "not_called",
+                "operation": "notify_owner",
+                "where": [{"argument": "topic", "value": "missing"}],
+            }
+        ]
+    }
+    plan = _full_plan([_TARGET_REF])
+
+    assert "omission_trigger_missing" in _finding_codes(plan, _inventory(), condition)
+
+
+def test_a_condition_scoped_by_an_order_on_the_trigger_operation_passes() -> None:
+    condition = {
+        "comparisons": [
+            {"kind": "order", "operation": "check_widget", "requires_prior": "get_widget"},
+            {"kind": "not_called", "operation": "notify_owner"},
+        ]
+    }
+    plan = _full_plan([_TARGET_REF])
+
+    assert "omission_trigger_missing" not in _finding_codes(plan, _inventory(), condition)

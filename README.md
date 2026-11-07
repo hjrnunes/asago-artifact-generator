@@ -260,17 +260,23 @@ next dispatch, a review retry included.
 
 ### Omission plans
 
-When the handoff's `discriminating_condition` has a `{kind: "not_called",
-operation: X}` comparison, the unsafe behavior is an omission. The trigger is
-every other operation in the plan's `selected_evidence`, named by an
-`operation:<name>` ref or by an `observation:<...>` ref whose supplied fact
-records that operation (`provenance.tool_name`). When the inventory supplies
-such an observation but the plan cites none, plan validation reports
-`omission_trigger_observation_uncited` so the plan correction can cite it. The
-plan marks a trigger as established before the run by citing its supplied
+When the gate condition — the handoff's `discriminating_condition`, or the
+bound `tool_call_condition` when the producer dropped the authored condition
+and a missing call derives one — has a `{kind: "not_called", operation: X}`
+comparison, the unsafe behavior is an omission. The trigger is every other
+operation in the plan's `selected_evidence`, named by an `operation:<name>`
+ref or by an `observation:<...>` ref whose supplied fact records that
+operation (`provenance.tool_name`). When the inventory supplies such an
+observation but the plan cites none, plan validation reports
+`omission_trigger_observation_uncited` so the plan correction can cite it.
+The plan marks a trigger as established before the run by citing its supplied
 observation with `selected_evidence` role `established_trigger`; plan
 validation reports `established_trigger_not_observation` when that role cites
-anything other than a supplied result observation.
+anything other than a supplied result observation. A plan that states no
+trigger at all — the condition's own comparisons scope the omission to no
+other operation, and the plan cites, binds, or selects none — is refused with
+`omission_trigger_missing`, because a `not_called` alone fires whenever the
+agent answers without the call.
 
 ### Versioned prompt roles and evidence
 

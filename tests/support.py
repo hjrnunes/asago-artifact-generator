@@ -240,6 +240,38 @@ def signed_omission_view(tmp_path: Path):
     payload = {key: value for key, value in payload.items() if key != "content_digest"}
     payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = tmp_path / "handoff.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    return load_input(path)
+
+
+def signed_derived_omission_view(tmp_path: Path):
+    """Return the omission handoff the new producer publishes for a dropped condition.
+
+    The authored ``discriminating_condition`` is gone (its corrections could
+    not ground the omission in a trigger), and the bound
+    ``tool_call_condition`` a missing call derives is present with a bound
+    status.
+    """
+
+    payload = json.loads(NOT_CALLED_HANDOFF.read_text(encoding="utf-8"))
+    payload["discriminating_condition"] = None
+    payload.pop("condition_omitted_reason", None)
+    payload.pop("condition_check", None)
+    payload["tool_call_condition"] = {
+        "comparisons": [{"kind": "not_called", "operation": "notify_owner", "where": []}]
+    }
+    payload["tool_call_condition_status"] = {
+        "status": "bound",
+        "reason": "bound",
+        "detail": (
+            "derived by code from the failure call: notify_owner is never called (missing_call)"
+        ),
+    }
+    payload = {key: value for key, value in payload.items() if key != "content_digest"}
+    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
+    path = tmp_path / "handoff.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(payload), encoding="utf-8")
     return load_input(path)
 

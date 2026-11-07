@@ -113,8 +113,8 @@ _CHECKS = {
         "The plan's omission trigger is not cited as an observation the run captures."
     ),
     "omission_trigger_missing": (
-        "The plan's omission names no trigger, so it fires whenever the agent answers "
-        "without the call."
+        "The plan's omission states no trigger: neither the condition's own "
+        "comparisons nor the plan's evidence names what makes the call due."
     ),
     "oracle_condition_defective": "The tool-call condition cannot be evaluated.",
     "oracle_fires_on_safe_example": "The tool-call condition detects the safe example.",

@@ -179,6 +179,8 @@ def omission_states_no_trigger(
     omitted = _not_called_operations(condition)
     if not omitted:
         return False
+    if _condition_states_trigger(condition, omitted):
+        return False
     observations = _observation_facts(inventory)
     for ref in _plan_cited_fact_refs(plan):
         fact = observations.get(ref)
@@ -188,6 +190,40 @@ def omission_states_no_trigger(
         if name not in omitted:
             return False
     return True
+
+
+def _condition_states_trigger(
+    condition: Mapping[str, Any] | None, omitted: frozenset[str] | tuple[str, ...]
+) -> bool:
+    """Return whether the condition's own comparisons scope the omission.
+
+    The producer refuses a bound condition with no comparison on another
+    operation, and a condition that passes there states its trigger itself:
+    a value comparison on another operation's argument, or an order
+    comparison on another operation, grounds the omission in a call the run
+    observes. The gate condition may be the authored or the bound form, so
+    both operand shapes are read. A comparison on the omitted operation
+    contradicts the omission and states no trigger.
+    """
+
+    if not isinstance(condition, Mapping):
+        return False
+    comparisons = condition.get("comparisons")
+    for comparison in comparisons if isinstance(comparisons, list) else []:
+        if not isinstance(comparison, Mapping) or comparison.get("kind") == "not_called":
+            continue
+        if comparison.get("kind") == "order":
+            names = {comparison.get("operation")} if comparison.get("operation") else set()
+        else:
+            names = {
+                side.get("operation")
+                for side in (comparison.get("left"), comparison.get("right"))
+                if isinstance(side, Mapping) and side.get("source") == "argument"
+            }
+        names.discard(None)
+        if names and not names & set(omitted):
+            return True
+    return False
 
 
 __all__ = [

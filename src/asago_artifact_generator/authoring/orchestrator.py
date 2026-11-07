@@ -99,6 +99,7 @@ from .policy import (
     policy_role_limits,
 )
 from .prompt_context import (
+    _gate_condition,
     build_artifact_author_context,
     build_plan_author_context,
     scenario_provenance_ids,
@@ -969,7 +970,7 @@ class AuthoringOrchestrator:
                 inventory,
                 runtime_contract,
                 provenance_ids=scenario_provenance_ids(view),
-                condition=view.payload.get("discriminating_condition"),
+                condition=_gate_condition(view),
                 declarations=normalized.declarations,
                 source_refs=normalized.source_refs,
                 declaration_findings=normalized.findings,
