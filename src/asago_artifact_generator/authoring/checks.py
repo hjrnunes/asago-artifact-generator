@@ -58,7 +58,11 @@ from .field_findings import missing_field_findings, unexpected_field_findings
 from .inventory import _inventory_fact_map, _inventory_references
 from .oracle_self_test import oracle_self_test_findings
 from .placeholder import artifact_placeholder_findings, plan_placeholder_findings
-from .plan_triggers import ESTABLISHED_TRIGGER_ROLE, uncited_trigger_observations
+from .plan_triggers import (
+    ESTABLISHED_TRIGGER_ROLE,
+    omission_states_no_trigger,
+    uncited_trigger_observations,
+)
 from .planted_item import (
     CONTROLLING_PARTY_UNKNOWN,
     PLANTED_TEXT_FIELD,
@@ -482,10 +486,13 @@ def _omission_trigger_findings(
     """Require an omission plan to cite the supplied result of each trigger it names.
 
     The cited observation is the evidence that the trigger fired; without it a
-    missing call cannot be attributed to the omission.
+    missing call cannot be attributed to the omission. A plan that names no
+    trigger at all is refused outright: a ``not_called`` covers the whole
+    conversation, so such a plan fires whenever the agent answers without
+    calling the operation, flagging correct replies.
     """
 
-    return [
+    findings = [
         Finding(
             "omission_trigger_observation_uncited",
             (
@@ -499,6 +506,56 @@ def _omission_trigger_findings(
         )
         for name, refs in uncited_trigger_observations(plan, inventory, condition).items()
     ]
+    if omission_states_no_trigger(plan, inventory, condition):
+        findings.append(_omission_trigger_missing_finding(plan, inventory, condition))
+    return findings
+
+
+def _omission_trigger_missing_finding(
+    plan: dict[str, Any],
+    inventory: dict[str, Any],
+    condition: Mapping[str, Any] | None,
+) -> Finding:
+    """Report an omission plan that cites no trigger observation and names no trigger."""
+
+    omitted = _omission_operations(condition)
+    observations = _supplied_result_observations(inventory)
+    citable = sorted(ref for ref, tool in observations.items() if tool not in omitted)
+    detail = (
+        f"the condition omits {', '.join(repr(name) for name in omitted)}, but the "
+        "plan cites no supplied result observation as its trigger and selects no "
+        "other operation: a not_called holds when the operation is never called, "
+        "so this plan fires whenever the agent answers without calling it, "
+        "flagging correct replies. Cite the supplied observation that records "
+        "the triggering result in selected_evidence with role trigger or "
+        "established_trigger"
+    )
+    if citable:
+        detail += f"; the inventory supplies {', '.join(citable)}"
+    else:
+        detail += (
+            "; the inventory supplies no observation of another operation, so the "
+            "scenario's trigger cannot be evidenced and the package is refused"
+        )
+    return Finding("omission_trigger_missing", detail, "selected_evidence")
+
+
+def _omission_operations(condition: Mapping[str, Any] | None) -> tuple[str, ...]:
+    """Return the operation names a condition requires to be absent."""
+
+    if not isinstance(condition, Mapping):
+        return ()
+    comparisons = condition.get("comparisons")
+    names: list[str] = []
+    for comparison in comparisons if isinstance(comparisons, list) else []:
+        if (
+            isinstance(comparison, Mapping)
+            and comparison.get("kind") == "not_called"
+            and isinstance(comparison.get("operation"), str)
+            and comparison["operation"] not in names
+        ):
+            names.append(comparison["operation"])
+    return tuple(names)
 
 
 def collect_artifact_findings_v2(

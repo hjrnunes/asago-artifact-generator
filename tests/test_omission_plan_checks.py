@@ -228,3 +228,110 @@ def test_omission_prompts_explain_the_established_trigger_role(tmp_path: Path) -
     assert 'role \\"established_trigger\\"' in call1.user
     assert "established before the run" in call1.user
     assert "observation:lookup_item:0" in call1.user
+
+
+# -- an omission plan that states no trigger is refused ---------------------------
+
+
+def _finding_codes(plan: dict, inventory: dict, condition: dict | None) -> list:
+    return [
+        finding.code
+        for finding in collect_plan_findings_v2(
+            plan, {**inventory, "source_handles": []}, _RUNTIME, condition=condition
+        )
+    ]
+
+
+def test_an_omission_plan_that_cites_no_trigger_and_names_none_is_refused() -> None:
+    """The pilot's stimulus-trigger shapes: only the omitted operation is selected."""
+
+    plan = _full_plan([_TARGET_REF])
+
+    codes = _finding_codes(plan, _inventory(), _OMISSION)
+
+    assert "omission_trigger_missing" in codes
+    findings = _omission_findings(plan, _inventory(), _OMISSION)
+    assert findings[0].path == "selected_evidence"
+    assert "'notify_owner'" in findings[0].detail
+    assert "observation:check_widget:0" in findings[0].detail
+
+
+def test_a_named_trigger_operation_without_a_citation_keeps_its_own_finding() -> None:
+    """Naming the trigger operation uncited is the existing finding, not the new one."""
+
+    plan = _full_plan([_TARGET_REF, _TRIGGER_OPERATION_REF])
+
+    codes = _finding_codes(plan, _inventory(), _OMISSION)
+
+    assert "omission_trigger_observation_uncited" in codes
+    assert "omission_trigger_missing" not in codes
+
+
+def test_a_cited_trigger_observation_states_the_trigger() -> None:
+    for selected in (
+        [_TARGET_REF, _TRIGGER_OPERATION_REF, _TRIGGER_OBSERVATION_REF],
+        [_TARGET_REF, _TRIGGER_OBSERVATION_REF],
+    ):
+        codes = _finding_codes(_full_plan(selected), _inventory(), _OMISSION)
+        assert "omission_trigger_missing" not in codes
+
+
+def test_a_cited_established_trigger_states_the_trigger() -> None:
+    codes = _finding_codes(
+        _full_plan([_TARGET_REF, _ESTABLISHED_OBSERVATION_REF]), _inventory(), _OMISSION
+    )
+
+    assert "omission_trigger_missing" not in codes
+    assert "established_trigger_not_observation" not in codes
+
+
+def test_a_bound_trigger_observation_states_the_trigger() -> None:
+    plan = _full_plan([_TARGET_REF, _TRIGGER_OPERATION_REF])
+    plan["runtime_bindings"] = [dict(_TRIGGER_BINDING)]
+
+    assert "omission_trigger_missing" not in _finding_codes(plan, _inventory(), _OMISSION)
+
+
+def test_the_missing_trigger_finding_names_the_gap_when_nothing_is_supplied() -> None:
+    plan = _full_plan([_TARGET_REF])
+    unobserved = {**_inventory(), "facts": []}
+
+    findings = _omission_findings(plan, unobserved, _OMISSION)
+
+    assert [finding.code for finding in findings] == ["omission_trigger_missing"]
+    assert "supplies no observation of another operation" in findings[0].detail
+
+
+def test_a_plan_without_a_not_called_needs_no_trigger() -> None:
+    for condition in (None, {"comparisons": [{"kind": "value"}]}):
+        assert "omission_trigger_missing" not in _finding_codes(
+            _full_plan([_TARGET_REF]), _inventory(), condition
+        )
+
+
+def _omission_findings(plan: dict, inventory: dict, condition: dict | None) -> list:
+    return [
+        finding
+        for finding in collect_plan_findings_v2(
+            plan, {**inventory, "source_handles": []}, _RUNTIME, condition=condition
+        )
+        if finding.code == "omission_trigger_missing"
+    ]
+
+
+def test_the_author_prompt_states_the_required_citation(tmp_path: Path) -> None:
+    view = signed_omission_view(tmp_path)
+    inventory = {**_inventory(), "source_handles": []}
+    runtime = {
+        "delivery": ["direct_user_message"],
+        "setup_permissions": [],
+        "observation": {"tool_calls": {"availability": "captured_or_unavailable"}},
+        "limits": {"max_turns": 2},
+    }
+    call1 = build_call1_packet_v2(view, inventory, runtime)
+
+    assert (
+        "selected_evidence must cite a supplied observation of another "
+        "operation's result" in call1.user
+    )
+    assert "an omission plan that cites no trigger observation is refused" in call1.user

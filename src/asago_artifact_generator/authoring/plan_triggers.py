@@ -2,7 +2,8 @@
 
 An omission scenario (a ``not_called`` comparison) names the operation that
 must stay absent; the other plan-selected operations are its triggers. These
-helpers find the supplied result observations a plan must cite for them.
+helpers find the supplied result observations a plan must cite for them, and
+name the omission plans that state no trigger at all.
 """
 
 from __future__ import annotations
@@ -159,4 +160,38 @@ def _prerequisite_evidence_refs(plan: Mapping[str, Any]) -> list[Any]:
     ]
 
 
-__all__ = ["ESTABLISHED_TRIGGER_ROLE", "uncited_trigger_observations"]
+def omission_states_no_trigger(
+    plan: Mapping[str, Any],
+    inventory: Mapping[str, Any],
+    condition: Mapping[str, Any] | None,
+) -> bool:
+    """Return whether an omission plan cites no trigger observation and names no trigger.
+
+    An omission plan states its trigger by citing a supplied result observation
+    of another operation (in selected_evidence, or through a supplied-input
+    binding or prerequisite evidence), or by selecting that operation as
+    evidence. A plan that does none of these grounds its omission in nothing:
+    a ``not_called`` covers the whole conversation, so the plan would fire
+    whenever the agent answers without calling the operation, flagging correct
+    replies.
+    """
+
+    omitted = _not_called_operations(condition)
+    if not omitted:
+        return False
+    observations = _observation_facts(inventory)
+    for ref in _plan_cited_fact_refs(plan):
+        fact = observations.get(ref)
+        if fact is not None and fact["provenance"]["tool_name"] not in omitted:
+            return False
+    for name in _selected_operations(plan, inventory):
+        if name not in omitted:
+            return False
+    return True
+
+
+__all__ = [
+    "ESTABLISHED_TRIGGER_ROLE",
+    "omission_states_no_trigger",
+    "uncited_trigger_observations",
+]

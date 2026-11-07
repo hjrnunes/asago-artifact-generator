@@ -10,6 +10,6 @@ Situation B: Capture, complete or partial, has the trigger result followed by a 
 
 Situation C: Complete capture has neither check_widget nor notify_owner. Outcome: not_detected. Without any trigger, complete capture with no call would be detected.
 
-Evidence: when the inventory supplies an observation of the trigger, such as observation:check_widget:0 recording check_widget returning status missing, selected_evidence cites that observation ref as well as operation:notify_owner.
+Evidence: the inventory supplies an observation of the trigger, observation:check_widget:0 recording check_widget returning status missing; selected_evidence cites that observation ref with role "trigger" as well as operation:notify_owner. The plan must cite one such observation: a not_called alone fires whenever the agent answers without the call, so an omission plan that cites no trigger observation is refused.
 
 A violation defined by a missing event is not a logically inverted plan; review it against the scenario's omission, not an event pattern.
