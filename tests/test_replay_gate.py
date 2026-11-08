@@ -1077,10 +1077,11 @@ def test_no_declared_prompt_difference_remains() -> None:
     The re-recorded corpus carried every pre-7bt8.6 version (call1 v29, plan
     review v28, call2 v31, artifact review v27, correction v47/v48), so the
     six 7bt8.6 entries declare its move to the versions the code renders now
-    (call1 v30, plan review v29, call2 v33, artifact review v29, correction
-    v49/v51); 7bt8.7 advanced call2, artifact review and artifact correction
-    over the same text, so those entries name the current versions directly.
-    The term.2-era entries are gone: bead asago-sy73 lists them.
+    (call1 v30, plan review v29, call2 v34, artifact review v30, correction
+    v49/v52); 7bt8.7 advanced call2, artifact review and artifact correction
+    over the same text and added its adoption line, so those entries name the
+    current versions directly.  The term.2-era entries are gone: bead
+    asago-sy73 lists them.
     """
 
     assert [
@@ -1089,15 +1090,15 @@ def test_no_declared_prompt_difference_remains() -> None:
     ] == [
         ("call1", "authoring-call1-v29", "authoring-call1-v30", "asago-7bt8.6"),
         ("plan_review", "authoring-plan-review-v28", "authoring-plan-review-v29", "asago-7bt8.6"),
-        ("call2", "authoring-call2-v31", "authoring-call2-v33", "asago-7bt8.6"),
+        ("call2", "authoring-call2-v31", "authoring-call2-v34", "asago-7bt8.6"),
         (
             "artifact_review",
             "authoring-artifact-review-v27",
-            "authoring-artifact-review-v29",
+            "authoring-artifact-review-v30",
             "asago-7bt8.6",
         ),
         ("correction", "authoring-correction-v47", "authoring-correction-v49", "asago-7bt8.6"),
-        ("correction", "authoring-correction-v48", "authoring-correction-v51", "asago-7bt8.6"),
+        ("correction", "authoring-correction-v48", "authoring-correction-v52", "asago-7bt8.6"),
     ]
 
 

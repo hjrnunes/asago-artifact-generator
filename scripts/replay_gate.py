@@ -172,11 +172,12 @@ class ExpectedPromptDifference:
 # consumer recordings were made before the 7bt8.6 omission-trigger guidance
 # change (call1 v30, plan review v29, correction v49/v50), and 7bt8.7 advanced
 # call2 to v33, artifact review to v29 and artifact correction to v51 over the
-# same text, so the call2, artifact-review and correction entries name the
-# version the code renders now and the gate's stale rule ignores the pairs in
-# between that no recording carries at its from-version with this to-version
-# reachable.  The term.2-era entries are gone: bead asago-sy73 lists them, and
-# the re-recorded corpus carries every pre-7bt8.6 version.
+# same text, then its adoption line to v34/v30/v52, so the call2,
+# artifact-review and correction entries name the version the code renders now
+# and the gate's stale rule ignores the pairs in between that no recording
+# carries at its from-version with this to-version reachable.  The term.2-era
+# entries are gone: bead asago-sy73 lists them, and the re-recorded corpus
+# carries every pre-7bt8.6 version.
 EXPECTED_PROMPT_DIFFERENCES: tuple[ExpectedPromptDifference, ...] = (
     ExpectedPromptDifference(
         stage="call1",
@@ -204,22 +205,23 @@ EXPECTED_PROMPT_DIFFERENCES: tuple[ExpectedPromptDifference, ...] = (
         stage="call2",
         template="authoring-call2",
         from_prompt_version="authoring-call2-v31",
-        to_prompt_version="authoring-call2-v33",
+        to_prompt_version="authoring-call2-v34",
         bead="asago-7bt8.6",
         reason=(
             "the omission outcome and not_called condition guidance change the"
-            " artifact-author prompt; 7bt8.7 advanced the same text to v33"
+            " artifact-author prompt; 7bt8.7 advanced the same text to v33 and"
+            " its adoption line to v34"
         ),
     ),
     ExpectedPromptDifference(
         stage="artifact_review",
         template="authoring-artifact-review",
         from_prompt_version="authoring-artifact-review-v27",
-        to_prompt_version="authoring-artifact-review-v29",
+        to_prompt_version="authoring-artifact-review-v30",
         bead="asago-7bt8.6",
         reason=(
             "the omission outcome example changes the artifact-review prompt;"
-            " 7bt8.7 advanced the same text to v29"
+            " 7bt8.7 advanced the same text to v29 and its adoption line to v30"
         ),
     ),
     ExpectedPromptDifference(
@@ -234,11 +236,12 @@ EXPECTED_PROMPT_DIFFERENCES: tuple[ExpectedPromptDifference, ...] = (
         stage="correction",
         template="authoring-correction",
         from_prompt_version="authoring-correction-v48",
-        to_prompt_version="authoring-correction-v51",
+        to_prompt_version="authoring-correction-v52",
         bead="asago-7bt8.6",
         reason=(
             "the artifact-correction guidance changes with the artifact prompt"
-            " it repairs; 7bt8.7 advanced the same text to v51"
+            " it repairs; 7bt8.7 advanced the same text to v51 and its adoption"
+            " line to v52"
         ),
     ),
 )
