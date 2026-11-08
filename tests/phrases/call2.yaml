@@ -19,6 +19,7 @@ cases:
         - RUNTIME EVIDENCE INTERFACE
         - 'def evaluate'
         - needs_plan_revision
+        - planted_item_echo
   observed-condition:
     user:
       required:

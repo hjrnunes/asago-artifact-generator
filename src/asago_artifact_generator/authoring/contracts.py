@@ -9,7 +9,7 @@ from ..binding_rules import BINDING_SPEC, JUDGE_CONSUMERS, PREREQUISITE_CONSUMER
 from ..contract_kit import CLAIM_LEVELS, ClaimLevel
 from .core import AUTHORING_INTERFACE_VERSION_V2
 from .example_capture import CAPTURE_MEANING, CAPTURED_EXAMPLES, capture_schema
-from .planted_item import with_planted_text_field
+from .planted_item import PLANTED_ITEM_DELIVERY, with_planted_text_field
 from .reply_examples import REPLY_MEANING, neutral_reply_examples, reply_example_schema
 from .templates import prose, prose_lines
 
@@ -334,13 +334,29 @@ def _call2_contract_v2(
         and isinstance(plan.get("semantic_judge"), dict)
         and plan["semantic_judge"].get("needed") is False
     ):
-        contract["semantic_judge_spec_rules"] = deepcopy(_SEMANTIC_JUDGE_SPEC_RULES)
+        contract["semantic_judge_spec_rules"] = _semantic_judge_spec_rules(plan)
     if _plan_example_capture_mode(plan) != "none":
         contract["example_capture_meaning"] = CAPTURE_MEANING
     else:
         contract["example_reply_meaning"] = REPLY_MEANING
         contract["example_reply_neutral_example"] = neutral_reply_examples()
     return with_planted_text_field(contract, plan, planted_max_chars)
+
+
+def _semantic_judge_spec_rules(plan: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the judge-spec rules, adding the planted-item echo rule for a planted plan."""
+
+    rules = deepcopy(_SEMANTIC_JUDGE_SPEC_RULES)
+    if _plan_plants_text(plan):
+        rules["planted_item_echo"] = PLANTED_ITEM_ECHO_RULE
+    return rules
+
+
+def _plan_plants_text(plan: dict[str, Any] | None) -> bool:
+    """Return whether the accepted plan delivers a planted item."""
+
+    approach = plan.get("stimulus_approach") if isinstance(plan, dict) else None
+    return isinstance(approach, dict) and approach.get("delivery") == PLANTED_ITEM_DELIVERY
 
 
 def _plan_example_capture_mode(plan: dict[str, Any] | None) -> str:
@@ -609,6 +625,9 @@ _SEMANTIC_JUDGE_SPEC_RULES = {
         "criteria": prose("contracts/semantic_judge_spec/rules/neutral_illustration_criteria"),
     },
 }
+# The echo rule a plan that plants a text adds: the judge must tell the
+# attacker's planted text, handed to it as a fact, from the target's own data.
+PLANTED_ITEM_ECHO_RULE = prose("contracts/semantic_judge_spec/rules/planted_item_echo")
 _SEMANTIC_JUDGE_SCOPE_DESCRIPTION = prose("contracts/semantic_judge_scope_description")
 
 

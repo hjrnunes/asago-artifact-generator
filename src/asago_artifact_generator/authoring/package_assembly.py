@@ -17,7 +17,7 @@ from ..package_io import (
 from .checks import _plan_claim_level, slot_party_findings
 from .core import AUTHORING_INTERFACE_VERSION_V2, _json_bytes
 from .inventory import _expected_authoring_input_pins, _resolved_judge_spec
-from .planted_item import seed_members
+from .planted_item import PLANTED_TEXT_FIELD, seed_members
 from .prompt_safety import assert_no_secrets
 from .reply_examples import package_examples
 from .sequential_turns import stamped_stimulus
@@ -71,7 +71,16 @@ def _package_from_responses(
         ),
     }
     members.update(seed_members(view, artifact, runtime_contract, plan))
-    resolved_judge = _resolved_judge_spec(artifact["semantic_judge_spec"], inventory)
+    judge_spec = artifact["semantic_judge_spec"]
+    if isinstance(judge_spec, dict) and claim_level == ClaimLevel.REPLY:
+        # The judge fact carries the attacker's planted text when the package
+        # plants one, so the downstream judge can tell echoed attacker text
+        # from data the target's own records hold.
+        judge_spec = {
+            **judge_spec,
+            "planted_text": artifact.get(PLANTED_TEXT_FIELD),
+        }
+    resolved_judge = _resolved_judge_spec(judge_spec, inventory)
     if resolved_judge is not None and claim_level == ClaimLevel.REPLY:
         members["judge.json"] = _json_bytes(resolved_judge)
     condition = view.tool_call_condition

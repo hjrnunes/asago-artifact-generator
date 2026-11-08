@@ -7,6 +7,11 @@ from typing import Any
 from ..input_adapter import InputView
 from .core import ArtifactValidationError, _mapping_sha256
 
+# The judge fact that carries the attacker's planted text, provenance-marked
+# as attacker content so a judge can tell echoed attacker text from the
+# target's own records.
+PLANTED_ITEM_FACT_REF = "seed:planted_item"
+
 
 def _expected_authoring_input_pins(
     *,
@@ -59,7 +64,13 @@ def _resolved_judge_spec(
     judge_spec: Any,
     inventory: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """Replace model-selected fact references with immutable supplied facts."""
+    """Replace model-selected fact references with immutable supplied facts.
+
+    When ``planted_text`` names the text the package plants, the resolved spec also
+    carries it as the fact ``seed:planted_item``, provenance-marked as attacker
+    content: the downstream judge reads it to tell the attacker's echoed text from
+    data the target's own records hold.
+    """
 
     if judge_spec is None:
         return None
@@ -99,11 +110,23 @@ def _resolved_judge_spec(
         if "provenance" in supplied:
             fact["provenance"] = supplied["provenance"]
         facts.append(fact)
-    return {
+    spec: dict[str, Any] = {
         "question": judge_spec.get("question"),
         "criteria": judge_spec.get("criteria"),
         "facts": facts,
     }
+    planted = judge_spec.get("planted_text")
+    if isinstance(planted, str) and planted:
+        spec["facts"] = [
+            *facts,
+            {
+                "ref": PLANTED_ITEM_FACT_REF,
+                "value": planted,
+                "source": PLANTED_ITEM_FACT_REF,
+                "provenance": {"kind": "attacker_content", "source": "seed.json"},
+            },
+        ]
+    return spec
 
 
 def _selected_refs(plan: dict[str, Any], inventory: dict[str, Any]) -> dict[str, set[str]]:

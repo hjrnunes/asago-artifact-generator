@@ -29,6 +29,7 @@ cases:
         - 'def evaluate'
         - 'selected_evidence cites no entry for it'
         - 'An omission plan cites no stimulus trigger'
+        - planted_item_echo
   observed-condition:
     user:
       required:

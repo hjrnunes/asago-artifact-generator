@@ -1470,7 +1470,7 @@ def _superseded_mismatch(dispatch_index: int = 1, stage: str = "call1") -> dict[
     }
 
 
-def test_the_shipped_superseded_declarations_name_the_two_stale_recorded_dispatches() -> None:
+def test_the_shipped_superseded_declarations_name_the_stale_recorded_dispatches() -> None:
     assert [
         (
             entry.recording,
@@ -1486,11 +1486,11 @@ def test_the_shipped_superseded_declarations_name_the_two_stale_recorded_dispatc
         (
             "gsx7-author-klarna",
             "SCN-008",
-            5,
-            "correction",
-            "authoring-correction-v48",
-            "7cc506ba61d32ff62e51a26f4672fc12b52615f56586521bfcee269e41da9923",
-            "asago-t971",
+            4,
+            "call2",
+            "authoring-call2-v31",
+            "a38d39001b4166d5cff274ce3c881ab62da01e09cabd073bcc9557962a462a09",
+            "asago-7bt8.7",
         ),
         (
             "m3-rerecord-b-klarna",
@@ -1500,6 +1500,33 @@ def test_the_shipped_superseded_declarations_name_the_two_stale_recorded_dispatc
             "authoring-artifact-review-v27",
             "ac58517d4ebe04d4342aef10463491987991e2caf4c17fba599534f21a00cbe3",
             "asago-t971",
+        ),
+        (
+            "m3-rerecord-b-klarna",
+            "SCN-011",
+            5,
+            "call2",
+            "authoring-call2-v31",
+            "172053fe59f39755e96114721bb9be6814604f9e64237e504310189c926b6799",
+            "asago-7bt8.7",
+        ),
+        (
+            "m6-transport-retry-klarna",
+            "SCN-008",
+            3,
+            "call2",
+            "authoring-call2-v31",
+            "53eb7e9bebd35c75a7a6c913b8a21a3e37880ce9e05fe2b0a3c117f6f189edda",
+            "asago-7bt8.7",
+        ),
+        (
+            "gsx7-author-klarna",
+            "SCN-011",
+            3,
+            "call2",
+            "authoring-call2-v31",
+            "5e7cd54fb71165118504ece13c1f812257e348e0453fe00d54ab61861e6f8505",
+            "asago-7bt8.7",
         ),
     ]
     assert all(entry.reason for entry in replay_gate.SUPERSEDED_ITEMS)

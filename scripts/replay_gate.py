@@ -201,25 +201,28 @@ class SupersededItem:
 
 
 # Keep this list short: one entry per item the code no longer reproduces, and
-# no entry once that item is re-recorded.  Neither stale t971 item fits
-# EXPECTED_PROMPT_DIFFERENCES, which `_declared_prompt_difference` restricts
-# to a changed version at the same stage: consumer fd0de5a adds the
-# binding_in_fixed_turn finding, so the gsx7 correction prompt differs at an
-# unchanged version and m3 issues a correction where the recording holds an
-# artifact review.  Both items are replayed, and each declaration excuses only
-# the one dispatch it names.
+# no entry once that item is re-recorded.  The t971 items and the 7bt8.7
+# planted-judge items do not fit EXPECTED_PROMPT_DIFFERENCES, which
+# `_declared_prompt_difference` restricts to a changed version at the same
+# stage: a finding or member change also moves the replay's outputs, which a
+# declared version pair cannot excuse.  The 7bt8.7 change (planted_item_echo)
+# adds the echo rule to the call2 prompt of a planted judged plan and the
+# seed:planted_item fact to its judge.json, so each such item now diverges at
+# its first call2 dispatch.  Each item is replayed, and each declaration
+# excuses only the one dispatch it names.
 SUPERSEDED_ITEMS: tuple[SupersededItem, ...] = (
     SupersededItem(
         recording="gsx7-author-klarna",
         item="SCN-008",
-        dispatch_index=5,
-        stage="correction",
-        prompt_version="authoring-correction-v48",
-        prompt_sha256="7cc506ba61d32ff62e51a26f4672fc12b52615f56586521bfcee269e41da9923",
-        bead="asago-t971",
+        dispatch_index=4,
+        stage="call2",
+        prompt_version="authoring-call2-v31",
+        prompt_sha256="a38d39001b4166d5cff274ce3c881ab62da01e09cabd073bcc9557962a462a09",
+        bead="asago-7bt8.7",
         reason=(
-            "fd0de5a adds the binding_in_fixed_turn finding to the correction user"
-            " message; the re-author records SCN-008 again"
+            "the planted_item_echo rule changes the call2 prompt, and the judge"
+            " member gains the seed:planted_item fact; the t971 divergence this"
+            " entry replaced came later, at its correction dispatch"
         ),
     ),
     SupersededItem(
@@ -233,6 +236,45 @@ SUPERSEDED_ITEMS: tuple[SupersededItem, ...] = (
         reason=(
             "fd0de5a adds the binding_in_fixed_turn finding, so the code issues a"
             " correction where the recording holds an artifact review"
+        ),
+    ),
+    SupersededItem(
+        recording="m3-rerecord-b-klarna",
+        item="SCN-011",
+        dispatch_index=5,
+        stage="call2",
+        prompt_version="authoring-call2-v31",
+        prompt_sha256="172053fe59f39755e96114721bb9be6814604f9e64237e504310189c926b6799",
+        bead="asago-7bt8.7",
+        reason=(
+            "the planted_item_echo rule changes the call2 prompt, and the judge"
+            " member gains the seed:planted_item fact"
+        ),
+    ),
+    SupersededItem(
+        recording="m6-transport-retry-klarna",
+        item="SCN-008",
+        dispatch_index=3,
+        stage="call2",
+        prompt_version="authoring-call2-v31",
+        prompt_sha256="53eb7e9bebd35c75a7a6c913b8a21a3e37880ce9e05fe2b0a3c117f6f189edda",
+        bead="asago-7bt8.7",
+        reason=(
+            "the planted_item_echo rule changes the call2 prompt, and the judge"
+            " member gains the seed:planted_item fact"
+        ),
+    ),
+    SupersededItem(
+        recording="gsx7-author-klarna",
+        item="SCN-011",
+        dispatch_index=3,
+        stage="call2",
+        prompt_version="authoring-call2-v31",
+        prompt_sha256="5e7cd54fb71165118504ece13c1f812257e348e0453fe00d54ab61861e6f8505",
+        bead="asago-7bt8.7",
+        reason=(
+            "the planted_item_echo rule changes the call2 prompt, and the judge"
+            " member gains the seed:planted_item fact"
         ),
     ),
 )

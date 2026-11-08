@@ -14,6 +14,7 @@ from .context_budget import _enforce_prompt_size
 from .contracts import (
     PLAN_FIELD_MEANINGS,
     _binding_contract,
+    _plan_plants_text,
 )
 from .core import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
@@ -318,6 +319,30 @@ def _review_question_context(
         "question_ids": [item["id"] for item in questions],
         "questions": [dict(item) for item in questions],
     }
+
+
+def _artifact_review_questions(plan: dict[str, Any]) -> tuple[dict[str, str], ...]:
+    """Return the artifact review questions, echoing the planted rule for a planted plan.
+
+    A plan that plants a text and needs a judge adds the planted_item_echo rule
+    to the author's judge-spec rules, so the reviewer checks the criteria and
+    paired examples against that same rule; every other plan keeps the base
+    question, so its prompt text does not change.
+    """
+
+    questions = [dict(item) for item in _ARTIFACT_REVIEW_QUESTIONS]
+    judge_unneeded = (
+        isinstance(plan, dict)
+        and isinstance(plan.get("semantic_judge"), dict)
+        and plan["semantic_judge"].get("needed") is False
+    )
+    if _plan_plants_text(plan) and not judge_unneeded:
+        for question in questions:
+            if question["id"] == "judge_spec_implements_plan":
+                question["question"] = prose(
+                    "review/artifact_questions/judge_spec_implements_plan_planted"
+                )
+    return tuple(questions)
 
 
 _ARTIFACT_REVIEW_GUIDANCE = prose("review/artifact_review_guidance")
@@ -695,7 +720,7 @@ def build_artifact_reviewer_context(
             **_discriminating_condition_rule(view),
         },
         "review_questions": _review_question_context(
-            _ARTIFACT_REVIEW_QUESTIONS,
+            _artifact_review_questions(plan),
             fixed_plan=True,
         ),
         "response_contract": {
