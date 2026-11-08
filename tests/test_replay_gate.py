@@ -1072,14 +1072,33 @@ def _declare(monkeypatch: pytest.MonkeyPatch) -> replay_gate.ExpectedPromptDiffe
 
 
 def test_no_declared_prompt_difference_remains() -> None:
-    """The re-recorded corpus carries every prompt version the code renders.
+    """The shipped declarations name the 7bt8.6 prompt changes the corpus predates.
 
-    The M1 baseline's four entries and the five term.2 and five term.7 entries
-    were all inert against it, so bead asago-sy73 lists the entries this list no
-    longer holds.  A recording made before a later prompt change adds one back.
+    The re-recorded corpus carried every pre-7bt8.6 version (call1 v29, plan
+    review v28, call2 v31, artifact review v27, correction v47/v48), so the
+    six 7bt8.6 entries declare its move to the versions the code renders now
+    (call1 v30, plan review v29, call2 v33, artifact review v29, correction
+    v49/v51); 7bt8.7 advanced call2, artifact review and artifact correction
+    over the same text, so those entries name the current versions directly.
+    The term.2-era entries are gone: bead asago-sy73 lists them.
     """
 
-    assert replay_gate.EXPECTED_PROMPT_DIFFERENCES == ()
+    assert [
+        (entry.stage, entry.from_prompt_version, entry.to_prompt_version, entry.bead)
+        for entry in replay_gate.EXPECTED_PROMPT_DIFFERENCES
+    ] == [
+        ("call1", "authoring-call1-v29", "authoring-call1-v30", "asago-7bt8.6"),
+        ("plan_review", "authoring-plan-review-v28", "authoring-plan-review-v29", "asago-7bt8.6"),
+        ("call2", "authoring-call2-v31", "authoring-call2-v33", "asago-7bt8.6"),
+        (
+            "artifact_review",
+            "authoring-artifact-review-v27",
+            "authoring-artifact-review-v29",
+            "asago-7bt8.6",
+        ),
+        ("correction", "authoring-correction-v47", "authoring-correction-v49", "asago-7bt8.6"),
+        ("correction", "authoring-correction-v48", "authoring-correction-v51", "asago-7bt8.6"),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -1176,6 +1195,52 @@ def test_replay_client_never_declares_a_requested_model_difference(
 
     assert client.declared == []
     assert client.mismatches[0]["detail"].startswith("requested model")
+
+
+def test_replay_client_declares_a_text_identical_version_move(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A version bump over unchanged text is declared, so its digest is masked.
+
+    A recording whose prompt text the code renders unchanged still carries a
+    prompt record at the recorded version, whose digest the replay's evidence
+    states at the rendered version.  Without a declared record the comparison
+    fails on the digest alone, and no mismatch ever arises to declare it.
+    """
+
+    entry = _declare(monkeypatch)
+    client = ReplayChatClient([_call(prompt_version=entry.from_prompt_version)])
+    client.prompt = replay_gate.PromptIdentity(entry.stage, entry.to_prompt_version)
+
+    # The request carries the recorded messages exactly: no mismatch detail.
+    response = client.chat.completions.create(**_request())
+
+    assert response.choices[0].message == {"content": "answer", "reasoning": None}
+    assert client.served == 1 and client.mismatches == []
+    [record] = client.declared
+    assert record["from_prompt_version"] == entry.from_prompt_version
+    assert record["to_prompt_version"] == entry.to_prompt_version
+    assert record["detail"] is None
+
+
+def test_replay_client_leaves_an_undeclared_version_move_unmatched(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A version move no entry names does not become a mismatch by itself.
+
+    The transport compares only the two messages and the model, so a version
+    difference alone neither mismatches nor declares; the comparison then
+    reports the prompt record's digest difference unless an entry names the
+    pair.  This is why a text-identical bump needs its own declaration.
+    """
+
+    _declare(monkeypatch)
+    client = ReplayChatClient([_call(prompt_version="authoring-call1-v29")])
+    client.prompt = replay_gate.PromptIdentity("call1", CALL1_PROMPT_VERSION_V30)
+
+    client.chat.completions.create(**_request())
+
+    assert client.served == 1 and client.mismatches == [] and client.declared == []
 
 
 def _prompt_attempt(version: str, user: str, **fields: object) -> dict:
@@ -1410,10 +1475,23 @@ def test_gate_fails_a_prompt_difference_no_entry_lists(
 def test_gate_fails_an_entry_the_recording_carries_but_matches_nothing(
     unresolved_stage: Path, tmp_path: Path
 ) -> None:
-    entry = _ff36f1c_entry()
-    # A recording that states the entry's from-version but was made by code
-    # that already holds the change: nothing differs, so the entry is stale.
-    _rewrite_prompt(unresolved_stage, 1, version=entry.from_prompt_version)
+    # An entry whose to-version the code does not render cannot match: the
+    # recording carries the entry's from-version, but the replay renders a
+    # version the entry does not name, so nothing declares the pair and the
+    # entry is stale.  A version-only move over unchanged text is declared the
+    # same as a text difference, so the from-version alone no longer makes an
+    # entry stale.
+    entry = replay_gate.ExpectedPromptDifference(
+        stage="call1",
+        template="authoring-call1",
+        from_prompt_version="authoring-call1-v26",
+        to_prompt_version="authoring-call1-v31",
+        bead="asago-vfh7",
+        reason="an entry whose to-version the code does not render",
+    )
+    _rewrite_prompt(
+        unresolved_stage, 1, user="the prompt ff36f1c recorded", version=entry.from_prompt_version
+    )
 
     result = run_gate(unresolved_stage, work=tmp_path / "work", declared=(entry,))
 
@@ -1528,6 +1606,123 @@ def test_the_shipped_superseded_declarations_name_the_stale_recorded_dispatches(
             "5e7cd54fb71165118504ece13c1f812257e348e0453fe00d54ab61861e6f8505",
             "asago-7bt8.7",
         ),
+        (
+            "gsx7-author-klarna",
+            "SCN-008",
+            5,
+            "correction",
+            "authoring-correction-v48",
+            "7cc506ba61d32ff62e51a26f4672fc12b52615f56586521bfcee269e41da9923",
+            "asago-7bt8.6",
+        ),
+        (
+            "gsx7-author-klarna",
+            "SCN-010",
+            2,
+            "plan_review",
+            "authoring-plan-review-v28",
+            "958cfb0e07f7b2f5bc5c21def424df2bcad21e280c49337e919a89480a48602e",
+            "asago-7bt8.6",
+        ),
+        (
+            "gsx7-author-klarna",
+            "SCN-025",
+            2,
+            "plan_review",
+            "authoring-plan-review-v28",
+            "b2d2714e16b5809c99990cb978d58f7b1b76140d4cbd8e228a98dded61482667",
+            "asago-7bt8.6",
+        ),
+        (
+            "gsx7-author-klarna",
+            "SCN-028",
+            2,
+            "plan_review",
+            "authoring-plan-review-v28",
+            "bfdd00960ed3bf6eec1c7d18dc923ee36a89681e4a1a8c7f7d6916f4e9954ffb",
+            "asago-7bt8.6",
+        ),
+        (
+            "gsx7-author-klarna",
+            "SCN-011",
+            4,
+            "artifact_review",
+            "authoring-artifact-review-v27",
+            "80310fbf890d0cf9ed509c9e01bd86b3a399a95d0216bc88626c3ddf27e5aaa1",
+            "asago-7bt8.7",
+        ),
+        (
+            "m3-rerecord-b-klarna",
+            "SCN-010",
+            2,
+            "correction",
+            "authoring-correction-v47",
+            "01f461ab19349d76db7328ded33b0ae50c134fe2bae72f177e5a80e576c8ecbd",
+            "asago-7bt8.6",
+        ),
+        (
+            "m3-rerecord-b-klarna",
+            "SCN-025",
+            2,
+            "plan_review",
+            "authoring-plan-review-v28",
+            "6f725e7835e7f65118a352778a14ee300916a9bb011bfdc5049ba98f419ae84f",
+            "asago-7bt8.6",
+        ),
+        (
+            "m3-rerecord-b-klarna",
+            "SCN-028",
+            2,
+            "correction",
+            "authoring-correction-v47",
+            "6d096155c3db008d2ed1e74c0353fe5359b86d837a0e858a2d659c273bcecde9",
+            "asago-7bt8.6",
+        ),
+        (
+            "m3-rerecord-b-klarna",
+            "SCN-011",
+            6,
+            "artifact_review",
+            "authoring-artifact-review-v27",
+            "f4e40394a52dac5dc9fa0573d35be99789acb7ffe42428b8c1c03aaed50c4fbf",
+            "asago-7bt8.7",
+        ),
+        (
+            "m6-transport-retry-klarna",
+            "SCN-008",
+            4,
+            "artifact_review",
+            "authoring-artifact-review-v27",
+            "be2f13eff07aa8df4a0783522d52327bf6a65ac9bbe527e948a225f8ea31e6a8",
+            "asago-7bt8.7",
+        ),
+        (
+            "m6-transport-retry-klarna",
+            "SCN-010",
+            2,
+            "correction",
+            "authoring-correction-v47",
+            "019a7a55830250e3de0ceb70c8b622c8a8856a50f5fe8d6eaa3f36aec3983e43",
+            "asago-7bt8.6",
+        ),
+        (
+            "m6-transport-retry-klarna",
+            "SCN-025",
+            2,
+            "plan_review",
+            "authoring-plan-review-v28",
+            "b2d2714e16b5809c99990cb978d58f7b1b76140d4cbd8e228a98dded61482667",
+            "asago-7bt8.6",
+        ),
+        (
+            "m6-transport-retry-klarna",
+            "SCN-028",
+            2,
+            "plan_review",
+            "authoring-plan-review-v28",
+            "bfdd00960ed3bf6eec1c7d18dc923ee36a89681e4a1a8c7f7d6916f4e9954ffb",
+            "asago-7bt8.6",
+        ),
     ]
     assert all(entry.reason for entry in replay_gate.SUPERSEDED_ITEMS)
 
@@ -1554,6 +1749,51 @@ def test_gate_declares_a_superseded_item_and_passes(
         " t971 re-authors the recorded item"
     ) in report
     assert asdict(item)["superseded"]["recording"] == "run-test"
+
+
+def test_gate_matches_a_superseded_item_a_declared_difference_covered(
+    unresolved_stage: Path, tmp_path: Path
+) -> None:
+    """A declared version move at the pinned dispatch keeps the entry matched.
+
+    A prompt change that also moves the version makes the replay declare the
+    pinned dispatch instead of stopping there, so the item's outputs diverge
+    past it.  The superseded declaration stays matched rather than stale, and
+    the item passes on the prefix guard: no error, no network attempt, no
+    mismatch, and every recorded dispatch before the pinned one served.
+    """
+
+    from_version = "authoring-call1-v29"
+    _rewrite_prompt(unresolved_stage, 1, user="the prompt ff36f1c recorded", version=from_version)
+    entry = _superseded(
+        prompt_version=from_version,
+        prompt_sha256=_recorded_digest_at(unresolved_stage, 1),
+    )
+    declared = replay_gate.ExpectedPromptDifference(
+        stage="call1",
+        template="authoring-call1",
+        from_prompt_version=from_version,
+        to_prompt_version=CALL1_PROMPT_VERSION_V30,
+        bead="asago-7bt8.6",
+        reason="the declared change that covers the pinned dispatch",
+    )
+
+    result = run_gate(
+        unresolved_stage,
+        work=tmp_path / "work",
+        declared=(declared,),
+        superseded=(entry,),
+    )
+
+    assert result.passed, result.report()
+    assert result.superseded == [entry] and result.stale_superseded == []
+    [item] = result.items
+    assert item.superseded == entry and item.passed
+    assert item.mismatches == []
+    [record] = item.declared
+    assert record["from_prompt_version"] == from_version
+    assert record["to_prompt_version"] == CALL1_PROMPT_VERSION_V30
+    assert item.served >= entry.dispatch_index
 
 
 def test_gate_fails_a_superseded_declaration_at_another_dispatch(

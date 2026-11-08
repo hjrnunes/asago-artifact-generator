@@ -38,7 +38,9 @@ code, status and outputs then follow from that one change.  Each declaration
 is pinned to the recording, item, dispatch, recorded stage and version, and the
 recorded prompt digest, so a re-recorded or edited recording does not inherit
 it.  A declaration whose recording no longer mismatches at the declared
-dispatch is stale, and the gate fails.
+dispatch is stale, and the gate fails.  When an expected prompt difference
+declares the same dispatch as a text-identical version move, the declared
+record takes precedence and the item compares as a normal replay.
 
 A recording made while packages still copied each request (``authoring/``
 members, ``source-hashes.json``, a manifest ledger, and the ``<ID>.authoring/``
@@ -148,7 +150,10 @@ class ExpectedPromptDifference:
     reported as declared, not as a mismatch.  An entry whose from-version a
     replayed recording carries but which matches no difference is stale: the
     recording is probably new enough that the change is in it, so remove the
-    entry.  An unlisted difference always fails.
+    entry.  An entry is also stale-free while another declared change for the
+    same stage leaves a version the recording carries: a prompt can advance by
+    more than one version over unchanged text, and the middle versions belong
+    to no recording.  An unlisted difference always fails.
     """
 
     stage: str
@@ -163,12 +168,80 @@ class ExpectedPromptDifference:
 # replays was made before, and no entry once that stage is re-recorded.  An
 # entry declares only the version change it names; a prompt that differs at any
 # other version pair still fails, and a recording whose stated prompt digest
-# does not match its prompt text cannot use an entry at all.  The re-recorded
-# corpus under $ASAGO_REPLAY_CORPUS/consumer carries every version the code
-# renders now (call1 v29, plan review v28, call2 v31, artifact review v27,
-# correction v47), so no entry is live: the fourteen the M1 baseline and the
-# term.2 and term.7 changes added were inert, and bead asago-sy73 lists them.
-EXPECTED_PROMPT_DIFFERENCES: tuple[ExpectedPromptDifference, ...] = ()
+# does not match its prompt text cannot use an entry at all.  The five current
+# consumer recordings were made before the 7bt8.6 omission-trigger guidance
+# change (call1 v30, plan review v29, correction v49/v50), and 7bt8.7 advanced
+# call2 to v33, artifact review to v29 and artifact correction to v51 over the
+# same text, so the call2, artifact-review and correction entries name the
+# version the code renders now and the gate's stale rule ignores the pairs in
+# between that no recording carries at its from-version with this to-version
+# reachable.  The term.2-era entries are gone: bead asago-sy73 lists them, and
+# the re-recorded corpus carries every pre-7bt8.6 version.
+EXPECTED_PROMPT_DIFFERENCES: tuple[ExpectedPromptDifference, ...] = (
+    ExpectedPromptDifference(
+        stage="call1",
+        template="authoring-call1",
+        from_prompt_version="authoring-call1-v29",
+        to_prompt_version="authoring-call1-v30",
+        bead="asago-7bt8.6",
+        reason=(
+            "the omission-trigger gate reads the bound condition and its author"
+            " guidance changes the plan-author prompt"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="plan_review",
+        template="authoring-plan-review",
+        from_prompt_version="authoring-plan-review-v28",
+        to_prompt_version="authoring-plan-review-v29",
+        bead="asago-7bt8.6",
+        reason=(
+            "the reviewer guidance and the omission-trigger rule it renders"
+            " change the plan-review prompt"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="call2",
+        template="authoring-call2",
+        from_prompt_version="authoring-call2-v31",
+        to_prompt_version="authoring-call2-v33",
+        bead="asago-7bt8.6",
+        reason=(
+            "the omission outcome and not_called condition guidance change the"
+            " artifact-author prompt; 7bt8.7 advanced the same text to v33"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="artifact_review",
+        template="authoring-artifact-review",
+        from_prompt_version="authoring-artifact-review-v27",
+        to_prompt_version="authoring-artifact-review-v29",
+        bead="asago-7bt8.6",
+        reason=(
+            "the omission outcome example changes the artifact-review prompt;"
+            " 7bt8.7 advanced the same text to v29"
+        ),
+    ),
+    ExpectedPromptDifference(
+        stage="correction",
+        template="authoring-correction",
+        from_prompt_version="authoring-correction-v47",
+        to_prompt_version="authoring-correction-v49",
+        bead="asago-7bt8.6",
+        reason="the plan-correction guidance changes with the plan prompt it repairs",
+    ),
+    ExpectedPromptDifference(
+        stage="correction",
+        template="authoring-correction",
+        from_prompt_version="authoring-correction-v48",
+        to_prompt_version="authoring-correction-v51",
+        bead="asago-7bt8.6",
+        reason=(
+            "the artifact-correction guidance changes with the artifact prompt"
+            " it repairs; 7bt8.7 advanced the same text to v51"
+        ),
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -185,9 +258,11 @@ class SupersededItem:
     The item is still replayed.  It counts as superseded only when its one
     prompt mismatch is the declared dispatch and every earlier dispatch was
     served identically, so its divergent exit code, status and outputs follow
-    from that one change.  A declaration whose recording replays the item
-    without that mismatch, or whose recorded dispatch carries another prompt
-    digest, is stale: remove it.
+    from that one change.  When an expected prompt difference declares the
+    same dispatch as a text-identical version move, the declared record takes
+    precedence and the item compares as a normal replay.  A declaration whose
+    recording replays the item without that mismatch, or whose recorded
+    dispatch carries another prompt digest, is stale: remove it.
     """
 
     recording: str
@@ -209,7 +284,15 @@ class SupersededItem:
 # adds the echo rule to the call2 prompt of a planted judged plan and the
 # seed:planted_item fact to its judge.json, so each such item now diverges at
 # its first call2 dispatch.  Each item is replayed, and each declaration
-# excuses only the one dispatch it names.
+# excuses only the one dispatch it names.  The 7bt8.6 omission-trigger gate
+# also strands recorded items whose plans the code now refuses or corrects:
+# the plan-review items whose recorded plans cite no trigger the inventory
+# supplies, the correction items the new finding loops, and the artifact
+# reviews those corrections never reach.  Those declarations name the
+# recording's dispatch where the divergence starts, as the t971 entry does.
+# A text-identical version move at the same dispatch is the one case a
+# superseded entry defers to EXPECTED_PROMPT_DIFFERENCES; see
+# `_declared_covers`.
 SUPERSEDED_ITEMS: tuple[SupersededItem, ...] = (
     SupersededItem(
         recording="gsx7-author-klarna",
@@ -275,6 +358,186 @@ SUPERSEDED_ITEMS: tuple[SupersededItem, ...] = (
         reason=(
             "the planted_item_echo rule changes the call2 prompt, and the judge"
             " member gains the seed:planted_item fact"
+        ),
+    ),
+    SupersededItem(
+        recording="gsx7-author-klarna",
+        item="SCN-008",
+        dispatch_index=5,
+        stage="correction",
+        prompt_version="authoring-correction-v48",
+        prompt_sha256="7cc506ba61d32ff62e51a26f4672fc12b52615f56586521bfcee269e41da9923",
+        bead="asago-7bt8.6",
+        reason=(
+            "the recording's artifact correction kept a binding placeholder in"
+            " a planted turn, which the t971 finding now refuses, so the code"
+            " asks again where the recording held an artifact review"
+        ),
+    ),
+    SupersededItem(
+        recording="gsx7-author-klarna",
+        item="SCN-010",
+        dispatch_index=2,
+        stage="plan_review",
+        prompt_version="authoring-plan-review-v28",
+        prompt_sha256="958cfb0e07f7b2f5bc5c21def424df2bcad21e280c49337e919a89480a48602e",
+        bead="asago-7bt8.6",
+        reason=(
+            "the recorded plan cites a state fact as its omission trigger, and"
+            " the omission gate now refuses it, so the code issues a correction"
+            " where the recording held a plan review"
+        ),
+    ),
+    SupersededItem(
+        recording="gsx7-author-klarna",
+        item="SCN-025",
+        dispatch_index=2,
+        stage="plan_review",
+        prompt_version="authoring-plan-review-v28",
+        prompt_sha256="b2d2714e16b5809c99990cb978d58f7b1b76140d4cbd8e228a98dded61482667",
+        bead="asago-7bt8.6",
+        reason=(
+            "the recorded plan cites no observation of the omitted call's"
+            " trigger, and the omission gate now refuses it, so the code issues"
+            " a correction where the recording held a plan review"
+        ),
+    ),
+    SupersededItem(
+        recording="gsx7-author-klarna",
+        item="SCN-028",
+        dispatch_index=2,
+        stage="plan_review",
+        prompt_version="authoring-plan-review-v28",
+        prompt_sha256="bfdd00960ed3bf6eec1c7d18dc923ee36a89681e4a1a8c7f7d6916f4e9954ffb",
+        bead="asago-7bt8.6",
+        reason=(
+            "the recorded plan states no trigger for its omission, and the"
+            " omission gate now refuses it, so the code issues a correction"
+            " where the recording held a plan review"
+        ),
+    ),
+    SupersededItem(
+        recording="gsx7-author-klarna",
+        item="SCN-011",
+        dispatch_index=4,
+        stage="artifact_review",
+        prompt_version="authoring-artifact-review-v27",
+        prompt_sha256="80310fbf890d0cf9ed509c9e01bd86b3a399a95d0216bc88626c3ddf27e5aaa1",
+        bead="asago-7bt8.7",
+        reason=(
+            "the judge member gains the seed:planted_item fact, so the"
+            " accepted artifact's judge.json and manifest differ"
+        ),
+    ),
+    SupersededItem(
+        recording="m3-rerecord-b-klarna",
+        item="SCN-010",
+        dispatch_index=2,
+        stage="correction",
+        prompt_version="authoring-correction-v47",
+        prompt_sha256="01f461ab19349d76db7328ded33b0ae50c134fe2bae72f177e5a80e576c8ecbd",
+        bead="asago-7bt8.6",
+        reason=(
+            "the recorded correction emptied selected_evidence and cited a"
+            " state fact as the omission trigger, which the omission gate now"
+            " refuses, so the correction loop exhausts where the recording"
+            " accepted"
+        ),
+    ),
+    SupersededItem(
+        recording="m3-rerecord-b-klarna",
+        item="SCN-025",
+        dispatch_index=2,
+        stage="plan_review",
+        prompt_version="authoring-plan-review-v28",
+        prompt_sha256="6f725e7835e7f65118a352778a14ee300916a9bb011bfdc5049ba98f419ae84f",
+        bead="asago-7bt8.6",
+        reason=(
+            "the recorded plan states no trigger for its omission, and the"
+            " omission gate now refuses it, so the code issues a correction"
+            " where the recording held a plan review"
+        ),
+    ),
+    SupersededItem(
+        recording="m3-rerecord-b-klarna",
+        item="SCN-028",
+        dispatch_index=2,
+        stage="correction",
+        prompt_version="authoring-correction-v47",
+        prompt_sha256="6d096155c3db008d2ed1e74c0353fe5359b86d837a0e858a2d659c273bcecde9",
+        bead="asago-7bt8.6",
+        reason=(
+            "the recorded correction selects the omitted operation itself as"
+            " its trigger, which the omission gate now refuses, so the"
+            " correction loop exhausts where the recording accepted"
+        ),
+    ),
+    SupersededItem(
+        recording="m3-rerecord-b-klarna",
+        item="SCN-011",
+        dispatch_index=6,
+        stage="artifact_review",
+        prompt_version="authoring-artifact-review-v27",
+        prompt_sha256="f4e40394a52dac5dc9fa0573d35be99789acb7ffe42428b8c1c03aaed50c4fbf",
+        bead="asago-7bt8.7",
+        reason=(
+            "the judge member gains the seed:planted_item fact, so the"
+            " accepted artifact's judge.json and manifest differ"
+        ),
+    ),
+    SupersededItem(
+        recording="m6-transport-retry-klarna",
+        item="SCN-008",
+        dispatch_index=4,
+        stage="artifact_review",
+        prompt_version="authoring-artifact-review-v27",
+        prompt_sha256="be2f13eff07aa8df4a0783522d52327bf6a65ac9bbe527e948a225f8ea31e6a8",
+        bead="asago-7bt8.7",
+        reason=(
+            "the judge member gains the seed:planted_item fact, so the"
+            " accepted artifact's judge.json and manifest differ"
+        ),
+    ),
+    SupersededItem(
+        recording="m6-transport-retry-klarna",
+        item="SCN-010",
+        dispatch_index=2,
+        stage="correction",
+        prompt_version="authoring-correction-v47",
+        prompt_sha256="019a7a55830250e3de0ceb70c8b622c8a8856a50f5fe8d6eaa3f36aec3983e43",
+        bead="asago-7bt8.6",
+        reason=(
+            "the recorded correction cites a state fact as the omission"
+            " trigger, which the omission gate now refuses, so the correction"
+            " loop exhausts where the recording accepted"
+        ),
+    ),
+    SupersededItem(
+        recording="m6-transport-retry-klarna",
+        item="SCN-025",
+        dispatch_index=2,
+        stage="plan_review",
+        prompt_version="authoring-plan-review-v28",
+        prompt_sha256="b2d2714e16b5809c99990cb978d58f7b1b76140d4cbd8e228a98dded61482667",
+        bead="asago-7bt8.6",
+        reason=(
+            "the recorded plan cites no observation of the omitted call's"
+            " trigger, and the omission gate now refuses it, so the code issues"
+            " a correction where the recording held a plan review"
+        ),
+    ),
+    SupersededItem(
+        recording="m6-transport-retry-klarna",
+        item="SCN-028",
+        dispatch_index=2,
+        stage="plan_review",
+        prompt_version="authoring-plan-review-v28",
+        prompt_sha256="bfdd00960ed3bf6eec1c7d18dc923ee36a89681e4a1a8c7f7d6916f4e9954ffb",
+        bead="asago-7bt8.6",
+        reason=(
+            "the recorded plan states no trigger for its omission, and the"
+            " omission gate now refuses it, so the code issues a correction"
+            " where the recording held a plan review"
         ),
     ),
 )
@@ -582,6 +845,16 @@ class ReplayChatClient:
                     f" ({call.stage})"
                 )
             self.declared.append(_declared_difference(call, self.prompt, entry, detail))
+        else:
+            # A prompt whose two messages the code renders unchanged still
+            # moves versions when the change is text-identical, and the
+            # replayed evidence then records a prompt digest and version the
+            # recording does not hold.  An entry declares that move the same
+            # way, so the comparison masks the prompt record it already masks
+            # for a differing text.
+            entry = _declared_prompt_difference(call, self.prompt)
+            if entry is not None:
+                self.declared.append(_declared_difference(call, self.prompt, entry, detail))
         self.served += 1
         return _serve(call)
 
@@ -1308,6 +1581,18 @@ class ItemResult:
     @property
     def passed(self) -> bool:
         if self.superseded is not None:
+            if _declared_covers(self.superseded, self):
+                # A declared prompt difference covered the pinned dispatch, so
+                # the replay continued past it and the item's outputs diverge
+                # from the change the entry names.  The prefix guard still
+                # applies: no error, no network attempt, no prompt mismatch,
+                # and every recorded dispatch before the pinned one served.
+                return (
+                    self.error is None
+                    and not self.network_attempts
+                    and not self.mismatches
+                    and self.served >= self.superseded.dispatch_index
+                )
             # The replay stops at the declared dispatch, so its exit code,
             # status and outputs cannot match the recording.  The prefix guard
             # is the evidence that nothing else diverged; an error or a network
@@ -1333,11 +1618,16 @@ def _superseded_mismatch(item: ItemResult) -> dict[str, Any] | None:
 
     The declaration excuses only the declared dispatch: the item's one prompt
     mismatch must name its index, recorded stage and recorded version, and
-    every earlier dispatch must have been served identically.
+    every earlier dispatch must have been served identically.  A declared
+    prompt difference at an earlier dispatch does not block the declaration:
+    a text-identical version move is declared, not mismatched, so the replay
+    still served that dispatch's recorded response.
     """
 
     entry = item.superseded
-    if entry is None or len(item.mismatches) != 1 or item.declared:
+    if entry is None or len(item.mismatches) != 1:
+        return None
+    if any(record.get("dispatch_index") >= entry.dispatch_index for record in item.declared):
         return None
     mismatch = item.mismatches[0]
     if (
@@ -1465,6 +1755,14 @@ def _apply_superseded_items(
     prompt mismatch, or when the recorded dispatch carries another prompt
     digest.  An item this run did not replay is left alone, so ``--item``
     narrows the replay without making the other declarations stale.
+
+    A declaration also matches when an :data:`EXPECTED_PROMPT_DIFFERENCES`
+    entry declared the pinned dispatch as a text-identical version move: the
+    recording's prompt text and the rendered prompt text are the same and only
+    the version moved, so the replay serves the recorded response and
+    continues, and the item compares as a normal replay.  The declared
+    difference is the narrower statement of that move, so the superseded
+    declaration stays matched rather than stale.
     """
 
     recording = recording_id(stage_dir)
@@ -1486,6 +1784,10 @@ def _apply_superseded_items(
             == entry.prompt_sha256
         )
         if digest_matches:
+            if _declared_covers(entry, item):
+                item.superseded = entry
+                matched.append(entry)
+                continue
             item.superseded = entry
             if _superseded_mismatch(item) is not None:
                 matched.append(entry)
@@ -1493,6 +1795,26 @@ def _apply_superseded_items(
             item.superseded = None
         stale.append(entry)
     return matched, stale
+
+
+def _declared_covers(entry: SupersededItem, item: ItemResult) -> bool:
+    """Return whether a declared prompt difference covered the pinned dispatch.
+
+    The declared record must name the entry's dispatch, recorded stage and
+    recorded version, whether or not its prompt text differs: the declared
+    version move and the change the entry pins are the same divergence, and
+    the replay continued past the dispatch the entry pins either way.  The
+    item then compares as a normal replay, so an output difference the entry's
+    change produces still fails the item unless the entry is matched for that
+    reason; see :meth:`ItemResult.passed`.
+    """
+
+    return any(
+        record.get("dispatch_index") == entry.dispatch_index
+        and record.get("stage") == entry.stage
+        and record.get("from_prompt_version") == entry.prompt_version
+        for record in item.declared
+    )
 
 
 def _failure_lines(item: ItemResult, limit: int) -> list[str]:
@@ -1746,8 +2068,12 @@ def _stale_entries(
 
     An entry applies to a recording that dispatched its stage at its
     from-version.  If the replay of that recording declared no such change, the
-    entry is stale: the recording is probably new enough to hold the change
-    already, so remove the entry instead of keeping a declaration nothing uses.
+    entry is stale: the recording is probably new enough that the change is in
+    it, so remove the entry instead of keeping a declaration nothing uses.  A
+    recording whose prompt text the code renders unchanged still declares the
+    version move alone, because the recorded version and the rendered version
+    differ; only a recording the code renders at the entry's from-version with
+    the same text leaves an entry stale.
     """
 
     matched = {
