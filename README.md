@@ -461,12 +461,16 @@ Asago Artifact Generator requires Python 3.12 or newer: every workspace member d
 lock file is the authoritative development environment.
 
 The lock resolves the producer packages from `../asago-scenario-generator`
-(`asago-contracts-core`, `asago-handoff` and `asago-report-kit` as path sources, and the
-producer application in the `dev` group; `pyproject.toml`, `[tool.uv.sources]`). Check out
-the producer beside this repository before you sync; the sync fails without it.
+(`asago-contracts-core`, `asago-handoff` and `asago-report-kit` as path sources;
+`pyproject.toml`, `[tool.uv.sources]`). Check out the producer beside this
+repository before you sync; the sync fails without it. The producer application
+itself is the `producer-pair` dependency group, which only the writer-to-reader
+pair test needs (`tests/test_handoff_writer_reader_pair.py`); without it the
+module skips.
 
 ```bash
-uv sync --locked
+uv sync --locked                       # default dev group; runs without the group
+uv sync --locked --group producer-pair # also installs the producer application
 ```
 
 The installed command is `asago-artifact-generator` and the Python package is

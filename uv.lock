@@ -75,9 +75,11 @@ dev = [
     { name = "asago-bundle-garak" },
     { name = "asago-bundle-midojo" },
     { name = "asago-injection-spec" },
-    { name = "asago-scenario-generator" },
     { name = "pytest" },
     { name = "ruff" },
+]
+producer-pair = [
+    { name = "asago-scenario-generator" },
 ]
 
 [package.metadata]
@@ -102,10 +104,10 @@ dev = [
     { name = "asago-bundle-garak", editable = "packages/asago-bundle-garak" },
     { name = "asago-bundle-midojo", editable = "packages/asago-bundle-midojo" },
     { name = "asago-injection-spec", editable = "packages/asago-injection-spec" },
-    { name = "asago-scenario-generator", editable = "../asago-scenario-generator" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "ruff", specifier = ">=0.6" },
 ]
+producer-pair = [{ name = "asago-scenario-generator", editable = "../asago-scenario-generator" }]
 
 [[package]]
 name = "asago-bundle-core"

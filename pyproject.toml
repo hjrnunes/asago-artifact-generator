@@ -34,9 +34,17 @@ dev = [
     "asago-bundle-garak",
     "asago-bundle-midojo",
     "asago-injection-spec>=0.1,<0.2",
-    "asago-scenario-generator",
     "pytest>=8.0",
     "ruff>=0.6",
+]
+# The writer-to-reader pair test (tests/test_handoff_writer_reader_pair.py) drives
+# the producer's real handoff writer in process, so it needs the producer sibling
+# checkout as an editable path source (``asago-scenario-generator`` below). The
+# default dev group stays installable in a consumer-only checkout or CI without
+# the sibling; sync this group only where the sibling exists:
+# ``uv sync --locked --group producer-pair``.
+producer-pair = [
+    "asago-scenario-generator",
 ]
 
 [tool.uv]
@@ -47,7 +55,9 @@ members = ["packages/*"]
 
 [tool.uv.sources]
 # The producer-owned contracts core: the shared handoff validator, canonical JSON and
-# conformance runner. Declared by name above; the path stays here.
+# conformance runner. Declared by name above; the path stays here. The producer
+# packages below are the runtime dependencies the lock always resolves; the
+# producer app itself sits in the ``producer-pair`` group.
 asago-contracts-core = { path = "../asago-scenario-generator/packages/asago-contracts-core", editable = true }
 # The producer-owned handoff contract: one validator and one condition-v2 evaluator
 # shared by the producer, this repository and the orchestrator.
@@ -64,6 +74,9 @@ asago-report-kit = { path = "../asago-scenario-generator/packages/asago-report-k
 # adapter depends on the SDK alone; the harness (``midojo``) never enters this workspace. The
 # revision is a pushed ``asago/main`` SHA, and the subdirectory is the SDK's workspace member.
 midojo-sdk = { git = "https://github.com/hjrnunes/midojo.git", subdirectory = "interception/python-sdk", rev = "d5677d358db7cabff0980f6e110e4b18abb468c6" }
+# The producer app: the writer-to-reader pair test's in-process writer. Named by
+# the ``producer-pair`` dependency group only, so the default dev group never
+# needs this checkout.
 asago-scenario-generator = { path = "../asago-scenario-generator", editable = true }
 
 [tool.hatch.build.targets.wheel]

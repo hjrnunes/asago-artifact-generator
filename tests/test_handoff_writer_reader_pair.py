@@ -7,13 +7,14 @@ this consumer's ``input_adapter.load_input`` then accepts the result. Both input
 forms are covered, a hand-built dict and a producer-written file, and each form
 also has cases the reader must reject.
 
-The producer module arrives through the ``dev`` dependency group, whose
+The producer module arrives through the ``producer-pair`` dependency group, whose
 ``asago-scenario-generator`` entry is an editable path source on the sibling
-checkout ``../asago-scenario-generator``. A checkout without that sibling, such
-as a consumer-only clone or CI, cannot run this pair; the module then skips and
-names the missing path instead of passing silently. Any other import failure is
-a defect in the producer or its dependencies, so it stops collection rather than
-skipping these cases.
+checkout ``../asago-scenario-generator``. A checkout without that sibling, or a
+sync without the group (the default ``dev`` group leaves it out, so a
+consumer-only clone or CI stays installable), cannot run this pair; the module
+then skips and names what it needs instead of passing silently. Any other
+import failure is a defect in the producer or its dependencies, so it stops
+collection rather than skipping these cases.
 """
 
 from __future__ import annotations
@@ -35,15 +36,19 @@ from asago_artifact_generator.input_adapter import (
     load_input,
 )
 
-# The sibling checkout is a dev-group dependency; a consumer-only checkout has none. Only
-# its absence may skip this pair: a producer that is present but cannot be imported is a
-# real defect, and the unguarded import below makes collection fail on it.
+# The sibling checkout backs the producer-pair group, which the default sync leaves out;
+# a consumer-only checkout has neither, and a workspace checkout without the group has the
+# directory but no installed producer. Only the missing checkout or group may skip this
+# pair: a producer that is installed but cannot be imported is a real defect, and the
+# unguarded import below makes collection fail on it.
 PRODUCER_CHECKOUT = Path(__file__).resolve().parents[2] / "asago-scenario-generator"
-if not PRODUCER_CHECKOUT.is_dir():
+try:
+    import asago_scenario_generator  # noqa: F401
+except ModuleNotFoundError:
     pytest.skip(
         "requires the asago-scenario-generator sibling checkout at "
-        f"{PRODUCER_CHECKOUT} (editable path source ../asago-scenario-generator in the "
-        "dev dependency group)",
+        f"{PRODUCER_CHECKOUT} and the producer-pair dependency group "
+        "(uv sync --locked --group producer-pair)",
         allow_module_level=True,
     )
 
