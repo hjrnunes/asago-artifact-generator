@@ -1254,7 +1254,7 @@ a run with one sends a second, different request in the same grading. The same i
 give the same bytes.
 
 `asago-bundle-midojo judge-serve` answers that request with the rubric judge
-(`midojo_sdk.rubric_judge`, Garak's port; `authoring/rubric_judge.py` re-exports it): for
+(`midojo_sdk.rubric_judge`, Garak's port): for
 the conversation the request holds it sends the model the requests Garak's `RubricJudge`
 sends, one per judged turn (the last turn for `final`, each in order for `all`, whose last
 verdict is the answer), checked against Garak's (`midojo`'s `tests/fixtures/rubric/`). It

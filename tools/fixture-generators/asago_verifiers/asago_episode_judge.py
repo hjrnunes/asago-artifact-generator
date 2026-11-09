@@ -1,11 +1,11 @@
 """The rubric judge of a reply episode: each judged turn, with the turns before it.
 
-``compile`` copies this file, and ``authoring/rubric_judge.py`` beside it as
-``asago_rubric.py``, into a reply episode's ``verifiers`` package. The runner imports it
-in MiDojo's interpreter and calls ``register(judge_url, judge_model)`` before it builds
-the episode, since an episode parses its checks when it is built. It imports the standard
-library and its sibling ``asago_rubric``; ``midojo.verifiers`` is imported when the
-verifier is registered or asked for a result.
+``compile`` copied this file, and the rubric judge beside it as ``asago_rubric.py``,
+into a reply episode's ``verifiers`` package. The runner imports it in MiDojo's
+interpreter and calls ``register(judge_url, judge_model)`` before it builds the episode,
+since an episode parses its checks when it is built. It imports the standard library and
+its sibling ``asago_rubric``; ``midojo.verifiers`` is imported when the verifier is
+registered or asked for a result.
 
 MiDojo grades once, after the last turn, and hands a verifier the conversation
 (``VerificationContext.turns``, each user message and the agent's reply) and the recorded
@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from typing import Any
 
 # In an episode's verifiers package the rubric judge sits beside this file as
-# ``asago_rubric.py``; in the adapter it is that authoring module.
+# ``asago_rubric.py``; without it, the SDK holds the same judge.
 try:
     from .asago_rubric import (  # type: ignore[import-not-found]
         RUBRIC_NAME,
@@ -47,7 +47,7 @@ try:
 except ModuleNotFoundError as exc:
     if exc.name != f"{__package__}.asago_rubric":
         raise
-    from asago_artifact_generator.authoring.rubric_judge import (
+    from midojo_sdk.rubric_judge import (
         RUBRIC_NAME,
         build_evidence,
         field,
