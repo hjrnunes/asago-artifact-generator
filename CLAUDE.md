@@ -159,7 +159,9 @@ the group the module skips and names what it needs.
   as package data under `src/asago_package/contracts/`, the only authority copies in this
   repository; the app's `contract_dir` keeps serving the seven kits it still holds.
   `runtime_contract_spec` reads every runtime contract through the installed spec set, and
-  the app's loader and the producer's builder both call it.
+  the app's loader and `declared_runtime_contract` both call it. That module builds a
+  declared target's runtime contract from the shared base; orch runs it in this
+  interpreter, and the producer holds no copy.
 - `packages/asago-bundle-core/`: the tool-neutral core every tool adapter builds on (the
   `tool-bundle-v2` runtime spec, whose v1 still reads, slot markers, the capability-gap
   record, `BundleError`, the `testing` package builders, the `mcp_records` readers of the

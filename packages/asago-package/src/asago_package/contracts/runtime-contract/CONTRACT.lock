@@ -3,7 +3,7 @@
   "contract": "runtime-contract",
   "schema_version": "artifact-runtime-contract-v3",
   "files": {
-    "artifact-runtime-contract-v2/README.md": "5577905173b8fafb215b7ee5687f0cafe6b9d9967f85605b66bbcd4c311d0a3f",
+    "artifact-runtime-contract-v2/README.md": "3468cb5fb39279a0a41d2390cc9110f8b9d4d10e39fb5a12feaa2c5511fda764",
     "artifact-runtime-contract-v2/cases/expected-violations.json": "58366dea96d12c002c8d747b317bcafb15cc4ff5b41be46bc17500ed2c5ae781",
     "artifact-runtime-contract-v2/cases/invalid/claim-level-unknown.json": "ca1617cbc3c021067dee4c6e445daad164f64da2802f7f3f3f9d54c227a5a9e8",
     "artifact-runtime-contract-v2/cases/invalid/delivery-repeated.json": "e43a7a05a917c11d0f24fd045cc842e5852c87affa83d50d9d52ee40633da848",
@@ -36,7 +36,7 @@
     "artifact-runtime-contract-v2/cases/valid/writer-complete.json": "313ef317787c49439211e7041fcdac0b58500e27dc37c2d478f7c9433830b60a",
     "artifact-runtime-contract-v2/schema.json": "24ccf03d494c5d6d522d92a0903ca76317b5414c866c919f6b263898047dc28a",
     "artifact-runtime-contract-v2/spec.json": "2291f5dbb227344f400ca6733fa134f2d8a28ae676842f654486fe2882d5bae6",
-    "artifact-runtime-contract-v3/README.md": "c302da8781a0d0159f7e5cef7b68f2f4aa939985329786c1c4351cb09b30e88b",
+    "artifact-runtime-contract-v3/README.md": "73bfb7390cc7f63fd1d2d8b2b241a5cb354060cc099d2b72641c15ce56fd8f60",
     "artifact-runtime-contract-v3/cases/expected-violations.json": "b151805add6a2bbc5f122e94ba2c0da2909614b558bd4d4cc67d492461ab0a6a",
     "artifact-runtime-contract-v3/cases/invalid/claim-level-unknown.json": "cd0ca1ea5a8fb8c74470635bee0ef21c99038c85f70f534f78f59c29c7fd40ef",
     "artifact-runtime-contract-v3/cases/invalid/delivery-repeated.json": "149d47aacc6c7ce3ee0612ca8678c6e997ffd45d97b6742a5b04a34bf4ac33fd",

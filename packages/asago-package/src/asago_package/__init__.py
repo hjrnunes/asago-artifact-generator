@@ -5,7 +5,8 @@ imports nothing from the authoring application, so a downstream tool can read or
 a package without the authoring dependencies. It also carries the three authority
 contract kits the values verify: ``artifact-package``, ``runtime-contract`` and
 ``capability-gap``. :mod:`asago_package.runtime_contract_spec` reads every runtime
-contract through the installed spec set.
+contract through the installed spec set, and :mod:`asago_package.declared_runtime_contract`
+builds a declared target's contract from a shared base.
 
 :mod:`asago_package.binding_rules` owns the binding and slot rules, and
 :mod:`asago_package.bindings` adds authoring's canonical paths and wording, so package

@@ -2,8 +2,8 @@
 
 ``asago_package`` carries the authority copy of the contract as package data, so the version
 directory this module loads is also the installed reader copy. The orchestrator writes one
-contract per target, the producer's target-discovery builder emits a declared target's
-contract, and ``generate --runtime-contract`` reads one; all three read it here.
+contract per target, :mod:`asago_package.declared_runtime_contract` builds a declared
+target's contract, and ``generate --runtime-contract`` reads one; all three read it here.
 
 ``artifact-runtime-contract-v2`` is published with ``"envelope": "optional"``, because every
 writer predates the envelope; a document without one is selected by its ``schema_version``.

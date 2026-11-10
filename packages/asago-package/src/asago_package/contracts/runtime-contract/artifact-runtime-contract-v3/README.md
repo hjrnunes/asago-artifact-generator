@@ -9,9 +9,10 @@ Authoring is target-free, so this contract is all it knows about execution.
 authority copy and the installed reader copy are the same files. The orchestrator writes one
 contract per target under `data/targets/<target>/runtime-contract.json`, its
 `scripts/gen_runtime_contracts.py` renders them from each target's runtime specification, and
-the producer's `asago-target-discovery` builder emits a declared target's contract from the
-shared base. The consumer's `generate --runtime-contract`, that builder and the orchestrator's
-drift check all read a contract through `asago_package.runtime_contract_spec`.
+`asago_package.declared_runtime_contract` builds a declared target's contract from the shared
+base, and the orchestrator runs it in the consumer's interpreter. The consumer's `generate
+--runtime-contract`, that builder and the orchestrator's drift check all read a contract
+through `asago_package.runtime_contract_spec`.
 
 ## The document
 
