@@ -25,14 +25,14 @@ from injection_spec_cases import EPISODES, REGRADED
 from midojo_sdk.snapshot import snapshot_digest
 
 from asago_bundle_midojo.cli import main
-from asago_bundle_midojo.sealed import (
+from asago_injection_spec.delivery_contract import installed_specs
+from asago_injection_spec.sealed import (
     ATTACK_OUTCOME,
     INCONCLUSIVE,
     UNRECORDED_DELIVERY,
     delivery_shape,
     parse_sealed,
 )
-from asago_injection_spec.delivery_contract import installed_specs
 from conftest import (
     DELIVERY_CONTRACT,
     RECEIPT_SCHEMA,

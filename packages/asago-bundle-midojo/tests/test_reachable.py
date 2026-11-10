@@ -27,8 +27,8 @@ from injection_spec_cases import (
 from asago_bundle_core.conformance import check_gap
 from asago_bundle_core.gap import CapabilityGap
 from asago_bundle_midojo.cli import main
-from asago_bundle_midojo.injection_spec_compile import compile_injection_spec
-from asago_bundle_midojo.reachable import names_record
+from asago_injection_spec.injection_spec_compile import compile_injection_spec
+from asago_injection_spec.reachable import names_record
 
 UNREACHED = (
     "seed item 0: the conversation cannot reach record 'NOTE-2': 'read_note' returns it "

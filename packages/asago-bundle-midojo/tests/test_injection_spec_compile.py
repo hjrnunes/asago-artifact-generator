@@ -57,9 +57,9 @@ from asago_bundle_core.gap import CapabilityGap
 from asago_bundle_core.target import load_target_config
 from asago_bundle_core.testing import sequential_stimulus, single_stimulus
 from asago_bundle_midojo.cli import main
-from asago_bundle_midojo.document import ENVELOPE_FIELDS, ENVELOPE_SCHEMA
-from asago_bundle_midojo.injection_spec import INJECTION_SPEC_FIELDS
-from asago_bundle_midojo.injection_spec_compile import (
+from asago_injection_spec.document import ENVELOPE_FIELDS, ENVELOPE_SCHEMA
+from asago_injection_spec.injection_spec import INJECTION_SPEC_FIELDS
+from asago_injection_spec.injection_spec_compile import (
     INJECTION_SPEC_FILE,
     CompileError,
     compile_injection_spec,

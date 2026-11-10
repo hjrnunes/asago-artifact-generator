@@ -32,8 +32,8 @@ from injection_spec_cases import (
 from midojo_sdk.snapshot import canonical, dumps, snapshot_digest
 
 from asago_bundle_core.receipt_contract import read_receipt
-from asago_bundle_midojo.route import ROUTES
-from asago_bundle_midojo.sealed import (
+from asago_injection_spec.route import ROUTES
+from asago_injection_spec.sealed import (
     INCONCLUSIVE,
     INJECTION_STATUSES,
     UNPLACED,

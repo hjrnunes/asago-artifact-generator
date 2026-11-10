@@ -24,8 +24,10 @@ import sys
 from pathlib import Path
 
 from asago_bundle_core.gap import EXIT_CAPABILITY_GAP, EXIT_INPUT, EXIT_OK, CapabilityGap
+from asago_injection_spec.injection_spec_compile import BLOCK, CompileError, compile_injection_spec
+from asago_injection_spec.route import DEFAULT_ROUTE, ROUTES
+from asago_injection_spec.sealed import RUNTIME_TYPES, ParseError, parse_sealed
 
-from .injection_spec_compile import BLOCK, CompileError, compile_injection_spec
 from .judge_service import (
     DEFAULT_PORT,
     FINAL_TURN,
@@ -36,8 +38,6 @@ from .judge_service import (
     ServiceConfigError,
     serve,
 )
-from .route import DEFAULT_ROUTE, ROUTES
-from .sealed import RUNTIME_TYPES, ParseError, parse_sealed
 
 
 def build_parser() -> argparse.ArgumentParser:

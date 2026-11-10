@@ -29,9 +29,9 @@ from typing import Any
 import jsonschema
 import pytest
 
-from asago_bundle_midojo.document import build_envelope
-from asago_bundle_midojo.injection_spec_compile import INJECTION_SPEC_FILE
-from asago_bundle_midojo.sealed import INCONCLUSIVE, parse_sealed
+from asago_injection_spec.document import build_envelope
+from asago_injection_spec.injection_spec_compile import INJECTION_SPEC_FILE
+from asago_injection_spec.sealed import INCONCLUSIVE, parse_sealed
 from conftest import RECEIPT_SCHEMA, receipt_payload
 
 FIXTURES = Path(__file__).parent / "fixtures" / "inconclusive_vectors"

@@ -81,7 +81,7 @@ def write_clinic_package(root: Path, case: str) -> Path:
 def compile_clinic_case(root: Path, case: str, out: Path) -> dict[str, Any]:
     """Compile ``case``'s package for the clinic target into ``out``."""
 
-    from asago_bundle_midojo.injection_spec_compile import compile_injection_spec
+    from asago_injection_spec.injection_spec_compile import compile_injection_spec
 
     return compile_injection_spec(write_clinic_package(root, case), out, target=CLINIC_TARGET)
 

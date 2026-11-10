@@ -24,7 +24,7 @@ from injection_spec_cases import EPISODES, PLANTED, REGRADED
 from midojo_sdk.snapshot import snapshot_digest
 from result_record_cases import CLINIC_PLANTED, RESULT_RECORDS
 
-from asago_bundle_midojo.sealed import UNPLACED, parse_sealed
+from asago_injection_spec.sealed import UNPLACED, parse_sealed
 from conftest import RECEIPT_SCHEMA, REPO, as_sealed, receipt_payload
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))

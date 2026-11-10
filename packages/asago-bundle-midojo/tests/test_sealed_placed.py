@@ -24,7 +24,7 @@ from placed_cases import PLACED
 from result_record_cases import CLINIC_PLANTED
 from test_sealed_placement import NOTE_SLOT, REFERRAL_SLOT, outcomes, parsed, placed, sha256
 
-from asago_bundle_midojo.sealed import PLACEMENT_FIELDS, slot_id
+from asago_injection_spec.sealed import PLACEMENT_FIELDS, slot_id
 from conftest import as_current_slot_keys
 
 RECORDING = json.loads((PLACED / "recording.json").read_text(encoding="utf-8"))

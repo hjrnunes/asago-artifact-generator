@@ -9,7 +9,7 @@ import pytest
 from injection_spec_cases import SPEC, TARGET, TOOLS, target_variant
 
 from asago_bundle_core.target import load_target_config
-from asago_bundle_midojo.declared import DeclarationFault, declared_tools
+from asago_injection_spec.declared import DeclarationFault, declared_tools
 
 
 def declared(target: Path) -> Any:

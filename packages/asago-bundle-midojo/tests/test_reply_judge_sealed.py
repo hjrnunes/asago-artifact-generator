@@ -37,7 +37,7 @@ from judge_cases import (
 )
 
 from asago_bundle_midojo.judge_service import SCHEMA
-from asago_bundle_midojo.sealed import INCONCLUSIVE, UNRECORDED_DELIVERY, parse_sealed
+from asago_injection_spec.sealed import INCONCLUSIVE, UNRECORDED_DELIVERY, parse_sealed
 from conftest import RECEIPT_SCHEMA, receipt_payload
 
 GRADED = FIXTURES / "reply-judge-4e5176a"

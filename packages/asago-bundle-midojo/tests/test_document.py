@@ -30,7 +30,7 @@ from midojo_sdk.injection_spec_schema import (
     load_schema,
 )
 
-from asago_bundle_midojo.document import (
+from asago_injection_spec.document import (
     DELIVERIES,
     ENVELOPE_FIELDS,
     ENVELOPE_SCHEMA,

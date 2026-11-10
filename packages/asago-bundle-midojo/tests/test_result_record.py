@@ -36,13 +36,13 @@ from result_record_cases import (
 from asago_bundle_core.conformance import check_gap
 from asago_bundle_core.gap import CapabilityGap
 from asago_bundle_midojo.cli import main
-from asago_bundle_midojo.declared import DeclaredTools
-from asago_bundle_midojo.injection_spec_compile import (
+from asago_injection_spec.declared import DeclaredTools
+from asago_injection_spec.injection_spec_compile import (
     TOOL_REVISION_RANGE,
     compile_injection_spec,
 )
-from asago_bundle_midojo.placement import Placement, gap_reason, locate
-from asago_bundle_midojo.sealed import parse_sealed
+from asago_injection_spec.placement import Placement, gap_reason, locate
+from asago_injection_spec.sealed import parse_sealed
 from conftest import RECEIPT_SCHEMA, RECORDED_TOOL_REVISION_RANGE, as_written, receipt_payload
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))
