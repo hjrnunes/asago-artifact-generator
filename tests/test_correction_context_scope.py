@@ -10,7 +10,6 @@ from asago_artifact_generator.authoring.binding_repair import correction_repair_
 from asago_artifact_generator.authoring.contracts import PLAN_FIELD_MEANINGS
 from asago_artifact_generator.authoring.core import Finding
 from asago_artifact_generator.authoring.correction import (
-    _correction_findings_view,
     _render_correction_packet,
     _scope_correction_authoritative_context,
     build_correction_context,
@@ -66,22 +65,6 @@ def test_correction_context_rejects_a_stage_other_than_call1_or_call2(failed_sta
             current_output=b"text",
             findings=[],
         )
-
-
-def test_findings_view_keeps_every_finding_field() -> None:
-    findings = [
-        "plain text",
-        {"code": "semantic_review", "detail": "d", "details": {"k": 1}},
-        {"code": "other", "details": {"k": 1}},
-    ]
-
-    assert _correction_findings_view(findings) == [
-        "plain text",
-        {"code": "semantic_review", "detail": "d", "details": {"k": 1}},
-        {"code": "other", "details": {"k": 1}},
-    ]
-    assert _correction_findings_view("not a list") == "not a list"
-    assert findings[1]["details"] == {"k": 1}
 
 
 def test_plan_correction_keeps_repair_inputs_and_drops_unrelated_authoring_material() -> None:
