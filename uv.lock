@@ -263,7 +263,6 @@ source = { editable = "../asago-scenario-generator" }
 dependencies = [
     { name = "asago-contracts-core" },
     { name = "asago-handoff" },
-    { name = "asago-package" },
     { name = "asago-report-kit" },
     { name = "jinja2" },
     { name = "jsonschema" },
@@ -277,7 +276,6 @@ dependencies = [
 requires-dist = [
     { name = "asago-contracts-core", editable = "../asago-scenario-generator/packages/asago-contracts-core" },
     { name = "asago-handoff", editable = "../asago-scenario-generator/packages/asago-handoff" },
-    { name = "asago-package", editable = "packages/asago-package" },
     { name = "asago-report-kit", editable = "../asago-scenario-generator/packages/asago-report-kit" },
     { name = "asago-target-discovery", marker = "extra == 'target-discovery'", editable = "../asago-scenario-generator/packages/asago-target-discovery" },
     { name = "jinja2", specifier = ">=3.1" },
