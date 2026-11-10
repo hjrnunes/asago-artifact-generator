@@ -175,7 +175,7 @@ def _current_output_section(view: _CorrectionView) -> tuple[str, Any] | None:
 
 
 def _current_findings_section(view: _CorrectionView) -> tuple[str, Any] | None:
-    return ("CURRENT FINDINGS", _correction_findings_view(view.context["findings"]))
+    return ("CURRENT FINDINGS", deepcopy(view.context["findings"]))
 
 
 def _reference_repair_options_section(view: _CorrectionView) -> tuple[str, Any] | None:
@@ -282,12 +282,6 @@ def _render_correction_packet(
     return packet
 
 
-def _correction_findings_view(value: Any) -> Any:
-    """Return an independent copy without shortening owner or reviewer text."""
-
-    return deepcopy(value)
-
-
 def _correction_prompt_context(
     context: dict[str, Any], current_output: Any, findings: Any
 ) -> dict[str, Any]:
@@ -306,9 +300,6 @@ def _correction_prompt_context(
             authoritative,
             result.get("accepted_plan"),
         )
-    response_contract = result.get("response_contract")
-    if isinstance(response_contract, dict):
-        response_contract.pop("neutral_example", None)
     result.pop("response_contract", None)
     result.pop("neutral_example", None)
     result.pop("neutral_outcome_example", None)
