@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -2413,18 +2412,20 @@ def test_prepare_item_rejects_argv_it_cannot_redirect(
         replay_gate._prepare_item({"id": "SCN-1", "argv": argv}, copies, tmp_path / "out")
 
 
-def test_replay_check_names_a_missing_corpus_root(tmp_path: Path) -> None:
-    missing = tmp_path / "no-such-corpus"
+def test_replay_check_names_a_missing_recording(tmp_path: Path) -> None:
+    missing = tmp_path / "no-such-recording" / "stages" / "author"
     script = Path(__file__).resolve().parents[1] / "scripts" / "replay-check.sh"
-    environment = {**os.environ, "ASAGO_REPLAY_" + "CORPUS": str(missing)}
 
-    for arguments in ([], [str(missing / "consumer" / "*" / "stages" / "author")]):
-        completed = subprocess.run(
-            ["bash", str(script), *arguments],
-            capture_output=True,
-            text=True,
-            env=environment,
-        )
+    completed = subprocess.run(["bash", str(script), str(missing)], capture_output=True, text=True)
 
-        assert completed.returncode != 0
-        assert str(missing) in completed.stderr + completed.stdout
+    assert completed.returncode != 0
+    assert str(missing) in completed.stderr + completed.stdout
+
+
+def test_replay_check_without_a_recording_prints_its_usage() -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "replay-check.sh"
+
+    completed = subprocess.run(["bash", str(script)], capture_output=True, text=True)
+
+    assert completed.returncode == 2
+    assert "usage:" in completed.stderr
