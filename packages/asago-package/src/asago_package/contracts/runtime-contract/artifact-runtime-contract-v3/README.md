@@ -52,7 +52,7 @@ published with `"envelope": "required"`, so a reader refuses a v3 document witho
     "spec_digest": "sha256:...",
     "requires": [],
     "provenance": {
-      "writer": "asago_target_discovery.runtime_contract",
+      "writer": "asago_package.declared_runtime_contract",
       "writer_version": "0.1.0",
       "validator_version": "asago-contracts-core 0.1.0"
     }

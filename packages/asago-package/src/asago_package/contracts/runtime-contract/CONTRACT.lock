@@ -36,7 +36,7 @@
     "artifact-runtime-contract-v2/cases/valid/writer-complete.json": "313ef317787c49439211e7041fcdac0b58500e27dc37c2d478f7c9433830b60a",
     "artifact-runtime-contract-v2/schema.json": "24ccf03d494c5d6d522d92a0903ca76317b5414c866c919f6b263898047dc28a",
     "artifact-runtime-contract-v2/spec.json": "2291f5dbb227344f400ca6733fa134f2d8a28ae676842f654486fe2882d5bae6",
-    "artifact-runtime-contract-v3/README.md": "73bfb7390cc7f63fd1d2d8b2b241a5cb354060cc099d2b72641c15ce56fd8f60",
+    "artifact-runtime-contract-v3/README.md": "f40c25749fe576685537803d94134aee9fd05effe8a645af97fc4b469f8b2111",
     "artifact-runtime-contract-v3/cases/expected-violations.json": "b151805add6a2bbc5f122e94ba2c0da2909614b558bd4d4cc67d492461ab0a6a",
     "artifact-runtime-contract-v3/cases/invalid/claim-level-unknown.json": "cd0ca1ea5a8fb8c74470635bee0ef21c99038c85f70f534f78f59c29c7fd40ef",
     "artifact-runtime-contract-v3/cases/invalid/delivery-repeated.json": "149d47aacc6c7ce3ee0612ca8678c6e997ffd45d97b6742a5b04a34bf4ac33fd",

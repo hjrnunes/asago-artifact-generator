@@ -267,7 +267,7 @@ def test_the_built_contract_passes_the_consumer_schema() -> None:
     Draft202012Validator(schema).validate(_payload(contract))
     assert contract["contract"]["version"] == SCHEMA_VERSION
     assert contract["contract"]["provenance"]["writer"] == (
-        "asago_target_discovery.runtime_contract"
+        "asago_package.declared_runtime_contract"
     )
     assert contract["contract"]["requires"] == []
 

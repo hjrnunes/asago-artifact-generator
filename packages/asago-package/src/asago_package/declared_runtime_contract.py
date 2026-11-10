@@ -23,7 +23,7 @@ from .runtime_contract_spec import VERSION, write_runtime_contract
 
 PLANTED_ITEM = "planted_item"
 RUNTIME_CONTRACT_VERSION = VERSION
-RUNTIME_CONTRACT_WRITER = "asago_target_discovery.runtime_contract"
+RUNTIME_CONTRACT_WRITER = "asago_package.declared_runtime_contract"
 RUNTIME_CONTRACT_WRITER_VERSION = "0.1.0"
 
 
