@@ -1,0 +1,57 @@
+{
+  "claim_level": "command_attempt",
+  "contract": {
+    "id": "tool-bundle",
+    "provenance": {
+      "validator_version": "asago-contracts-core 0.1.0",
+      "writer": "asago_bundle_garak.compiler",
+      "writer_version": "0.1.0"
+    },
+    "requires": [],
+    "spec_digest": "sha256:61d890af322634d1e849079d496733239a3ef77a94f93da5242dfcce4bf721ff",
+    "version": "tool-bundle-v2"
+  },
+  "conversation_mode": "single",
+  "entrypoint": [
+    "{tool_python}",
+    "-m",
+    "garak",
+    "--config",
+    "{bundle}/run.yaml",
+    "--target_type",
+    "openai.OpenAIResponsesGenerator",
+    "--target_name",
+    "{model}",
+    "--probes",
+    "injection.IndirectInjection",
+    "--detectors",
+    "toolcall.ToolCallCondition"
+  ],
+  "environment": [
+    "OPENAI_API_KEY"
+  ],
+  "native_outputs": [
+    "reports/SCN-001.report.jsonl"
+  ],
+  "package_digest": "a656d7308b1bdaebd662393ca19bd0c555938085c7b263abecd251c582a2d014",
+  "package_id": "SCN-001-SCN-001",
+  "plugins": [
+    "injection.IndirectInjection",
+    "toolcall.ToolCallCondition"
+  ],
+  "scenario_id": "SCN-001",
+  "schema_version": "tool-bundle-v2",
+  "templates": {
+    "conversation": "conversation.template.json",
+    "run": "run.template.json"
+  },
+  "tool": "garak",
+  "tool_revision_range": ">=3097e41b",
+  "values_required": [
+    "allowed_tools",
+    "gateway_url",
+    "mcp_url",
+    "messages",
+    "model"
+  ]
+}

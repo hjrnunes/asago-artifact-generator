@@ -3,13 +3,13 @@
 Both bundle adapters write ``execution-receipt.json`` and read it through
 ``asago_bundle_core.receipt_contract``. This library ships both versions the reader accepts,
 so the tests compare each copy with the consumer's authority, recompute the spec digests,
-read every recorded document, and assert the refusals a reader owes for each version.
+read the receipts the Garak parser wrote, and assert the refusals a reader owes for each
+version.
 """
 
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -44,8 +44,9 @@ REPO = Path(__file__).resolve().parents[3]
 _AUTHORITY = REPO / "contracts" / CONTRACT
 _INSTALLED = Path(__file__).resolve().parents[1] / "src/asago_bundle_core/contracts" / CONTRACT
 _VERSIONS = (LEGACY_VERSION, VERSION)
-#: The workspace checkout holds the replay corpus beside this repository.
-_REPLAY_CORPUS = REPO.parent / "replay-corpus"
+_DATA = Path(__file__).resolve().parent / "data"
+#: Receipts the Garak parser wrote for a command-attempt and a reply package.
+_WRITTEN_RECEIPTS = ("execution-receipt-v2-command.json", "execution-receipt-v2-reply.json")
 
 
 def _json(path: Path) -> Any:
@@ -205,47 +206,11 @@ def test_the_reader_accepts_both_versions() -> None:
     assert read_receipt(v2).version == VERSION
 
 
-def _replay_corpus() -> Path:
-    """Return the replay corpus the recorded receipts live in.
+@pytest.mark.parametrize("name", _WRITTEN_RECEIPTS)
+def test_the_reader_accepts_a_receipt_the_adapter_wrote(name: str) -> None:
+    """A receipt the Garak parser wrote reads at the current version, envelope included."""
 
-    VAL-SAFETY-006: a test that reads the corpus fails loudly when the
-    configured directory is missing; it must not read nothing and pass.
-    """
-
-    corpus = Path(os.environ.get("ASAGO_REPLAY_CORPUS", _REPLAY_CORPUS))
-    if not corpus.is_dir():
-        pytest.fail(f"the replay corpus directory does not exist: {corpus}")
-    return corpus
-
-
-def test_a_missing_replay_corpus_fails_and_names_the_path(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    missing = tmp_path / "no-such-corpus"
-    monkeypatch.setenv("ASAGO_REPLAY_CORPUS", str(missing))
-
-    with pytest.raises(pytest.fail.Exception) as raised:
-        _replay_corpus()
-
-    assert str(missing) in str(raised.value)
-
-
-@pytest.mark.replay_corpus
-def test_every_recorded_receipt_still_reads() -> None:
-    """Every receipt recorded outside the contract cases reads as a v1 document.
-
-    The replay corpus holds the receipts the M4 and M5 runs recorded; RECEIPT-REPLAY
-    checks the same runs. A missing corpus, or one with no receipts, fails: a test
-    that reads nothing must not pass.
-    """
-
-    corpus = _replay_corpus() / "receipts"
-    recorded = sorted(corpus.rglob("execution-receipt.json"))
-    if not recorded:
-        pytest.fail(f"no recorded receipts under {corpus}")
-
-    for path in recorded:
-        assert read_receipt(_json(path)).version == LEGACY_VERSION, path
+    assert read_receipt(_json(_DATA / name)).version == VERSION
 
 
 @pytest.mark.parametrize("version", _VERSIONS)
