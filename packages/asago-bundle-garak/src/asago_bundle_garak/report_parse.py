@@ -137,7 +137,6 @@ IPI_DRIVER = "garak.midojo.InjectionSpecProbe"
 # What the probe's trace says of the chain it closed: ``final`` is a complete seal with the
 # plan's delivery computed; any other word is a chain that stopped short, which states none.
 SEALED_FINAL = "final"
-EVIDENCE_STATUSES = frozenset({"complete", "incomplete", "failed", "not_collected"})
 # The probe's chain and trace notes, now first, then the names a pre-rename report holds.
 CHAIN_NOTES = ("injection_spec_chain", "ipi_episode")
 METADATA_NOTES = "source_metadata"
@@ -606,7 +605,6 @@ def ipi_evaluation(turns: list[dict[str, Any]], bundle: Bundle) -> dict[str, Any
     if final and reason is None:
         plan = plan_of(source_plan(bundle), source_placements(bundle, delivery))
     block = evaluation_block(IPI_DRIVER, snapshot, verdict, delivery=delivery, plan=plan)
-    block["evidence_status"] = _evidence_status(snapshot)
     if snapshot is None:
         block["evaluation_id"] = text(trace.get("evaluation_id"))
     if not final:
@@ -742,21 +740,6 @@ def unreadable_document(document: Any, prefix: str) -> str:
     """
 
     return f"{prefix}_missing" if document is None else f"{prefix}_malformed"
-
-
-def _evidence_status(snapshot: Any) -> dict[str, str] | None:
-    """Return how complete each evidence source was collected, or None when unknown.
-
-    A status this parser cannot place leaves the whole member null: unknown, never
-    collected completely.
-    """
-
-    found = snapshot.get("evidence_status") if isinstance(snapshot, dict) else None
-    if not isinstance(found, dict):
-        return None
-    if any(status not in EVIDENCE_STATUSES for status in found.values()):
-        return None
-    return dict(found)
 
 
 def chain_attempts(entries: list[Any]) -> dict[int, list[dict[str, Any]]]:
