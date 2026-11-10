@@ -24,10 +24,12 @@ revision. The note below keeps each revision as it was recorded.
 
 The injection-spec compiler, the consumer envelope, the placement and reachability checks,
 the sealed-result readers and the judge-turn vocabulary now live in the `asago-injection-spec`
-workspace member (`asago_injection_spec`). `bundle-midojo` keeps the old module paths as
-deprecated aliases until M9, and `bundle-garak` reads the library, so it declares no
-dependency on this adapter. This page describes the code where it lives now unless it
-records a past revision.
+workspace member (`asago_injection_spec`). `bundle-midojo` and `bundle-garak` both import
+the library, so `bundle-garak` declares no dependency on this adapter. The adapter's eight
+alias modules that once forwarded the old paths were retired on 2026-11-10 (see "M9: the
+pre-rename names are gone"). This page describes the code where it lives now unless it
+records a past revision; a module name below such as `sealed.py` names the library's module
+in `asago_injection_spec`.
 
 ## M9: the pre-rename names are gone
 
@@ -36,7 +38,13 @@ helper `episode_cases`, are removed; nothing imported them at M9. Import the lib
 instead: `asago_injection_spec.injection_spec_compile` and `.injection_spec`, and the
 tests' `injection_spec_cases`. The adapter's eight current-name modules (`declared`,
 `document`, `injection_spec`, `injection_spec_compile`, `placement`, `reachable`, `route`,
-`sealed`) stay as re-exports of the library that owns them.
+`sealed`) stayed at M9 as re-exports of the library that owns them.
+
+**2026-11-10: the eight re-export modules are retired** by owner decision. Each forwarded
+every name, and the object itself, from the library module of the same name, and only the
+adapter's own `cli.py` and the tests imported them. `cli.py` and the tests now import
+`asago_injection_spec.<module>` directly. Import the library module of the same name; no
+name changed.
 
 Readers of recorded data stay indefinitely: `midojo-episode-v1` and `midojo-episode-v2`
 documents, the envelope's `episode` member, the filename `episode.json`,
@@ -59,7 +67,10 @@ the range and the document ID back when they compare a new compile.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. Its compile and
   parse CLIs wrap the `asago-injection-spec` library, which maps a `planted_item` package to
   one MiDojo injection spec for a target config and parses the sealed result; its
-  `judge_service` answers the reply episode's judge request. MiDojo runs the injection spec,
+  `judge_service` answers the reply episode's judge request. The module names `declared.py`,
+  `document.py`, `injection_spec.py`, `injection_spec_compile.py`, `placement.py`,
+  `reachable.py`, `route.py` and `sealed.py` below are the library's modules under
+  `asago_injection_spec`, not files in this package. MiDojo runs the injection spec,
   and the adapter holds no proxy or interception code. It names the MiDojo `asago/main`
   range `>=2a794f3`, the first revision
   that carries every capability the document uses and reads the document's ID, and pins

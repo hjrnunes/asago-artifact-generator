@@ -8,8 +8,8 @@ from typing import Any
 import pytest
 from injection_spec_cases import SLOTS, runtime_contract
 
-from asago_bundle_midojo.declared import DeclaredTools
-from asago_bundle_midojo.placement import (
+from asago_injection_spec.declared import DeclaredTools
+from asago_injection_spec.placement import (
     Placement,
     PlacementFault,
     Segment,
@@ -17,7 +17,7 @@ from asago_bundle_midojo.placement import (
     gap_reason,
     locate,
 )
-from asago_bundle_midojo.placement import runtime_contract as contract_of
+from asago_injection_spec.placement import runtime_contract as contract_of
 from asago_package.package_io import build_package
 
 SLOT = SLOTS[0]

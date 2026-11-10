@@ -37,7 +37,7 @@ from injection_spec_cases import FIXTURES, compile_case
 from result_record_cases import compile_clinic_case
 
 from asago_bundle_core.text import canonical_text
-from asago_bundle_midojo.injection_spec_compile import INJECTION_SPEC_FILE, LEGACY_EPISODE_FILE
+from asago_injection_spec.injection_spec_compile import INJECTION_SPEC_FILE, LEGACY_EPISODE_FILE
 
 PLACED = FIXTURES / "placed-a19562e"
 # Each generated case: the static case it derives from, and the generator permissions it adds.

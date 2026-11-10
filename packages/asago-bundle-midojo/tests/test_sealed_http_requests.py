@@ -22,7 +22,7 @@ from injection_spec_cases import FIXTURES
 from midojo_sdk.snapshot import snapshot_digest
 from result_record_cases import RESULT_RECORDS
 
-from asago_bundle_midojo.sealed import parse_sealed
+from asago_injection_spec.sealed import parse_sealed
 from conftest import RECEIPT_SCHEMA, REPO, receipt_payload
 
 SCHEMA = json.loads(RECEIPT_SCHEMA.read_text(encoding="utf-8"))

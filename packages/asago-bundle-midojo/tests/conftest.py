@@ -10,7 +10,7 @@ from midojo_sdk.injection_spec_schema import (
     LEGACY_INJECTION_SPEC_DOCUMENT_V1,
 )
 
-from asago_bundle_midojo.injection_spec_compile import (
+from asago_injection_spec.injection_spec_compile import (
     INJECTION_SPEC_FILE,
     LEGACY_EPISODE_FILE,
     TOOL_REVISION_RANGE,

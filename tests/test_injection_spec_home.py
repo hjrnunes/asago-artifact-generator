@@ -1,10 +1,10 @@
 """The injection-spec library owns the compiler, the document and the sealed readers.
 
 The implementation lives in the ``asago-injection-spec`` workspace member. ``bundle-midojo``
-keeps its old import paths as re-exports and reads the judge-turn constants from the member;
-``bundle-garak`` imports the member directly and declares it instead of ``bundle-midojo``.
-The one remaining reference to the adapter in Garak's tests is the marked parity test, which
-reads one seal through both parsers.
+and ``bundle-garak`` import it directly, and ``bundle-midojo`` reads the judge-turn constants
+from the member; ``bundle-garak`` declares the member instead of ``bundle-midojo``. The one
+remaining reference to the adapter in Garak's tests is the marked parity test, which reads one
+seal through both parsers.
 """
 
 from __future__ import annotations
@@ -13,47 +13,16 @@ import ast
 import re
 import tomllib
 from pathlib import Path
-from types import ModuleType
 
 import pytest
 
-import asago_bundle_midojo.declared as adapter_declared
-import asago_bundle_midojo.document as adapter_document
-import asago_bundle_midojo.injection_spec as adapter_injection_spec
-import asago_bundle_midojo.injection_spec_compile as adapter_compile
-import asago_bundle_midojo.placement as adapter_placement
-import asago_bundle_midojo.reachable as adapter_reachable
-import asago_bundle_midojo.route as adapter_route
-import asago_bundle_midojo.sealed as adapter_sealed
 import asago_injection_spec
-import asago_injection_spec.declared as library_declared
-import asago_injection_spec.document as library_document
-import asago_injection_spec.injection_spec as library_injection_spec
-import asago_injection_spec.injection_spec_compile as library_compile
-import asago_injection_spec.placement as library_placement
-import asago_injection_spec.reachable as library_reachable
-import asago_injection_spec.route as library_route
-import asago_injection_spec.sealed as library_sealed
 
 _REPO = Path(__file__).resolve().parents[1]
 _PACKAGES = _REPO / "packages"
-_MOVED = (
-    pytest.param(adapter_declared, library_declared, id="declared"),
-    pytest.param(adapter_document, library_document, id="document"),
-    pytest.param(adapter_injection_spec, library_injection_spec, id="injection_spec"),
-    pytest.param(adapter_compile, library_compile, id="injection_spec_compile"),
-    pytest.param(adapter_placement, library_placement, id="placement"),
-    pytest.param(adapter_reachable, library_reachable, id="reachable"),
-    pytest.param(adapter_route, library_route, id="route"),
-    pytest.param(adapter_sealed, library_sealed, id="sealed"),
-)
 _MIDOJO_SOURCE = _PACKAGES / "asago-bundle-midojo" / "src" / "asago_bundle_midojo"
 _GARAK_SOURCE = _PACKAGES / "asago-bundle-garak" / "src" / "asago_bundle_garak"
 _GARAK_TESTS = _PACKAGES / "asago-bundle-garak" / "tests"
-
-
-def _public(module: ModuleType) -> list[str]:
-    return sorted(name for name in dir(module) if not name.startswith("_"))
 
 
 def _project(package: str) -> dict[str, object]:
@@ -96,24 +65,6 @@ def test_the_injection_spec_is_a_workspace_member() -> None:
     ]
     assert "packages/*" in workspace["members"]
     assert (_PACKAGES / "asago-injection-spec" / "src" / "asago_injection_spec").is_dir()
-
-
-@pytest.mark.parametrize(("adapter", "library"), _MOVED)
-def test_the_adapter_module_reexports_the_whole_library_surface(
-    adapter: ModuleType, library: ModuleType
-) -> None:
-    assert _public(adapter) == _public(library)
-
-
-@pytest.mark.parametrize(("adapter", "library"), _MOVED)
-def test_the_adapter_module_reexports_the_same_objects(
-    adapter: ModuleType, library: ModuleType
-) -> None:
-    separate = [
-        name for name in _public(library) if getattr(adapter, name) is not getattr(library, name)
-    ]
-
-    assert separate == []
 
 
 @pytest.mark.parametrize("name", ("FINAL_TURN", "JUDGE_TURNS", "TIMEOUT_SECONDS", "judged_count"))
