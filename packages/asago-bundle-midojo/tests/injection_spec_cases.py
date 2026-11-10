@@ -228,7 +228,7 @@ def write_planted_package(
     package = build_package(
         package_id=f"{scenario_id}-{scenario_id}",
         scenario_id=scenario_id,
-        input_kind="scenario-handoff-v5",
+        input_kind="scenario-handoff-v6",
         source_digests={"handoff": "0" * 64},
         members=members,
     )

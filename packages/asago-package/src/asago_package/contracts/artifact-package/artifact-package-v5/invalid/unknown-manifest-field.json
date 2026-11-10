@@ -20,8 +20,8 @@
     },
     "creation_model": {},
     "extra": 1,
-    "input_kind": "scenario-handoff-v5",
-    "manifest_digest": "55bf6c1e35096d704d2b9a8f729b4303ecd89cd3e18f07cf95d872d7b1ec2acd",
+    "input_kind": "scenario-handoff-v6",
+    "manifest_digest": "4c2e6b07e653dbcf1d70f961b6d6082de1c4d04573e86d3ff66fb0caecb37995",
     "members": [
       {
         "length": 3,

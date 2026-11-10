@@ -15,14 +15,9 @@ from asago_artifact_generator.authoring.sequential_turns import (
     _PURPOSE_MEANINGS,
     multi_turn_block,
 )
-from asago_artifact_generator.input_adapter import (
-    InputView,
-    _framed_digest,
-    _handoff_schema,
-    load_input,
-)
+from asago_artifact_generator.input_adapter import InputView, _handoff_schema, load_input
 
-from .support import json_section, world
+from .support import json_section, signed, world
 from .turn_support import indirect_inventory, indirect_runtime, indirect_shape
 
 _REFUND_BOUND = Path(__file__).resolve().parent / "fixtures" / "handoffs" / "refund-bound.json"
@@ -48,12 +43,9 @@ def _direct_shape_with(purpose: str) -> dict[str, Any]:
 
 def _view(tmp_path: Path, purposes: list[str]) -> InputView:
     payload = json.loads(_REFUND_BOUND.read_text(encoding="utf-8"))
-    payload.pop("content_digest")
-    payload["schema_version"] = "scenario-handoff-v5"
     payload["attack_shape"] = _indirect_shape_with(purposes)
-    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = tmp_path / "indirect.json"
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    path.write_text(json.dumps(signed(payload)), encoding="utf-8")
     return load_input(path)
 
 

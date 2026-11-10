@@ -22,7 +22,6 @@ from asago_artifact_generator.authoring.review import (
 )
 from asago_artifact_generator.input_adapter import (
     InputSourceError,
-    _framed_digest,
     build_scenario_handoff_view,
     load_input,
 )
@@ -33,6 +32,7 @@ from tests.support import (
     NOT_CALLED_HANDOFF,
     OBSERVED_HANDOFF,
     rendered_response_contract,
+    signed,
     world_builders,
 )
 
@@ -43,10 +43,8 @@ _CONDITION_FIELDS = ("discriminating_condition", "condition_check")
 
 
 def _write_signed(tmp_path: Path, payload: dict) -> Path:
-    payload = {key: value for key, value in payload.items() if key != "content_digest"}
-    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = tmp_path / "handoff.yaml"
-    path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    path.write_text(yaml.safe_dump(signed(payload)), encoding="utf-8")
     return path
 
 

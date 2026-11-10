@@ -136,7 +136,7 @@ def write_setup_package(
     package = build_package(
         package_id="SCN-PB1-SCN-PB1",
         scenario_id="SCN-PB1",
-        input_kind="scenario-handoff-v5",
+        input_kind="scenario-handoff-v6",
         source_digests={"handoff": "0" * 64},
         members=members,
     )

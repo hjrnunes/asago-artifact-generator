@@ -55,8 +55,8 @@ _CLAIM_LEVEL_MEMBERS = {
     ClaimLevel.REPLY.value: JUDGE_MEMBER,
 }
 _CONTRACT_ROOT = contract_dir("artifact-package")
-# The handoff version a package may come from; the v5 schema lists it.
-_INPUT_KINDS = frozenset({"scenario-handoff-v5"})
+# The handoff version a package may come from; the artifact-package-v5 schema lists it.
+_INPUT_KINDS = frozenset({"scenario-handoff-v6"})
 
 
 class PackagePathError(ValueError):

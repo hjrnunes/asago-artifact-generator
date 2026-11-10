@@ -20,8 +20,8 @@
     },
     "creation_model": {},
     "detector_interface": "evaluate(evidence: dict) -> dict",
-    "input_kind": "scenario-handoff-v5",
-    "manifest_digest": "61ea5f388ca9c4032db1307cf878ca5926e3027e6c62668e9b59240e5bec8a44",
+    "input_kind": "scenario-handoff-v6",
+    "manifest_digest": "f6a09533f2dda727192df1d1bc6e74834f2c3f0713db7aeea9359b3c5e3c47d3",
     "members": [
       {
         "length": 3,

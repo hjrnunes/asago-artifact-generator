@@ -160,7 +160,7 @@ def _package(
     return build_package(
         package_id="pkg-1",
         scenario_id="scenario-1",
-        input_kind="scenario-handoff-v5",
+        input_kind="scenario-handoff-v6",
         source_digests={"input": "a" * 64},
         members=members,
         authoring={"status": "produced"},

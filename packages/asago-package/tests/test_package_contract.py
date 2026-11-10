@@ -19,6 +19,8 @@ from asago_package.contract_kit import contract_dir
 _PACKAGE = contract_dir("artifact-package")
 _V4 = "artifact-package-v4"
 _V5 = "artifact-package-v5"
+# The frozen v4 schema lists the handoff a v4 package came from; v5 lists the current one.
+_HANDOFF_INPUT = {_V4: "scenario-handoff-v5", _V5: "scenario-handoff-v6"}
 
 
 def _json(path: Path) -> Any:
@@ -34,7 +36,7 @@ def _manifest(version: str, **overrides: Any) -> dict[str, Any]:
         "schema_version": version,
         "package_id": "pkg-1",
         "scenario_id": "SCN-1",
-        "input_kind": "scenario-handoff-v5",
+        "input_kind": _HANDOFF_INPUT[version],
         "source_digests": {"input": "a" * 64},
         "members": _members("stimulus.json"),
         "authoring": {},
@@ -51,13 +53,15 @@ def _members(path: str) -> list[dict[str, Any]]:
 
 
 @pytest.mark.parametrize("version", [_V4, _V5])
-def test_each_schema_accepts_only_a_v5_input(version: str) -> None:
+def test_each_schema_accepts_only_its_handoff_input(version: str) -> None:
     schema = _schema(version)
+    accepted = _HANDOFF_INPUT[version]
 
     assert schema["properties"]["schema_version"] == {"const": version}
-    assert schema["properties"]["input_kind"] == {"enum": ["scenario-handoff-v5"]}
-    jsonschema.validate(_manifest(version, input_kind="scenario-handoff-v5"), schema)
-    for kind in ("scenario-handoff-v3", "scenario-handoff-v4", "other"):
+    assert schema["properties"]["input_kind"] == {"enum": [accepted]}
+    jsonschema.validate(_manifest(version, input_kind=accepted), schema)
+    refused = set(_HANDOFF_INPUT.values()) - {accepted}
+    for kind in (*sorted(refused), "scenario-handoff-v3", "scenario-handoff-v4", "other"):
         with pytest.raises(jsonschema.ValidationError):
             jsonschema.validate(_manifest(version, input_kind=kind), schema)
 

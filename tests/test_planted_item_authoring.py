@@ -859,7 +859,7 @@ def test_a_slot_that_excludes_the_controlling_party_is_accepted_with_an_advisory
                 "is writable by third_party; the package keeps the slot and records the "
                 "mismatch as advisory"
             ),
-            "path": "attack_shape.indirect.party_relation.controller",
+            "path": "attack_shape.indirect.party_relation.controlling_party",
             "details": {
                 "controlling_party": "counterparty",
                 "slot": "klarna.order.item",

@@ -20,8 +20,8 @@
       "terminal_status": "accepted"
     },
     "creation_model": {},
-    "input_kind": "scenario-handoff-v5",
-    "manifest_digest": "a400153baf7bd49b7b5a5de36e2d85e2dd2e505c55be693cb01c766b420fcb20",
+    "input_kind": "scenario-handoff-v6",
+    "manifest_digest": "f552fd9bb62a62b21ca45a3428143daa47777966b631404fb9ecfa382ea4c88b",
     "members": [
       {
         "length": 18,

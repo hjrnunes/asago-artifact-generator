@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from asago_contracts_core import CONTRACT_DIR
 
 from asago_artifact_generator.authoring.checks import slot_party_findings
 from asago_artifact_generator.authoring.planted_item import PlantedTarget, choose_planted_target
@@ -15,10 +14,15 @@ from asago_artifact_generator.authoring.sequential_turns import multi_turn_block
 from asago_artifact_generator.authoring.shape_gate import shape_refusal_findings
 from asago_artifact_generator.input_adapter import load_input
 
-from .support import ScriptedAuthoringTransport, load_failure_evidence, stage_local_orchestrator
+from .support import (
+    KIT,
+    ScriptedAuthoringTransport,
+    load_failure_evidence,
+    stage_local_orchestrator,
+)
 from .turn_support import LISTING_SLOT
 
-_KIT = CONTRACT_DIR / "scenario-handoff-v5" / "cases"
+_KIT = KIT
 LISTING = "adversarial-indirect-listing.json"
 POLICY = "adversarial-indirect-policy-operator.json"
 
@@ -289,7 +293,7 @@ def test_without_a_matching_content_kind_the_first_carrier_slot_with_the_record_
 
 def _unknown_party_shape() -> dict[str, Any]:
     shape = shape_of(LISTING)
-    shape["indirect"]["party_relation"]["controller"] = "unknown"
+    shape["indirect"]["party_relation"]["controlling_party"] = "unknown"
     return shape
 
 
@@ -360,7 +364,7 @@ def test_a_scalar_controller_that_differs_is_an_advisory_finding() -> None:
     [finding] = slot_party_findings(shape_of(LISTING), RUNTIME)
 
     assert finding.code == "slot_party_mismatch"
-    assert finding.path == "attack_shape.indirect.party_relation.controller"
+    assert finding.path == "attack_shape.indirect.party_relation.controlling_party"
     assert finding.details == {
         "controlling_party": "third_party",
         "slot": "airbnb.listing.title",

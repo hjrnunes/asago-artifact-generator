@@ -25,6 +25,7 @@ import pytest
 from injection_spec_cases import (
     CASES,
     CONDITION,
+    DISPOSITIONS,
     EPISODES,
     FIXTURES,
     JUDGE,
@@ -37,7 +38,6 @@ from injection_spec_cases import (
     SPEC,
     TARGET,
     TOOLS,
-    compile_case,
     history_binding_options,
     planted_stimulus,
     seed_document,
@@ -119,11 +119,12 @@ def written(root: Path) -> dict[str, bytes]:
 def test_compile_writes_the_injection_spec_midojo_built_from_the_fixture(
     tmp_path: Path, case: str
 ) -> None:
-    compile_case(tmp_path / "packages", case, tmp_path / "out")
+    package = write_case_package(tmp_path / "packages", case)
+    compiled(package, tmp_path / "out", write_disposition=DISPOSITIONS.get(case))
 
     out = tmp_path / "out"
     assert sorted(path.name for path in out.iterdir()) == [INJECTION_SPEC_FILE]
-    assert written(out) == as_written(REPLY_JUDGE_EPISODES.get(case, EPISODES / case))
+    assert written(out) == as_written(REPLY_JUDGE_EPISODES.get(case, EPISODES / case), package)
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
@@ -607,9 +608,10 @@ def test_a_field_outside_a_list_below_a_key_not_declared_exactly_an_object_is_a_
 def test_a_list_slot_s_instruction_is_unchanged_by_the_object_rule(tmp_path: Path) -> None:
     """The rule is for fields outside a list: the list case compiles to the bytes MiDojo built."""
 
-    compile_case(tmp_path / "packages", "command-single", tmp_path / "out")
+    package = write_case_package(tmp_path / "packages", "command-single")
+    compiled(package, tmp_path / "out")
 
-    assert written(tmp_path / "out") == as_written(EPISODES / "command-single")
+    assert written(tmp_path / "out") == as_written(EPISODES / "command-single", package)
     (instruction,) = json.loads(
         (tmp_path / "out" / INJECTION_SPEC_FILE).read_text(encoding="utf-8")
     )["episode"]["plan"]["instructions"]

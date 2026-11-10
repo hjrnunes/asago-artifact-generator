@@ -60,7 +60,7 @@ def _manifest(**changes: Any) -> dict[str, Any]:
         "schema_version": V5,
         "package_id": "pkg-hand-built",
         "scenario_id": "SCN-HAND-1",
-        "input_kind": "scenario-handoff-v5",
+        "input_kind": "scenario-handoff-v6",
         "source_digests": {"handoff.json": "a" * 64},
         "members": [_record("explanation.json", EXPLANATION)],
         "authoring": {"status": "produced"},
@@ -140,7 +140,7 @@ def test_build_package_seals_the_same_manifest_the_hand_built_case_states() -> N
     package = build_package(
         package_id="pkg-hand-built",
         scenario_id="SCN-HAND-1",
-        input_kind="scenario-handoff-v5",
+        input_kind="scenario-handoff-v6",
         source_digests={"handoff.json": "a" * 64},
         members={"explanation.json": EXPLANATION},
         authoring={"status": "produced"},
@@ -185,7 +185,7 @@ def test_the_writer_refuses_a_hand_built_member_path_it_does_not_own(
             build_package(
                 package_id="pkg-hand-built",
                 scenario_id="SCN-HAND-1",
-                input_kind="scenario-handoff-v5",
+                input_kind="scenario-handoff-v6",
                 source_digests={"handoff.json": "a" * 64},
                 members={"explanation.json": EXPLANATION, name: b"{}\n"},
             ),
@@ -197,7 +197,7 @@ def test_the_writer_refuses_a_hand_built_member_that_is_not_bytes(tmp_path: Path
         build_package(
             package_id="pkg-hand-built",
             scenario_id="SCN-HAND-1",
-            input_kind="scenario-handoff-v5",
+            input_kind="scenario-handoff-v6",
             source_digests={"handoff.json": "a" * 64},
             members={"explanation.json": "text"},  # type: ignore[dict-item]
         )
@@ -232,6 +232,7 @@ def test_the_reader_refuses_a_manifest_digest_that_does_not_cover_its_fields(
     [
         ({"package_id": ""}, "manifest field is blank: package_id"),
         ({"input_kind": "scenario-handoff-v4"}, "unsupported package input kind"),
+        ({"input_kind": "scenario-handoff-v5"}, "unsupported package input kind"),
         (
             {"schema_version": "artifact-package-v4"},
             "unsupported artifact package schema version: artifact-package-v4",
@@ -306,7 +307,7 @@ def test_the_writer_refuses_a_reply_plan_without_its_judge_member(tmp_path: Path
     package = build_package(
         package_id="pkg-hand-built",
         scenario_id="SCN-HAND-1",
-        input_kind="scenario-handoff-v5",
+        input_kind="scenario-handoff-v6",
         source_digests={"handoff.json": "a" * 64},
         members={"plan.json": REPLY_PLAN},
     )

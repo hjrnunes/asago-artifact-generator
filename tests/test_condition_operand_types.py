@@ -9,12 +9,13 @@ import pytest
 import yaml
 
 from asago_artifact_generator.authoring.condition_types import operand_type_findings
-from asago_artifact_generator.input_adapter import _framed_digest, load_input
+from asago_artifact_generator.input_adapter import load_input
 
 from .support import (
     KIT_VALID,
     ScriptedAuthoringTransport,
     load_failure_evidence,
+    signed,
     stage_local_orchestrator,
 )
 
@@ -183,10 +184,8 @@ def test_an_argument_declared_with_a_type_list_matches_any_listed_type() -> None
 def _signed_handoff(tmp_path: Path, comparison: dict) -> Path:
     payload = json.loads(_NOT_CALLED.read_text(encoding="utf-8"))
     payload["tool_call_condition"]["comparisons"][0] = comparison
-    payload = {key: value for key, value in payload.items() if key != "content_digest"}
-    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = tmp_path / "handoff.yaml"
-    path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    path.write_text(yaml.safe_dump(signed(payload)), encoding="utf-8")
     return path
 
 

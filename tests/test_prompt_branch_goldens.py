@@ -36,9 +36,9 @@ from asago_artifact_generator.authoring.prompt_context import (
     _neutral_status_binding_example,
 )
 from asago_artifact_generator.authoring.sequential_turns import multi_turn_block
-from asago_artifact_generator.input_adapter import InputView, _framed_digest, load_input
+from asago_artifact_generator.input_adapter import InputView, load_input
 
-from .support import HANDOFF, world
+from .support import HANDOFF, signed, world
 from .turn_support import direct_view, indirect_runtime, indirect_shape
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden" / "prompt_branches"
@@ -57,19 +57,16 @@ def _indirect_view(
     """Return a four-turn indirect handoff whose benign turns use every purpose but one."""
 
     payload = json.loads(HANDOFF.read_text(encoding="utf-8"))
-    payload.pop("content_digest")
-    payload["schema_version"] = "scenario-handoff-v5"
     shape = indirect_shape(4, record_ref)
     purposes = ("establish_context", "assert_authority", "ask_to_read_item", "apply_pressure")
     shape["turn_plan"] = [
         {"position": position, "speaker": "benign_user", "purpose": purpose}
         for position, purpose in enumerate(purposes, start=1)
     ]
-    shape["indirect"]["party_relation"]["controller"] = controller
+    shape["indirect"]["party_relation"]["controlling_party"] = controller
     payload["attack_shape"] = shape
-    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = directory / f"indirect-{controller}-{record_ref}.json"
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    path.write_text(json.dumps(signed(payload)), encoding="utf-8")
     return load_input(path)
 
 

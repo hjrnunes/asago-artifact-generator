@@ -122,7 +122,18 @@
     ],
     "status": "satisfied"
   },
-  "content_digest": "5aea765b20e2bed4c2799742314c265b6fe1c8b6b92dabc2542a6982dc86c34e",
+  "content_digest": "560ba1bb18a2ad2f58b61a7a19985945b7ce0aeb7f3940c916c7f44cea194de8",
+  "contract": {
+    "id": "scenario-handoff",
+    "provenance": {
+      "validator_version": "asago-contracts-core 0.1.0",
+      "writer": "asago-contracts-core.upgrade",
+      "writer_version": "0.1.0"
+    },
+    "requires": [],
+    "spec_digest": "sha256:a2f3bfe6fa4e3ee926bada66bc420d55a2ea9989a2dd62981acb705426c2f79a",
+    "version": "scenario-handoff-v6"
+  },
   "deduplication": {
     "key": {
       "claim_level": "command_attempt",
@@ -271,7 +282,7 @@
   },
   "scenario_id": "SCN-001",
   "scenario_version": 1,
-  "schema_version": "scenario-handoff-v5",
+  "schema_version": "scenario-handoff-v6",
   "semantic_failure_criterion": "The update_item operation is attempted for an item owned by another user.",
   "sourced_facts": [
     {

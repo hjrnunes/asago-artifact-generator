@@ -68,9 +68,10 @@ def written(root: Path) -> dict[str, bytes]:
 
 @pytest.mark.parametrize("case", sorted(CLINIC_CASES))
 def test_compile_writes_the_injection_spec_midojo_ran(tmp_path: Path, case: str) -> None:
-    compile_clinic_case(tmp_path / "packages", case, tmp_path / "out")
+    package = write_clinic_package(tmp_path / "packages", case)
+    compile_injection_spec(package, tmp_path / "out", target=CLINIC_TARGET)
 
-    assert written(tmp_path / "out") == as_written(RESULT_RECORDS / case)
+    assert written(tmp_path / "out") == as_written(RESULT_RECORDS / case, package)
 
 
 @pytest.mark.parametrize(

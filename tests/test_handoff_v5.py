@@ -113,9 +113,9 @@ def test_the_lock_names_the_newest_version_and_locks_both_kits() -> None:
     assert lock["contract"] == "scenario-handoff"
 
     version = input_adapter._validate_handoff_kit()
-    assert (version.kit, version.digest_domain) == (_V5, _V5)
-    newest = input_adapter._validate_handoff_kit(InputKind.SCENARIO_HANDOFF_V6)
-    assert (newest.kit, newest.digest_domain) == (_V6, _V6)
+    assert (version.kit, version.digest_domain) == (_V6, _V6)
+    legacy = input_adapter._validate_handoff_kit(InputKind.SCENARIO_HANDOFF_V5)
+    assert (legacy.kit, legacy.digest_domain) == (_V5, _V5)
 
 
 def test_a_lock_that_names_an_unpublished_version_refuses_a_v5_handoff(
@@ -388,7 +388,7 @@ def test_the_analysis_reaches_every_stage_once() -> None:
         assert packets[stage].user.count(json.dumps(_NOTE)[1:-1]) == 1, stage
 
 
-def test_a_package_records_a_v5_input_kind_and_rejects_any_other(tmp_path: Path) -> None:
+def test_a_package_records_a_v6_input_kind_and_rejects_any_other(tmp_path: Path) -> None:
     def package(kind: str):
         return build_package(
             package_id="pkg-1",
@@ -398,10 +398,10 @@ def test_a_package_records_a_v5_input_kind_and_rejects_any_other(tmp_path: Path)
             members={"explanation.json": b"{}\n"},
         )
 
-    loaded = load_package(write_package(tmp_path / "v5", package(_V5)))
-    assert loaded.manifest.input_kind == _V5
+    loaded = load_package(write_package(tmp_path / "v6", package(_V6)))
+    assert loaded.manifest.input_kind == _V6
 
-    for kind in ("scenario-handoff-v4", "scenario-handoff-v9"):
+    for kind in (_V5, "scenario-handoff-v4", "scenario-handoff-v9"):
         with pytest.raises(PackageIntegrityError, match="unsupported package input kind"):
             write_package(tmp_path / kind, package(kind))
 

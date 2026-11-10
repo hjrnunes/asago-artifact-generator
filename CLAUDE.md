@@ -39,7 +39,7 @@ contracts and historical experiment details belong in their own documents.
   failure criterion, safe alternative, and metadata.
 - This consumer designs concrete stimuli, setup declarations, runtime bindings,
   and semantic judge specifications using supplied facts and documented
-  capabilities. Packages (`artifact-package-v5`, from a `scenario-handoff-v5`
+  capabilities. Packages (`artifact-package-v5`, from a `scenario-handoff-v6`
   input) contain no detector code; the loader refuses a v4 package.
 - `generate` is target-free. The plan owns the experiment; artifact authoring turns
   the accepted plan into a frozen package. Code checks run before the applicable

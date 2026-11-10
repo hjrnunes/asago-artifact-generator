@@ -330,7 +330,7 @@ def _package(members: dict[str, object], manifest: dict[str, object] | None = No
     return build_package(
         package_id="SCN-001-SCN-001",
         scenario_id="SCN-001",
-        input_kind="scenario-handoff-v5",
+        input_kind="scenario-handoff-v6",
         source_digests={"handoff": "0" * 64},
         members={"stimulus.json": b"{}", **encoded},
         runtime_capabilities=manifest,

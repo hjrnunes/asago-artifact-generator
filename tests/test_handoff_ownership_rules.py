@@ -16,9 +16,11 @@ from asago_contracts_core import CONTRACT_DIR
 from asago_artifact_generator import input_adapter
 from asago_artifact_generator.input_adapter import InputSourceError, load_input
 
+from .support import KIT
+
 _CONTRACT = CONTRACT_DIR
 _RULES = _CONTRACT / "ownership-rules.json"
-_KIT = _CONTRACT / "scenario-handoff-v5" / "cases"
+_KIT = KIT
 
 
 def test_the_reader_uses_the_mirrored_rules_in_file_order() -> None:

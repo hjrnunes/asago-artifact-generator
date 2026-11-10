@@ -29,24 +29,24 @@ _RUNTIME: dict[str, Any] = {
 }
 
 
-def _renamed(shape: dict[str, Any]) -> dict[str, Any]:
-    """Return the shape as v6 states it: the party under its new name."""
+def _with_controller(shape: dict[str, Any]) -> dict[str, Any]:
+    """Return the shape as the retained v5 reader sees it: the party under its old name."""
 
     renamed = deepcopy(shape)
     relation = renamed["indirect"]["party_relation"]
-    relation["controlling_party"] = relation.pop("controller")
+    relation["controller"] = relation.pop("controlling_party")
     return renamed
 
 
 def test_the_accessor_reads_the_v5_field_name() -> None:
-    shape = indirect_shape()
+    shape = _with_controller(indirect_shape())
 
     assert controlling_party(shape) == "third_party"
     assert controlling_party_path(shape) == "attack_shape.indirect.party_relation.controller"
 
 
 def test_the_accessor_reads_the_v6_field_name() -> None:
-    shape = _renamed(indirect_shape())
+    shape = indirect_shape()
 
     assert controlling_party(shape) == "third_party"
     assert (
@@ -57,15 +57,35 @@ def test_the_accessor_reads_the_v6_field_name() -> None:
 def test_the_advisory_finding_names_the_v6_field() -> None:
     slot = {**CARRIER_SLOT, "controller": "counterparty"}
 
-    [finding] = slot_party_findings(_renamed(indirect_shape()), {**_RUNTIME, "seed_slots": [slot]})
+    [finding] = slot_party_findings(indirect_shape(), {**_RUNTIME, "seed_slots": [slot]})
 
     assert finding.code == "slot_party_mismatch"
     assert finding.path == "attack_shape.indirect.party_relation.controlling_party"
     assert finding.details["controlling_party"] == "third_party"
 
 
+def test_the_advisory_finding_names_the_v5_field() -> None:
+    slot = {**CARRIER_SLOT, "controller": "counterparty"}
+
+    [finding] = slot_party_findings(
+        _with_controller(indirect_shape()), {**_RUNTIME, "seed_slots": [slot]}
+    )
+
+    assert finding.code == "slot_party_mismatch"
+    assert finding.path == "attack_shape.indirect.party_relation.controller"
+    assert finding.details["controlling_party"] == "third_party"
+
+
 def test_the_planted_block_states_the_v6_party() -> None:
-    view = SimpleNamespace(attack_shape=_renamed(indirect_shape()))
+    view = SimpleNamespace(attack_shape=indirect_shape())
+
+    block = indirect_block(view, _RUNTIME, None)
+
+    assert block["shape_controlling_party"]["party"] == "third_party"
+
+
+def test_the_planted_block_states_the_v5_party() -> None:
+    view = SimpleNamespace(attack_shape=_with_controller(indirect_shape()))
 
     block = indirect_block(view, _RUNTIME, None)
 

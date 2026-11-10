@@ -39,8 +39,9 @@ VERBATIM_RUN = 40
 # A shape that states no assumption about who wrote the item puts no party preference on
 # the slot choice and records no mismatch.
 CONTROLLING_PARTY_UNKNOWN = "unknown"
-# scenario-handoff-v6 renamed the party and scenario-handoff-v5 still reads, so a shape
-# states it under one of these names; the newest comes first.
+# scenario-handoff-v6 states the party as controlling_party; the v5 reader the adapter
+# keeps states it as controller. A shape states it under one of these names; the newest
+# comes first.
 CONTROLLING_PARTY_FIELDS = ("controlling_party", "controller")
 
 # The two planted-item party names are different concepts: the shape's controlling party

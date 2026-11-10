@@ -416,7 +416,7 @@ remain distinct, and reasoning is never parsed as the final answer.
 
 The producer owns scenario meaning. From the producer repository root, run the
 normal producer command and then hand the resulting scenario handoff
-(`scenario-handoff-v5`; the adapter also reads `scenario-handoff-v6`) to
+(`scenario-handoff-v6`; the adapter still reads `scenario-handoff-v5`) to
 `generate`:
 
 ```bash
@@ -481,9 +481,11 @@ credential from the named profile passed to `generate --profile`.
 The authoring path accepts producer-owned discovery outputs and one scenario
 handoff:
 
-- `scenario-handoff-v5` or `scenario-handoff-v6` JSON or YAML for scenario meaning. The
-  producer's `generate` writes v5. Version 6 renames `party_relation.controller` to
-  `controlling_party` and requires the contract envelope.
+- `scenario-handoff-v6` JSON or YAML for scenario meaning. The producer's `generate`
+  writes v6, which names the party `party_relation.controlling_party` and carries the
+  contract envelope. The adapter still reads `scenario-handoff-v5`, which names the
+  party `controller` and carries no envelope. A package records the version it came
+  from as `input_kind`, and the writer accepts only `scenario-handoff-v6`.
 - `execution-target-profile-v1` JSON for the observed target inventory.
 - Optional `runtime-context.json` (`runtime-context-v1`, written by the orchestrator's discover stage) for state and read observations.
 - A target-free runtime contract (`artifact-runtime-contract-v3`, and

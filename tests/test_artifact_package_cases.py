@@ -242,7 +242,7 @@ def _package_with(metadata: dict[str, Any]) -> ArtifactPackage:
     return build_package(
         package_id="usage-policy",
         scenario_id="usage-policy",
-        input_kind="scenario-handoff-v5",
+        input_kind="scenario-handoff-v6",
         source_digests={"input": "a" * 64},
         members={"explanation.json": b"{}\n"},
         runtime_capabilities=metadata,

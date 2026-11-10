@@ -157,11 +157,12 @@ class InputView:
 def load_input(source_path: str | Path) -> InputView:
     """Load one producer scenario handoff and produce a source-pinned view.
 
-    The mirrored kit publishes two versions: v5, which every recorded handoff
-    names, and v6, which renames the controlling party and requires the envelope.
-    The shared ``asago_handoff`` validator owns the version rule, as it owns the
-    rest: a document that states another version, or none, is refused with the
-    producer's codes; a v6 document without the envelope is refused.
+    The producer writes v6, which names the controlling party ``controlling_party``
+    and requires the envelope. The mirrored kit still publishes v5, and the reader
+    still accepts it. The shared ``asago_handoff`` validator owns the version rule,
+    as it owns the rest: a document that states another version, or none, is
+    refused with the producer's codes from the v6 kit; a v6 document without the
+    envelope is refused.
     """
 
     path = Path(source_path)
@@ -219,15 +220,15 @@ def _parse_document(path: Path, source_bytes: bytes) -> Any:
 
 
 def _handoff_kind(payload: Any) -> InputKind:
-    """Return the version a document states, or v5 when it states an unpublished one.
+    """Return the version a document states, or v6 when it states an unpublished one.
 
-    A document that names no published version keeps the v5 kit's schema and
+    A document that names no published version takes the v6 kit's schema and
     refusals, so the shared validator reports the producer's codes for it; the
     version it states is named in the code.
     """
 
     version = payload.get("schema_version") if isinstance(payload, dict) else None
-    return _HANDOFF_VERSIONS.get(version, InputKind.SCENARIO_HANDOFF_V5)
+    return _HANDOFF_VERSIONS.get(version, InputKind.SCENARIO_HANDOFF_V6)
 
 
 def _handoff_view(
@@ -282,7 +283,7 @@ def _handoff_view(
     )
 
 
-def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V5) -> _HandoffVersion:
+def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V6) -> _HandoffVersion:
     """Verify the installed lock and return the version entry it declares for ``kind``.
 
     The lock names the newest published version at its top level, and its rows
@@ -308,7 +309,7 @@ def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V5) -> _H
     return _HandoffVersion(kind, kind.value, kind.value)
 
 
-def _handoff_schema(kit: str = "scenario-handoff-v5") -> dict[str, Any]:
+def _handoff_schema(kit: str = "scenario-handoff-v6") -> dict[str, Any]:
     return load_json_file(
         _HANDOFF_ROOT / kit / "schema.json", InputSourceError, f"cannot read vendored {kit} schema"
     )

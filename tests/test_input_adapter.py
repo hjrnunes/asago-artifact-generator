@@ -17,7 +17,7 @@ from asago_artifact_generator.input_adapter import (
     build_scenario_handoff_view,
     load_input,
 )
-from tests.support import HANDOFFS, KIT_VALID
+from tests.support import HANDOFFS, KIT_VALID, signed
 
 CONTRACT_HANDOFF = HANDOFFS / "refund-bound.json"
 
@@ -27,7 +27,7 @@ def test_handoff_view_preserves_source_hash_and_authoritative_content() -> None:
 
     view = load_input(CONTRACT_HANDOFF)
 
-    assert view.kind is InputKind.SCENARIO_HANDOFF_V5
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V6
     assert view.source_sha256 == hashlib.sha256(source).hexdigest()
     assert view.narrative == yaml.safe_load(source)["narrative"]
     assert view.gherkin["scenario"] == "Refund command exceeds the remaining balance of the order"
@@ -50,7 +50,7 @@ def test_handoff_view_preserves_source_hash_and_authoritative_content() -> None:
         ),
     ],
 )
-def test_a_document_that_is_not_a_v5_handoff_is_rejected_with_the_shared_codes(
+def test_a_document_that_is_not_a_v6_handoff_is_rejected_with_the_shared_codes(
     tmp_path: Path, name: str, text: str, codes: tuple[str, ...]
 ) -> None:
     source_path = tmp_path / name
@@ -113,14 +113,8 @@ def test_observation_metadata_reaches_authoring_view(tmp_path: Path) -> None:
             "claim_level": "reply",
         },
     }
-    payload_without_digest = {
-        key: value for key, value in payload.items() if key != "content_digest"
-    }
-    from asago_artifact_generator.input_adapter import _framed_digest
-
-    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload_without_digest)
     source_path = tmp_path / "handoff.yaml"
-    source_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    source_path.write_text(yaml.safe_dump(signed(payload)), encoding="utf-8")
 
     view = load_input(source_path)
 
@@ -157,14 +151,8 @@ def test_analytical_observation_criterion_may_omit_optional_fields(
             "unsupported_criteria": ["state"],
         },
     }
-    payload_without_digest = {
-        key: value for key, value in payload.items() if key != "content_digest"
-    }
-    from asago_artifact_generator.input_adapter import _framed_digest
-
-    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload_without_digest)
     source_path = tmp_path / "handoff.yaml"
-    source_path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    source_path.write_text(yaml.safe_dump(signed(payload)), encoding="utf-8")
 
     view = load_input(source_path)
 
@@ -404,12 +392,8 @@ def test_a_missing_safe_outcome_record_refs_is_the_schema_default(tmp_path: Path
 
     payload = _full_handoff()
     _drop("safe_observable_outcome.record_refs")(payload)
-    payload.pop("content_digest")
-    from asago_artifact_generator.input_adapter import _framed_digest
-
-    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     source_path = tmp_path / "handoff.json"
-    source_path.write_text(json.dumps(payload), encoding="utf-8")
+    source_path.write_text(json.dumps(signed(payload)), encoding="utf-8")
 
     view = load_input(source_path)
 
@@ -417,13 +401,8 @@ def test_a_missing_safe_outcome_record_refs_is_the_schema_default(tmp_path: Path
 
 
 def test_the_full_handoff_used_by_the_hand_rule_table_is_valid(tmp_path: Path) -> None:
-    payload = _full_handoff()
-    payload.pop("content_digest")
-    from asago_artifact_generator.input_adapter import _framed_digest
-
-    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     source_path = tmp_path / "handoff.json"
-    source_path.write_text(json.dumps(payload), encoding="utf-8")
+    source_path.write_text(json.dumps(signed(_full_handoff())), encoding="utf-8")
 
     assert load_input(source_path).payload["deduplication"]["status"] == "canonical"
 
@@ -439,12 +418,8 @@ def test_references_repeating_after_stripping_are_refused(tmp_path: Path, key: s
 
     payload = _full_handoff()
     payload["safe_observable_outcome"][key] = ["R-1", " R-1"]
-    payload.pop("content_digest")
-    from asago_artifact_generator.input_adapter import _framed_digest
-
-    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     source_path = tmp_path / "handoff.json"
-    source_path.write_text(json.dumps(payload), encoding="utf-8")
+    source_path.write_text(json.dumps(signed(payload)), encoding="utf-8")
 
     with pytest.raises(InputSourceError) as raised:
         load_input(source_path)
@@ -652,11 +627,11 @@ def test_unreadable_vendored_handoff_schema_is_a_source_error(
 
     monkeypatch.setattr(input_adapter, "_HANDOFF_ROOT", tmp_path)
     if schema_text is not None:
-        schema = tmp_path / "scenario-handoff-v5" / "schema.json"
+        schema = tmp_path / "scenario-handoff-v6" / "schema.json"
         schema.parent.mkdir()
         schema.write_text(schema_text, encoding="utf-8")
 
     with pytest.raises(
-        InputSourceError, match="^cannot read vendored scenario-handoff-v5 schema: "
+        InputSourceError, match="^cannot read vendored scenario-handoff-v6 schema: "
     ):
         input_adapter._handoff_schema()

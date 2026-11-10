@@ -178,12 +178,12 @@ def test_every_recorded_handoff_still_reads(case: Path) -> None:
 
 @pytest.mark.parametrize("path", _PRODUCER_HANDOFFS, ids=lambda path: path.name)
 def test_every_checked_in_producer_handoff_reads(path: Path) -> None:
-    """A handoff the producer wrote, kept as a fixture, reads as a v5 document."""
+    """A handoff the producer wrote, kept as a fixture, reads as a v6 document."""
 
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
 
-    assert document.get("schema_version") == LEGACY_VERSION
-    assert read_handoff(document).version == LEGACY_VERSION
+    assert document.get("schema_version") == VERSION
+    assert read_handoff(document).version == VERSION
 
 
 @pytest.mark.parametrize("version", VERSIONS)

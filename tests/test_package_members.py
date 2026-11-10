@@ -227,7 +227,7 @@ def test_the_writer_refuses_a_retired_member(member: str) -> None:
         build_package(
             package_id="pkg-1",
             scenario_id="SCN-1",
-            input_kind="scenario-handoff-v5",
+            input_kind="scenario-handoff-v6",
             source_digests={"input": "a" * 64},
             members={"plan.json": b"{}\n", member: b"{}\n"},
         )

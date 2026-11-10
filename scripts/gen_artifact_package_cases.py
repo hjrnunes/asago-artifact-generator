@@ -43,7 +43,9 @@ CONTRACT_ROOT = contract_dir("artifact-package")
 V4 = "artifact-package-v4"
 V5 = "artifact-package-v5"
 BINDING_CASES = "binding-cases"
+# The frozen v4 schema lists the handoff a v4 package came from; v5 lists the current one.
 _HANDOFF_V5 = "scenario-handoff-v5"
+_HANDOFF_V6 = "scenario-handoff-v6"
 SEED = "artifact-seed-v1"
 _SEED_ITEM = {
     "slot": "records.note",
@@ -113,7 +115,7 @@ def _package(files: dict[str, str], *, description: str, version: str) -> dict[s
             "schema_version": version,
             "package_id": "pkg-1",
             "scenario_id": "SCN-1",
-            "input_kind": _HANDOFF_V5,
+            "input_kind": _HANDOFF_V5 if v4 else _HANDOFF_V6,
             "source_digests": {"input": "a" * 64},
             "members": [_record(path, files[path]) for path in sorted(files)],
             "authoring": copy.deepcopy(_V4_AUTHORING if v4 else _V5_AUTHORING),
@@ -325,7 +327,7 @@ def _v5_cases() -> _Cases:
     """Return the v5 cases: v4's, and the v4 members and metadata a v5 package refuses."""
 
     base = _package(
-        _FILES, description="A v5 package with a seed member, from a v5 handoff.", version=V5
+        _FILES, description="A v5 package with a seed member, from a v6 handoff.", version=V5
     )
     invalid = _invalid_cases(base)
     for name, member, text in (

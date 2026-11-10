@@ -1,6 +1,6 @@
 """The consumer runs the producer's schema and conformance cases.
 
-The producer's v5 kit carries ``invalid/schema-*.json``, one broken field of
+The producer's v6 kit carries ``invalid/schema-*.json``, one broken field of
 a bound handoff each, with the producer's codes in ``expected-violations.json``.
 This reader reports the same codes in the same order on the raised error's
 ``codes``. The shared validator owns every rule, the schema version included,
@@ -28,8 +28,13 @@ from asago_artifact_generator.input_adapter import (
     load_input,
 )
 
+from .support import KIT
+
 _CONTRACT = CONTRACT_DIR
-_KIT = _CONTRACT / "scenario-handoff-v5" / "cases"
+_KIT = _CONTRACT / "scenario-handoff-v6" / "cases"
+# The kit holds bare payloads; the reader needs the envelope v6 requires, so it loads
+# these enveloped copies of the same cases.
+_PUBLISHED = KIT
 _EXPECTED = json.loads((_KIT / "expected-violations.json").read_text("utf-8"))
 _MANIFEST = json.loads((_KIT / "conformance-cases.json").read_text("utf-8"))
 RULE_NAMES = frozenset(
@@ -67,7 +72,7 @@ def _cases(verdict: str, kind: str) -> list[str]:
 def _companion(tmp_path: Path, relative: str) -> tuple[Path, str]:
     case = json.loads((_KIT / relative).read_text(encoding="utf-8"))
     handoff = tmp_path / "handoff.json"
-    handoff.write_bytes((_KIT / case["handoff"]).read_bytes())
+    handoff.write_bytes((_PUBLISHED / case["handoff"]).read_bytes())
     (tmp_path / "handoff.feature").write_text(case["text"], encoding="utf-8")
     return handoff, case["text"]
 
@@ -82,7 +87,7 @@ def _expected_violation_summary() -> CaseSummary:
     passed = 0
     for relative, codes in _EXPECTED.items():
         with pytest.raises(HandoffSchemaInvalid) as raised:
-            load_input(_KIT / relative)
+            load_input(_PUBLISHED / relative)
         if raised.value.codes == tuple(codes):
             passed += 1
     return CaseSummary("expected-violations", passed, len(_EXPECTED))
@@ -97,9 +102,9 @@ def _conformance_case_holds(tmp_path: Path, kind: str, valid: bool, relative: st
             return not valid and str(raised).startswith("Gherkin companion does not match")
         return valid and view.gherkin_text == text
     if valid:
-        return load_input(_KIT / relative).kind is InputKind.SCENARIO_HANDOFF_V5
+        return load_input(_PUBLISHED / relative).kind is InputKind.SCENARIO_HANDOFF_V6
     with pytest.raises(HandoffSchemaInvalid) as raised:
-        load_input(_KIT / relative)
+        load_input(_PUBLISHED / relative)
     return raised.value.codes == tuple(_EXPECTED[relative])
 
 
@@ -125,7 +130,7 @@ def test_the_reader_rejects_each_schema_case_with_the_kits_codes(name: str) -> N
     codes = _EXPECTED[f"invalid/{name}.json"]
 
     with pytest.raises(InputSourceError) as raised:
-        load_input(_KIT / "invalid" / f"{name}.json")
+        load_input(_PUBLISHED / "invalid" / f"{name}.json")
 
     assert codes
     assert raised.value.codes == tuple(codes)
@@ -155,7 +160,7 @@ def test_the_kit_carries_a_case_for_each_of_the_five_rules() -> None:
     rules = _MANIFEST["rules"]
 
     assert _MANIFEST["contract"] == "scenario-handoff"
-    assert _MANIFEST["kit"] == "scenario-handoff-v5"
+    assert _MANIFEST["kit"] == "scenario-handoff-v6"
     assert {rule["name"] for rule in rules} == RULE_NAMES
     assert len(rules) == len(RULE_NAMES)
     for rule in rules:
@@ -172,9 +177,9 @@ def test_every_named_case_is_a_file_in_the_kit() -> None:
 
 @pytest.mark.parametrize("relative", _cases("valid", "handoff"))
 def test_the_reader_accepts_each_valid_rule_case(relative: str) -> None:
-    view = load_input(_KIT / relative)
+    view = load_input(_PUBLISHED / relative)
 
-    assert view.kind is InputKind.SCENARIO_HANDOFF_V5
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V6
 
 
 @pytest.mark.parametrize("relative", _cases("invalid", "handoff"))
@@ -184,7 +189,7 @@ def test_the_reader_refuses_each_invalid_rule_case_with_the_kits_codes(
     codes = _EXPECTED[relative]
 
     with pytest.raises(InputSourceError) as raised:
-        load_input(_KIT / relative)
+        load_input(_PUBLISHED / relative)
 
     assert codes
     assert raised.value.codes == tuple(codes)

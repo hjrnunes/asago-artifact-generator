@@ -27,6 +27,7 @@ from typing import Any
 import pytest
 import yaml
 from asago_contracts_core import CONTRACT_DIR
+from asago_handoff.envelope import ENVELOPE_FIELD
 from pydantic import ValidationError
 
 from asago_artifact_generator.input_adapter import (
@@ -35,6 +36,8 @@ from asago_artifact_generator.input_adapter import (
     InputSourceError,
     load_input,
 )
+
+from .support import published
 
 # The sibling checkout backs the producer-pair group, which the default sync leaves out;
 # a consumer-only checkout has neither, and a workspace checkout without the group has the
@@ -53,25 +56,24 @@ except ModuleNotFoundError:
     )
 
 from asago_scenario_generator.stpa.scenario_prod.handoff import (  # noqa: E402
-    ScenarioHandoffV5,
     ScenarioHandoffV6,
     finalize_handoff,
     write_scenario_handoff,
 )
 
 HANDOFFS = Path(__file__).resolve().parent / "fixtures" / "handoffs"
-# A producer-written v5 handoff with its checked-in .feature companion.
+# A producer-written v6 handoff with its checked-in .feature companion.
 PRODUCER_FILE = HANDOFFS / "klarna-attack-path-SCN-027.yaml"
-# The installed v6 kit's indirect case, which states the renamed controlling party.
+# The installed v6 kit's indirect case, which states the controlling party.
 V6_CASE = (
     CONTRACT_DIR / "scenario-handoff-v6" / "cases" / "valid" / "adversarial-indirect-listing.json"
 )
 
 
 def _hand_built_payload() -> dict[str, Any]:
-    """A complete v5 handoff dict, written by hand rather than published by the producer."""
+    """A complete v6 handoff dict, written by hand rather than published by the producer."""
     return {
-        "schema_version": "scenario-handoff-v5",
+        "schema_version": "scenario-handoff-v6",
         "scenario_id": "SCN-907",
         "scenario_version": 1,
         "kind": "adversarial",
@@ -236,7 +238,7 @@ def _hand_built_payload() -> dict[str, Any]:
 def _publish(
     payload: dict[str, Any],
     directory: Path,
-    model: type[ScenarioHandoffV5] = ScenarioHandoffV5,
+    model: type[ScenarioHandoffV6] = ScenarioHandoffV6,
 ) -> tuple[Path, Path]:
     """Validate, finalize, and write a payload with the producer's own writer."""
     handoff = finalize_handoff(model.model_validate(payload))
@@ -249,7 +251,7 @@ def test_a_hand_built_dict_passes_the_writer_and_the_reader(tmp_path: Path) -> N
     handoff_path, feature_path = _publish(payload, tmp_path)
 
     view = load_input(handoff_path)
-    assert view.kind is InputKind.SCENARIO_HANDOFF_V5
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V6
     assert view.scenario_id == payload["scenario_id"]
     assert view.narrative == payload["narrative"]
     assert view.tool_call_condition_status == payload["tool_call_condition_status"]
@@ -264,7 +266,7 @@ def test_a_v6_handoff_publishes_the_envelope_and_the_reader_reads_it(
     payload = json.loads(V6_CASE.read_text(encoding="utf-8"))
     relation = payload["attack_shape"]["indirect"]["party_relation"]
 
-    handoff_path, feature_path = _publish(payload, tmp_path, ScenarioHandoffV6)
+    handoff_path, feature_path = _publish(payload, tmp_path)
 
     view = load_input(handoff_path)
     assert view.kind is InputKind.SCENARIO_HANDOFF_V6
@@ -279,16 +281,17 @@ def test_a_v6_handoff_publishes_the_envelope_and_the_reader_reads_it(
 
 def test_a_producer_written_file_passes_the_writer_and_the_reader(tmp_path: Path) -> None:
     payload = yaml.safe_load(PRODUCER_FILE.read_text(encoding="utf-8"))
-    published = load_input(PRODUCER_FILE)
+    del payload[ENVELOPE_FIELD]
+    checked_in = load_input(PRODUCER_FILE)
 
     handoff_path, _ = _publish(payload, tmp_path)
 
     view = load_input(handoff_path)
-    assert view.scenario_id == published.scenario_id
-    assert view.narrative == published.narrative
-    assert view.gherkin_text == published.gherkin_text
-    assert view.tool_call_condition == published.tool_call_condition
-    assert view.source_digests["gherkin"] == published.source_digests["gherkin"]
+    assert view.scenario_id == checked_in.scenario_id
+    assert view.narrative == checked_in.narrative
+    assert view.gherkin_text == checked_in.gherkin_text
+    assert view.tool_call_condition == checked_in.tool_call_condition
+    assert view.source_digests["gherkin"] == checked_in.source_digests["gherkin"]
 
 
 def test_the_writer_refuses_and_the_reader_rejects_artifact_design_content(
@@ -298,10 +301,10 @@ def test_the_writer_refuses_and_the_reader_rejects_artifact_design_content(
     payload["stimulus"] = {"turns": []}
 
     with pytest.raises(ValidationError):
-        ScenarioHandoffV5.model_validate(payload)
+        ScenarioHandoffV6.model_validate(payload)
 
     handoff_path = tmp_path / f"{payload['scenario_id']}.yaml"
-    handoff_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    handoff_path.write_text(yaml.safe_dump(published(payload), sort_keys=False), encoding="utf-8")
 
     with pytest.raises(HandoffSchemaInvalid) as raised:
         load_input(handoff_path)
@@ -315,10 +318,10 @@ def test_the_writer_refuses_and_the_reader_rejects_a_missing_required_field(
     del payload["safe_alternative"]
 
     with pytest.raises(ValidationError):
-        ScenarioHandoffV5.model_validate(payload)
+        ScenarioHandoffV6.model_validate(payload)
 
     handoff_path = tmp_path / f"{payload['scenario_id']}.yaml"
-    handoff_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    handoff_path.write_text(yaml.safe_dump(published(payload), sort_keys=False), encoding="utf-8")
 
     with pytest.raises(HandoffSchemaInvalid) as raised:
         load_input(handoff_path)
@@ -343,7 +346,7 @@ def test_the_reader_rejects_a_writer_file_rewritten_to_a_foreign_schema_version(
     text = handoff_path.read_text(encoding="utf-8")
     handoff_path.write_text(
         text.replace(
-            "schema_version: scenario-handoff-v5", "schema_version: scenario-handoff-v4", 1
+            "schema_version: scenario-handoff-v6", "schema_version: scenario-handoff-v4", 1
         ),
         encoding="utf-8",
     )

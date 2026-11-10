@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -67,19 +68,28 @@ def as_sealed(outcomes: list[dict[str, Any]] | None) -> list[dict[str, Any]] | N
     ]
 
 
-def as_written(fixture: Path) -> dict[str, bytes]:
+def as_written(fixture: Path, package: Path) -> dict[str, bytes]:
     """One recorded fixture directory's compiled document, as compile writes it now.
 
     The recorded fixtures keep the document's pre-rename filename, ID and revision range
     (``episode.json``, ``midojo-episode-v1``, ``>=8e8208f``) as recorded;
     compile writes ``injection-spec.json`` holding ``midojo-injection-spec-v1`` and names
-    the first revision that reads it. The rest of the bytes are what a new compile writes,
-    so the comparison stays byte for byte.
+    the first revision that reads it. A recorded document also names the digest of the
+    package it was compiled from, which changes whenever the manifest's ``input_kind``
+    does; the comparison swaps in the manifest digest of ``package``, the package compile
+    reads. The rest of the bytes are what a new compile writes, so the comparison stays
+    byte for byte.
     """
 
     recorded = (fixture / LEGACY_EPISODE_FILE).read_bytes()
+    recorded_digest = json.loads(recorded)["package_digest"]
+    package_digest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))[
+        "manifest_digest"
+    ]
     return {
         INJECTION_SPEC_FILE: recorded.replace(
             LEGACY_INJECTION_SPEC_DOCUMENT_V1.encode(), INJECTION_SPEC_DOCUMENT_V1.encode()
-        ).replace(RECORDED_TOOL_REVISION_RANGE.encode(), TOOL_REVISION_RANGE.encode())
+        )
+        .replace(RECORDED_TOOL_REVISION_RANGE.encode(), TOOL_REVISION_RANGE.encode())
+        .replace(recorded_digest.encode(), package_digest.encode())
     }

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 import shutil
+import tempfile
 from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
@@ -15,6 +17,7 @@ import openai
 import pytest
 import yaml
 from asago_contracts_core import CONTRACT_DIR
+from asago_handoff.envelope import ENVELOPE_FIELD, load_specs
 
 from asago_artifact_generator.authoring.checks import (
     collect_artifact_findings_v2,
@@ -116,7 +119,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _ROOT = Path(__file__).resolve().parents[1]
 HANDOFFS = FIXTURES / "handoffs"
 HANDOFF = HANDOFFS / "refund-bound.json"
-# A klarna SCN-027 v5 handoff whose attack_path replaces the attack tree.
+# A klarna SCN-027 v6 handoff whose attack_path replaces the attack tree.
 ATTACK_PATH_HANDOFF = HANDOFFS / "klarna-attack-path-SCN-027.yaml"
 # The klarna handoffs plant an order item through lookup_order, which no slot of the ehr
 # world carries. These runtime contract keys add the planted-item delivery and the order-item
@@ -136,7 +139,61 @@ KLARNA_INDIRECT_RUNTIME: dict[str, Any] = {
         }
     ],
 }
-KIT_VALID = CONTRACT_DIR / "scenario-handoff-v5/cases/valid"
+
+
+def published(document: dict[str, Any]) -> dict[str, Any]:
+    """Return a v6 document with the envelope the version requires.
+
+    The helper writes the envelope itself rather than through ``write_envelope``, because
+    that writer validates the body it stamps and the invalid kit cases must still reach the
+    reader's code walk.
+    """
+
+    spec = load_specs(CONTRACT_DIR.parent).spec("scenario-handoff", "scenario-handoff-v6")
+    envelope = {
+        "id": spec.contract,
+        "version": spec.version,
+        "spec_digest": spec.spec_digest,
+        "requires": [],
+        "provenance": {
+            "writer": "tests.support",
+            "writer_version": "0.1.0",
+            "validator_version": "asago-contracts-core 0.1.0",
+        },
+    }
+    return {**document, ENVELOPE_FIELD: envelope}
+
+
+def signed(document: dict[str, Any]) -> dict[str, Any]:
+    """Return ``document`` with its v6 digest recomputed over its body, and its envelope."""
+
+    body = {
+        key: value
+        for key, value in document.items()
+        if key not in ("content_digest", ENVELOPE_FIELD)
+    }
+    body["content_digest"] = _framed_digest("scenario-handoff-v6", body)
+    return published(body)
+
+
+def _published_kit_cases() -> Path:
+    """Write the v6 kit's cases with their envelope, which the kit's bare payloads lack."""
+
+    directory = Path(tempfile.mkdtemp(prefix="published-handoff-kit-"))
+    atexit.register(shutil.rmtree, directory, ignore_errors=True)
+    for kind in ("valid", "invalid"):
+        (directory / kind).mkdir()
+        for case in sorted((CONTRACT_DIR / "scenario-handoff-v6/cases" / kind).glob("*.json")):
+            document = json.loads(case.read_text(encoding="utf-8"))
+            (directory / kind / case.name).write_text(
+                json.dumps(published(document), indent=2) + "\n", encoding="utf-8"
+            )
+    return directory
+
+
+#: The v6 kit's ``valid/`` and ``invalid/`` cases, each with the envelope a reader requires.
+KIT = _published_kit_cases()
+KIT_VALID = KIT / "valid"
 NO_CONDITION_HANDOFF = KIT_VALID / "adversarial-condition-omitted.json"
 OBSERVED_HANDOFF = KIT_VALID / "adversarial-observed-record.json"
 NOT_CALLED_HANDOFF = KIT_VALID / "functional-not-called.json"
@@ -237,11 +294,9 @@ def signed_omission_view(tmp_path: Path):
         {"kind": "not_called", "operation": "notify_owner"}
     ]
     payload.pop("condition_check", None)
-    payload = {key: value for key, value in payload.items() if key != "content_digest"}
-    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = tmp_path / "handoff.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    path.write_text(yaml.safe_dump(signed(payload)), encoding="utf-8")
     return load_input(path)
 
 
@@ -268,11 +323,9 @@ def signed_derived_omission_view(tmp_path: Path):
             "derived by code from the failure call: notify_owner is never called (missing_call)"
         ),
     }
-    payload = {key: value for key, value in payload.items() if key != "content_digest"}
-    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = tmp_path / "handoff.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    path.write_text(yaml.safe_dump(signed(payload)), encoding="utf-8")
     return load_input(path)
 
 
@@ -511,7 +564,7 @@ def build_neutral_artifact_package(destination: str | Path) -> Path:
     package = build_package(
         package_id="offline-neutral-example-v2",
         scenario_id="neutral-example",
-        input_kind="scenario-handoff-v5",
+        input_kind="scenario-handoff-v6",
         source_digests={"neutral": _sha256(b"neutral-example-v2")},
         members=members,
         authoring={"status": "scripted-offline-example"},

@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from asago_artifact_generator.authoring.sequential_turns import SEQUENTIAL_DELIVERY
-from asago_artifact_generator.input_adapter import InputView, _framed_digest, load_input
+from asago_artifact_generator.input_adapter import InputView, load_input
 
-from .support import HANDOFF
+from .support import HANDOFF, signed
 
 PURPOSES = {
     1: ["request_action"],
@@ -38,15 +38,12 @@ def sequential_shape(turns: int) -> dict[str, Any]:
 
 
 def direct_view(tmp_path: Path, turns: int) -> InputView:
-    """Return the refund handoff re-issued as scenario-handoff-v5 with a direct shape."""
+    """Return the refund handoff re-issued with a direct shape."""
 
     payload = json.loads(HANDOFF.read_text(encoding="utf-8"))
-    payload.pop("content_digest")
-    payload["schema_version"] = "scenario-handoff-v5"
     payload["attack_shape"] = sequential_shape(turns)
-    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = tmp_path / f"refund-direct-{turns}.json"
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    path.write_text(json.dumps(signed(payload)), encoding="utf-8")
     return load_input(path)
 
 
@@ -120,7 +117,7 @@ def indirect_shape(
         "indirect": {
             "carrier_operation": "get_order",
             "data_item": {"content_kind": "order_content", "record_ref": record_ref},
-            "party_relation": {"controller": party, "benign_user_actor_ref": "CUST001"},
+            "party_relation": {"controlling_party": party, "benign_user_actor_ref": "CUST001"},
         },
         "threat_label": None,
         "source": "stage5_validated",
@@ -135,12 +132,9 @@ def indirect_view(
     party: str = "third_party",
 ) -> InputView:
     payload = json.loads(HANDOFF.read_text(encoding="utf-8"))
-    payload.pop("content_digest")
-    payload["schema_version"] = "scenario-handoff-v5"
     payload["attack_shape"] = indirect_shape(turns, record_ref, party)
-    payload["content_digest"] = _framed_digest("scenario-handoff-v5", payload)
     path = tmp_path / f"refund-indirect-{party}-{turns}.json"
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    path.write_text(json.dumps(signed(payload)), encoding="utf-8")
     return load_input(path)
 
 

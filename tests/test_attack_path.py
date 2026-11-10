@@ -326,10 +326,10 @@ def test_reference_repair_options_name_the_attack_path(failed_stage: str) -> Non
     assert not _TREE_WORDING.search(packet.user)
 
 
-def test_a_v5_path_handoff_loads_without_a_tree() -> None:
+def test_a_v6_path_handoff_loads_without_a_tree() -> None:
     view = real_view("027")
 
-    assert view.kind.value == "scenario-handoff-v5"
+    assert view.kind.value == "scenario-handoff-v6"
     assert "attack_tree" not in view.payload
     assert view.payload["attack_path"] == SCN_027_PATH
 

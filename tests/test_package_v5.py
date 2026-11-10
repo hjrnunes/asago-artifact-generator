@@ -1,4 +1,4 @@
-"""A v5 handoff yields an artifact-package-v5 whose stimulus states its turns."""
+"""A v6 handoff yields an artifact-package-v5 whose stimulus states its turns."""
 
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ def test_a_three_turn_handoff_becomes_a_sequential_v5_package(tmp_path: Path) ->
     assert [request["stage"] for request in transport.requests] == ["call1", "call2"]
     manifest = _manifest(tmp_path)
     assert manifest["schema_version"] == "artifact-package-v5"
-    assert manifest["input_kind"] == "scenario-handoff-v5"
+    assert manifest["input_kind"] == "scenario-handoff-v6"
     stimulus = _stimulus(tmp_path)
     assert stimulus["mode"] == "sequential"
     assert stimulus["turn_count"] == 3
@@ -94,17 +94,18 @@ def _build(input_kind: str, **changes: Any):
     )
 
 
-def test_a_v5_input_builds_a_v5_package() -> None:
-    assert _build("scenario-handoff-v5").manifest.schema_version == "artifact-package-v5"
+def test_a_v6_input_builds_a_v5_package() -> None:
+    assert _build("scenario-handoff-v6").manifest.schema_version == "artifact-package-v5"
 
 
-def test_an_unknown_input_kind_is_refused() -> None:
+@pytest.mark.parametrize("input_kind", ["scenario-handoff-v5", "scenario-handoff-v9"])
+def test_an_unknown_input_kind_is_refused(input_kind: str) -> None:
     with pytest.raises(PackageIntegrityError, match="unsupported package input kind"):
-        _build("scenario-handoff-v9")
+        _build(input_kind)
 
 
 def test_a_v5_package_round_trips_and_a_version_swap_is_caught(tmp_path: Path) -> None:
-    package = _build("scenario-handoff-v5")
+    package = _build("scenario-handoff-v6")
     destination = write_package(tmp_path / "out", package)
 
     assert load_package(destination).manifest.to_dict() == package.manifest.to_dict()
@@ -120,7 +121,7 @@ def test_a_v5_package_round_trips_and_a_version_swap_is_caught(tmp_path: Path) -
 
 
 def test_a_v4_package_is_refused_naming_the_unsupported_version(tmp_path: Path) -> None:
-    destination = write_package(tmp_path / "out", _build("scenario-handoff-v5"))
+    destination = write_package(tmp_path / "out", _build("scenario-handoff-v6"))
     manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
     manifest["schema_version"] = "artifact-package-v4"
     manifest["manifest_digest"] = _manifest_digest(manifest)
