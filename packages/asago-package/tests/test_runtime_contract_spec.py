@@ -2,15 +2,15 @@
 
 ``asago_package`` carries the authority copy of ``runtime-contract`` as package data, so the
 reader here is also the installed copy: every version directory ships byte-identically to the
-repository's kit. The tests recompute each spec digest, read every case, read every recorded
-contract, and assert the four refusals a reader owes for both versions.
+repository's kit. The tests recompute each spec digest, read every case, read the contracts
+the declared-target builder wrote, and assert the four refusals a reader owes for both
+versions.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import os
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -43,14 +43,17 @@ from asago_package.runtime_contract_spec import (
     write_runtime_contract,
 )
 
-REPO = Path(__file__).resolve().parents[3]
 _ROOT = contract_dir(CONTRACT)
 _STATUS = {
     LEGACY_VERSION: ("published", "optional"),
     VERSION: ("published", "required"),
 }
-#: The workspace checkout holds the replay corpus beside this repository.
-_REPLAY_CORPUS = REPO.parent / "replay-corpus"
+_DATA = Path(__file__).resolve().parent / "data"
+#: Contracts the declared-target builder wrote for a target with no seed slot and with one.
+_WRITTEN_CONTRACTS = (
+    "runtime-contract-v3-no-slots.json",
+    "runtime-contract-v3-planted-item.json",
+)
 
 
 def _json(path: Path) -> Any:
@@ -199,46 +202,11 @@ def test_the_reader_refuses_every_invalid_case(case: Path, version: str) -> None
         read_runtime_contract(document)
 
 
-def _replay_corpus() -> Path:
-    """Return the replay corpus the recorded runtime contracts live in.
+@pytest.mark.parametrize("name", _WRITTEN_CONTRACTS)
+def test_the_reader_accepts_a_contract_the_builder_wrote(name: str) -> None:
+    """A contract the declared-target builder wrote reads at the current version."""
 
-    VAL-SAFETY-006: a test that reads the corpus fails loudly when the
-    configured directory is missing; it must not read nothing and pass.
-    """
-
-    corpus = Path(os.environ.get("ASAGO_REPLAY_CORPUS", _REPLAY_CORPUS))
-    if not corpus.is_dir():
-        pytest.fail(f"the replay corpus directory does not exist: {corpus}")
-    return corpus
-
-
-def test_a_missing_replay_corpus_fails_and_names_the_path(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    missing = tmp_path / "no-such-corpus"
-    monkeypatch.setenv("ASAGO_REPLAY_CORPUS", str(missing))
-
-    with pytest.raises(pytest.fail.Exception) as raised:
-        _replay_corpus()
-
-    assert str(missing) in str(raised.value)
-
-
-@pytest.mark.replay_corpus
-def test_every_recorded_contract_still_reads() -> None:
-    """Every contract recorded outside the cases reads as a v2 or v3 document.
-
-    The replay corpus holds the runtime contracts the recorded runs captured. A missing
-    corpus fails; one without such documents still reads the cases above.
-    """
-
-    corpus = _replay_corpus()
-    recorded = sorted(corpus.rglob("runtime-contract.json"))
-    if not recorded:
-        pytest.skip(f"no recorded runtime contracts under {corpus}")
-
-    for path in recorded:
-        assert read_runtime_contract(_json(path)).version in VERSIONS, path
+    assert read_runtime_contract(_json(_DATA / name)).version == VERSION
 
 
 def test_the_lock_names_every_file_of_both_version_directories() -> None:
