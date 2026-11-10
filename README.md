@@ -451,8 +451,7 @@ uv run pytest tests/ -q
 ```
 
 Each `packages/*` member runs in its own pytest session, so the loop starts one
-session per member. [Development](#development) covers the tests that need the
-replay corpus.
+session per member.
 
 ## Setup
 
@@ -1509,19 +1508,6 @@ The unit test suite is deterministic and does not require an LLM endpoint.
 Each workspace member runs in its own session, for example
 `uv run pytest packages/asago-package/tests -q` and
 `uv run pytest packages/asago-bundle-core/tests -q`.
-
-Tests marked `replay_corpus` (`tests/test_handoff_contract.py` and the
-`asago-package` and `asago-bundle-core` member tests) read the replay corpus, a
-folder outside every repository that is never committed. They read
-`$ASAGO_REPLAY_CORPUS`, or the `replay-corpus` folder beside this repository
-(`../replay-corpus`) when the variable is unset. When the corpus directory does
-not exist, they fail and name the missing path. CI deselects them with
-`-m 'not replay_corpus'` in the root tests, the package loop and the
-adapter-isolation jobs. To run without a corpus:
-
-```bash
-uv run pytest tests/ -q -m 'not replay_corpus'
-```
 
 The MiDojo adapter's tests hold byte copies of MiDojo's own files
 (`packages/asago-bundle-midojo/tests/fixtures/midojo/`: the injection-spec documents, the
