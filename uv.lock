@@ -151,7 +151,7 @@ requires-dist = [
     { name = "asago-contracts-core", editable = "../asago-scenario-generator/packages/asago-contracts-core" },
     { name = "asago-injection-spec", editable = "packages/asago-injection-spec" },
     { name = "asago-package", editable = "packages/asago-package" },
-    { name = "midojo-spec", git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=b1ec50b2a13c6b05c346fde8646f3a9ee7ba2955" },
+    { name = "midojo-spec", git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=31a77fd8f5bf12d8eb882afa42f6cdda610cad5f" },
 ]
 
 [package.metadata.requires-dev]
@@ -690,7 +690,7 @@ dependencies = [
 [[package]]
 name = "midojo-spec"
 version = "0.1.0"
-source = { git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=b1ec50b2a13c6b05c346fde8646f3a9ee7ba2955#b1ec50b2a13c6b05c346fde8646f3a9ee7ba2955" }
+source = { git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=31a77fd8f5bf12d8eb882afa42f6cdda610cad5f#31a77fd8f5bf12d8eb882afa42f6cdda610cad5f" }
 
 [[package]]
 name = "openai"
