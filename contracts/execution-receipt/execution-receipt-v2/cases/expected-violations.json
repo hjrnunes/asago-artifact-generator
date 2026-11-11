@@ -106,5 +106,37 @@
   "invalid/uppercase-package-digest.json": {
     "path": "/package/digest",
     "keyword": "pattern"
+  },
+  "invalid/utility-applicable-with-reason.json": {
+    "path": "/evaluation/utility/reason",
+    "keyword": "type"
+  },
+  "invalid/utility-not-applicable-without-reason.json": {
+    "path": "/evaluation/utility/reason",
+    "keyword": "type"
+  },
+  "invalid/utility-outside-evaluation.json": {
+    "path": "/",
+    "keyword": "additionalProperties"
+  },
+  "invalid/utility-unknown-applicability.json": {
+    "path": "/evaluation/utility/applicability",
+    "keyword": "enum"
+  },
+  "invalid/utility-unknown-field.json": {
+    "path": "/evaluation/utility",
+    "keyword": "additionalProperties"
+  },
+  "invalid/utility-unknown-reason.json": {
+    "path": "/evaluation/utility/reason",
+    "keyword": "enum"
+  },
+  "invalid/utility-value-while-not-applicable.json": {
+    "path": "/evaluation/utility/value",
+    "keyword": "type"
+  },
+  "invalid/utility-without-pairing-id.json": {
+    "path": "/evaluation/utility",
+    "keyword": "required"
   }
 }

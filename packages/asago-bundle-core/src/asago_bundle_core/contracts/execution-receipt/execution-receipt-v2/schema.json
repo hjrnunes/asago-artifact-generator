@@ -200,6 +200,44 @@
               "items": {"type": "string"}
             }
           }
+        },
+        "utility": {
+          "description": "Optional; whether the run's utility check applied and what it decided, as the tool that wrote the evaluation block recorded it. Absent means the receipt does not record utility, which is not the same as not applicable. A not_applicable record states no value and says why in reason: the evaluation has no utility check, it is the baseline-security run, or the turn is an intermediate one. An applicable record states the decided value, or null when the evidence could not decide it, and has no reason. A grade's own utility value never becomes value, because a tool that has no utility check still writes false beside a not_applicable validity.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["value", "applicability", "reason", "snapshot_id", "pairing_id"],
+          "properties": {
+            "value": {
+              "description": "True or false when the utility check was decided; null when it was not (always null when not_applicable).",
+              "type": ["boolean", "null"]
+            },
+            "applicability": {"enum": ["applicable", "not_applicable"]},
+            "reason": {
+              "description": "Why the check does not apply: no_utility_check (the evaluation carries none), baseline_security (the run is the paired baseline of a security measurement) or intermediate_turn (a turn of a chain that is graded at its end). null when applicable.",
+              "enum": ["no_utility_check", "baseline_security", "intermediate_turn", null]
+            },
+            "snapshot_id": {
+              "description": "The snapshot the record was graded on; null when the run sealed none.",
+              "$ref": "#/$defs/optional_text"
+            },
+            "pairing_id": {
+              "description": "The identifier that pairs the attacked run with its benign baseline; null when the run has no pair.",
+              "$ref": "#/$defs/optional_text"
+            }
+          },
+          "if": {
+            "properties": {"applicability": {"const": "not_applicable"}},
+            "required": ["applicability"]
+          },
+          "then": {
+            "properties": {
+              "value": {"type": "null"},
+              "reason": {"type": "string"}
+            }
+          },
+          "else": {
+            "properties": {"reason": {"type": "null"}}
+          }
         }
       }
     }

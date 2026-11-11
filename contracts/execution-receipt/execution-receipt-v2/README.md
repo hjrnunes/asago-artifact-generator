@@ -34,6 +34,42 @@ the key is there, it holds exactly two members:
 from a repeatable `--runtime-evidence`; without the flags it records neither.
 The Garak adapter records no runtime.
 
+## The reserved utility record
+
+`evaluation.utility` is optional and reserved: no tool measures utility yet. A
+receipt that records no utility leaves the key out. An absent key means the
+receipt does not record utility; it never means not applicable. The block lives
+inside `evaluation`, so a receipt with no `evaluation` block records no
+utility. When the key is there, it holds exactly five members, all written:
+
+| member | value |
+| --- | --- |
+| `value` | `true` or `false` when the check was decided, `null` when it was not; always `null` when `applicability` is `not_applicable` |
+| `applicability` | `applicable` or `not_applicable` |
+| `reason` | for `not_applicable`: `no_utility_check` (the evaluation carries no utility check), `baseline_security` (the run is the paired baseline of a security measurement) or `intermediate_turn` (a turn of a chain graded at its end); `null` when `applicable` |
+| `snapshot_id` | the snapshot the record was graded on, `null` when the run sealed none |
+| `pairing_id` | the identifier that pairs an attacked run with its benign baseline, `null` when the run has no pair |
+
+Three rules follow:
+
+- A `value` set while `applicability` is `not_applicable` is invalid. Unknown
+  stays `value: null` under `applicable`; it is never recorded as
+  `not_applicable`.
+- A grade's own `utility` value never becomes `value`. MiDojo writes
+  `utility: false` beside a `not_applicable` utility validity on every grade
+  that has no utility check, so copying it would record a failed utility check
+  that never ran.
+- The consumer's parse writes the constant record for every `evaluation` block
+  it writes: `value: null`, `applicability: not_applicable`,
+  `reason: no_utility_check`, the block's own `snapshot_id` (null for a chain
+  sealed short) and `pairing_id: null`. The orchestrator copies the block as it
+  is and writes none.
+
+A grade whose utility validity is not `not_applicable` means a utility check
+ran. The parse refuses it with its own reason, `verdict_utility_graded`, and a
+compile that would write a non-null `utility` member refuses too, until a tool
+measures utility.
+
 ## What v2 renames
 
 v2 states the same evidence as v1 under the names the workspace settled on. It

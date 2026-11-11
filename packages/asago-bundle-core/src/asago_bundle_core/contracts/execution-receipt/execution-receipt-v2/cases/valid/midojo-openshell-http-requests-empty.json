@@ -167,6 +167,13 @@
       }
     ],
     "delivery": null,
-    "exposure": null
+    "exposure": null,
+    "utility": {
+      "value": null,
+      "applicability": "not_applicable",
+      "reason": "no_utility_check",
+      "snapshot_id": "sha256:82fec7559503e3cc7b438d900eeeabe65ae33de69225539394b8416f5c986a98",
+      "pairing_id": null
+    }
   }
 }

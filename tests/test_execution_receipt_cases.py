@@ -186,6 +186,88 @@ def test_the_runtime_evidence_must_be_text() -> None:
     ]
 
 
+_UTILITY_CASES = {
+    "evaluation-utility-not-applicable.json": ("not_applicable", None, "no_utility_check"),
+    "evaluation-utility-baseline-security.json": ("not_applicable", None, "baseline_security"),
+    "evaluation-utility-intermediate-turn.json": ("not_applicable", None, "intermediate_turn"),
+    "evaluation-utility-applicable.json": ("applicable", False, None),
+}
+
+
+def _utility_case(**utility: Any) -> dict[str, Any]:
+    case = _json(
+        _spec_root(_LATEST) / "cases" / "valid" / "evaluation-utility-not-applicable.json"
+    )
+    case["evaluation"]["utility"].update(utility)
+    return case
+
+
+def _utility_errors(case: dict[str, Any]) -> list[tuple[list[Any], str]]:
+    errors = sorted(_validator(_LATEST).iter_errors(case), key=lambda e: list(e.absolute_path))
+    return [(list(error.absolute_path), error.validator) for error in errors]
+
+
+@pytest.mark.parametrize("name", _UTILITY_CASES, ids=list(_UTILITY_CASES))
+def test_a_receipt_may_record_whether_its_utility_applies(name: str) -> None:
+    case = _json(_spec_root(_LATEST) / "cases" / "valid" / name)
+    applicability, value, reason = _UTILITY_CASES[name]
+
+    utility = case["evaluation"]["utility"]
+    assert (utility["applicability"], utility["value"], utility["reason"]) == (
+        applicability,
+        value,
+        reason,
+    )
+    assert set(utility) == {"value", "applicability", "reason", "snapshot_id", "pairing_id"}
+    assert _utility_errors(case) == []
+
+
+def test_a_receipt_without_a_utility_block_records_no_utility() -> None:
+    """The block is optional, and its absence is not the not-applicable record."""
+
+    case = _json(_spec_root(_LATEST) / "cases" / "valid" / "midojo-episode-unknown.json")
+
+    assert "utility" not in case["evaluation"]
+    assert _utility_errors(case) == []
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_a_value_set_while_not_applicable_is_invalid(value: bool) -> None:
+    """MiDojo writes ``utility: false`` beside ``not_applicable``; the receipt never states it."""
+
+    assert _utility_errors(_utility_case(value=value)) == [
+        (["evaluation", "utility", "value"], "type")
+    ]
+
+
+@pytest.mark.parametrize("reason", ["no_utility_check", "baseline_security", "intermediate_turn"])
+@pytest.mark.parametrize("value", [True, False, None])
+def test_an_applicable_utility_states_its_value_or_none_and_no_reason(
+    value: bool | None, reason: str
+) -> None:
+    case = _utility_case(value=value, applicability="applicable", reason=None)
+    assert _utility_errors(case) == []
+
+    case["evaluation"]["utility"]["reason"] = reason
+    assert _utility_errors(case) == [(["evaluation", "utility", "reason"], "type")]
+
+
+@pytest.mark.parametrize("reason", ["no_utility_check", "baseline_security", "intermediate_turn"])
+def test_each_not_applicable_reason_validates(reason: str) -> None:
+    assert _utility_errors(_utility_case(reason=reason)) == []
+
+
+@pytest.mark.parametrize(
+    "member", ["value", "applicability", "reason", "snapshot_id", "pairing_id"]
+)
+def test_every_utility_member_is_written(member: str) -> None:
+    case = _utility_case()
+    del case["evaluation"]["utility"][member]
+
+    first, *_ = _utility_errors(case)
+    assert first == (["evaluation", "utility"], "required")
+
+
 @pytest.mark.parametrize("case", _cases(_VERSIONS[0], "valid"), ids=lambda case: case.stem)
 def test_every_recorded_document_still_reads_as_a_legacy_document(case: Path) -> None:
     """The v1 documents on disk were recorded before the spec existed; all still read."""

@@ -86,7 +86,7 @@
       "writer_version": "0.1.0"
     },
     "requires": [],
-    "spec_digest": "sha256:6630e0ddfba6b73008120ba225533964b88fc5ab39a7ec89b7f20f2d48616633",
+    "spec_digest": "sha256:1c49128f6562fd9011894f0e37ab8facf6ae41790a6402c44006169aac8b3609",
     "version": "execution-receipt-v2"
   },
   "execution_status": "completed",
