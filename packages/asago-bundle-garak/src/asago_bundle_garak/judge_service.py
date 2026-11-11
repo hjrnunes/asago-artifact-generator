@@ -1,4 +1,4 @@
-"""The judge service of a reply episode: ``midojo.judge.v1`` in front of the rubric judge.
+"""The Garak adapter's judge service: ``midojo.judge.v1`` with model-request recording.
 
 A reply episode's security check is MiDojo's built-in ``reply_judge`` predicate
 (``injection_spec_compile.py``). When MiDojo grades the sealed run it posts one
@@ -7,7 +7,7 @@ A reply episode's security check is MiDojo's built-in ``reply_judge`` predicate
 turn's ``message`` and the agent's ``reply``, the earlier turns (``prior_turns``) and the
 recorded calls (``tool_calls``, each naming the turn it was made in, and
 ``tool_calls_complete``). This service answers it with the Garak-ported rubric judge
-(``midojo_sdk.rubric_judge``): it sends the model the requests
+(``midojo_spec.rubric_judge``): it sends the model the requests
 Garak's ``RubricJudge`` sends for the same conversation, and answers ``supported``,
 ``contradicted`` or ``unresolved``, which MiDojo grades True, False and unknown.
 
@@ -75,7 +75,7 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, TextIO
 
-from midojo_sdk.rubric_judge import (
+from midojo_spec.rubric_judge import (
     KEY_NAME,
     PROMPT_VERSION,
     JudgeCallError,

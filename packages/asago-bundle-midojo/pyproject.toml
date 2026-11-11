@@ -13,9 +13,13 @@ dependencies = [
     # reads too.
     "asago-injection-spec>=0.1,<0.2",
     "asago-package>=0.1,<0.2",
-    # The judge service and the CLI; the SDK carries no part of the harness.
+    # The member's schema and sealed-result tests import the SDK directly.
     "midojo-sdk",
 ]
+
+[dependency-groups]
+# The sealed reply test drives the judge hosted by bundle-garak.
+judge-test = ["asago-bundle-garak"]
 
 [project.scripts]
 asago-bundle-midojo = "asago_bundle_midojo.cli:main"
@@ -24,6 +28,7 @@ asago-bundle-midojo = "asago_bundle_midojo.cli:main"
 asago-bundle-core = { workspace = true }
 asago-injection-spec = { workspace = true }
 asago-package = { workspace = true }
+asago-bundle-garak = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/asago_bundle_midojo"]

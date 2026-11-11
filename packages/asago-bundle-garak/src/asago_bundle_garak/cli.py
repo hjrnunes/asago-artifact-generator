@@ -31,13 +31,21 @@ from asago_injection_spec import FINAL_TURN, JUDGE_TURNS
 from .compiler import CompileError
 from .entry_points import compile, instantiate, parse
 from .instantiate import InstantiateError
+from .judge_service import (
+    DEFAULT_PORT,
+    MODEL_ENV,
+    MODEL_URL_ENV,
+    SERVICE_TOKEN_ENV,
+    ServiceConfigError,
+    serve,
+)
 from .report_parse import ParseError
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="asago-bundle-garak",
-        description="Compile a package into a Garak bundle and parse Garak's report.",
+        description="Compile a Garak bundle, parse its report, or serve the reply judge.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     compile_cmd = commands.add_parser(
@@ -103,6 +111,17 @@ def build_parser() -> argparse.ArgumentParser:
     parse_cmd.add_argument("--tool-revision", help="Garak commit that ran the bundle")
     parse_cmd.add_argument("--adapter-revision", help="consumer commit of this adapter")
     parse_cmd.set_defaults(handler=_parse)
+    serve_cmd = commands.add_parser(
+        "judge-serve",
+        help="serve midojo.judge.v1 on 127.0.0.1 for a reply episode's reply_judge check",
+        description=f"Reads the model's base URL from {MODEL_URL_ENV}, the model from "
+        f"{MODEL_ENV} and its key from OPENAICOMPATIBLE_API_KEY, and requires the bearer "
+        f"token in {SERVICE_TOKEN_ENV} on every request.",
+    )
+    serve_cmd.add_argument(
+        "--port", type=int, default=DEFAULT_PORT, help="port on 127.0.0.1; 0 takes a free one"
+    )
+    serve_cmd.set_defaults(handler=_judge_serve)
     return parser
 
 
@@ -165,5 +184,14 @@ def _parse(args: argparse.Namespace) -> int:
         )
     except ParseError as exc:
         print(f"parse: {exc}", file=sys.stderr)
+        return EXIT_INPUT
+    return EXIT_OK
+
+
+def _judge_serve(args: argparse.Namespace) -> int:
+    try:
+        serve(args.port)
+    except ServiceConfigError as exc:
+        print(f"judge-serve: {exc}", file=sys.stderr)
         return EXIT_INPUT
     return EXIT_OK

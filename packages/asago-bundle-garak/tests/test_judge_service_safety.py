@@ -32,7 +32,7 @@ from judge_cases import (
     rubric,
 )
 
-from asago_bundle_midojo import judge_service as service
+from asago_bundle_garak import judge_service as service
 
 PLAIN_KEY = "sk-model-key-0123456789"
 # A key whose JSON spelling differs from its text: a quote, a backslash, a slash, non-ASCII.

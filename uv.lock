@@ -137,6 +137,7 @@ dependencies = [
     { name = "asago-contracts-core" },
     { name = "asago-injection-spec" },
     { name = "asago-package" },
+    { name = "midojo-spec" },
 ]
 
 [package.dev-dependencies]
@@ -150,6 +151,7 @@ requires-dist = [
     { name = "asago-contracts-core", editable = "../asago-scenario-generator/packages/asago-contracts-core" },
     { name = "asago-injection-spec", editable = "packages/asago-injection-spec" },
     { name = "asago-package", editable = "packages/asago-package" },
+    { name = "midojo-spec", git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=b1ec50b2a13c6b05c346fde8646f3a9ee7ba2955" },
 ]
 
 [package.metadata.requires-dev]
@@ -166,6 +168,11 @@ dependencies = [
     { name = "midojo-sdk" },
 ]
 
+[package.dev-dependencies]
+judge-test = [
+    { name = "asago-bundle-garak" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
@@ -173,6 +180,9 @@ requires-dist = [
     { name = "asago-package", editable = "packages/asago-package" },
     { name = "midojo-sdk", git = "https://github.com/hjrnunes/midojo.git?subdirectory=interception%2Fpython-sdk&rev=d5677d358db7cabff0980f6e110e4b18abb468c6" },
 ]
+
+[package.metadata.requires-dev]
+judge-test = [{ name = "asago-bundle-garak", editable = "packages/asago-bundle-garak" }]
 
 [[package]]
 name = "asago-contracts-core"
@@ -676,6 +686,11 @@ source = { git = "https://github.com/hjrnunes/midojo.git?subdirectory=intercepti
 dependencies = [
     { name = "httpx" },
 ]
+
+[[package]]
+name = "midojo-spec"
+version = "0.1.0"
+source = { git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=b1ec50b2a13c6b05c346fde8646f3a9ee7ba2955#b1ec50b2a13c6b05c346fde8646f3a9ee7ba2955" }
 
 [[package]]
 name = "openai"

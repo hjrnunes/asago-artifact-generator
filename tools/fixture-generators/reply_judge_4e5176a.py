@@ -1,4 +1,4 @@
-"""Grade the sealed reply runs with MiDojo 4e5176a's ``reply_judge`` and this adapter's judge.
+"""Grade the sealed reply runs with MiDojo 4e5176a and the Garak adapter's judge.
 
 Run with MiDojo's interpreter at 4e5176a, naming that revision, since the interpreter may
 run from an export with no Git history. With an export of 4e5176a in an empty directory
@@ -9,13 +9,13 @@ dev`` there), and the reply case compiled by this adapter (``tests/injection_spe
         <consumer>/tools/fixture-generators/reply_judge_4e5176a.py \\
         <the full 4e5176a SHA> <compiled reply-single dir> \\
         <consumer>/packages/asago-bundle-midojo/tests/fixtures/regraded-13d5487/reply-single \\
-        <consumer>/.venv/bin/asago-bundle-midojo <empty dir>
+        <consumer>/.venv/bin/asago-bundle-garak <empty dir>
 
 then copy ``<empty dir>`` over ``fixtures/reply-judge-4e5176a/``.
 
 It runs no episode. It builds the injection spec from the compiled
 ``episode.json`` (the ``reply_judge`` check is parsed then), starts the adapter's judge
-service with ``judge-serve --port 0`` in front of a fake OpenAI-compatible model on
+service with ``asago-bundle-garak judge-serve --port 0`` in front of a fake model on
 127.0.0.1 that answers a scripted reply and keeps each request, sets ``JUDGE_URL`` and
 ``JUDGE_TOKEN`` as a grading process would, and grades each scenario's sealed snapshot
 with ``midojo.grade``, reading it back as ``ControlClient.snapshot`` does. It writes the

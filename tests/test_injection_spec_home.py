@@ -84,13 +84,13 @@ def _imported_from(path: Path, module: str) -> set[str]:
 
 
 def test_the_judge_service_reads_the_judge_turn_constants_from_the_member() -> None:
-    names = _imported_from(_MIDOJO_SOURCE / "judge_service.py", "asago_injection_spec")
+    names = _imported_from(_GARAK_SOURCE / "judge_service.py", "asago_injection_spec")
 
     assert names >= {"FINAL_TURN", "JUDGE_TURNS", "TIMEOUT_SECONDS", "judged_count"}
 
 
 def test_the_judge_service_binds_the_members_constants() -> None:
-    from asago_bundle_midojo import judge_service
+    from asago_bundle_garak import judge_service
 
     assert judge_service.FINAL_TURN is asago_injection_spec.FINAL_TURN
     assert judge_service.JUDGE_TURNS is asago_injection_spec.JUDGE_TURNS

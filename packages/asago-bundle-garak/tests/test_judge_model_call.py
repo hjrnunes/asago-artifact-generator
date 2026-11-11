@@ -29,12 +29,12 @@ from judge_cases import (
     post,
     rubric,
 )
-from midojo_sdk import rubric_judge as rubric_judge
+from midojo_spec import rubric_judge as rubric_judge
 
 MESSAGES = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
 KEY = "sk-judge-key-that-stays-here"
 # The installed command, as an operator starts it.
-COMMAND = [str(Path(sys.executable).parent / "asago-bundle-midojo"), "judge-serve", "--port", "0"]
+COMMAND = [str(Path(sys.executable).parent / "asago-bundle-garak"), "judge-serve", "--port", "0"]
 
 
 def test_the_call_posts_garaks_body_to_chat_completions(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -3,7 +3,7 @@
 ``fixtures/reply-judge-4e5176a/`` holds the reply case as compile writes it and what MiDojo
 4e5176a made of it (``tools/fixture-generators/reply_judge_4e5176a.py``): it built the
 episode, then graded each sealed reply
-run with ``midojo.grade``, its ``reply_judge`` check asking this adapter's ``judge-serve``
+run with ``midojo.grade``, its ``reply_judge`` check asking the Garak adapter's ``judge-serve``
 in front of a fake model on 127.0.0.1. Each verdict carries MiDojo's ``judgements``: the
 ``midojo.judge.v1`` request MiDojo sent and the service's answer; ``model-requests.json``
 the bodies the fake model got. Those runs were sealed before MiDojo recorded delivery
@@ -36,7 +36,7 @@ from judge_cases import (
     post,
 )
 
-from asago_bundle_midojo.judge_service import SCHEMA
+from asago_bundle_garak.judge_service import SCHEMA
 from asago_injection_spec.sealed import INCONCLUSIVE, UNRECORDED_DELIVERY, parse_sealed
 from conftest import RECEIPT_SCHEMA, receipt_payload
 

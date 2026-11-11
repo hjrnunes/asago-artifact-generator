@@ -4,7 +4,7 @@ Run with MiDojo's interpreter at the revision to record::
 
     cd <midojo checkout> && uv run --frozen --extra dev python \\
         <consumer>/tools/fixture-generators/reply_judge_delivered.py \\
-        <compiled reply episode dir> <consumer>/.venv/bin/asago-bundle-midojo <empty dir>
+        <compiled reply episode dir> <consumer>/.venv/bin/asago-bundle-garak <empty dir>
 
 then copy ``<empty dir>`` over ``fixtures/reply-judge-<revision>/``.
 
@@ -12,7 +12,7 @@ It runs the compiled reply episode once with ``open_context`` on an in-process
 control plane, as the episode's ``interception`` says: MiDojo's ``HostInterception`` in
 front of the fixture target, served in this process, and a scripted agent that reads the
 notes and then withdraws, through the interceptor's tool endpoint. The episode's
-``reply_judge`` check asks this adapter's judge service (``judge-serve --port 0``, in front
+``reply_judge`` check asks the Garak adapter's judge service (``judge-serve --port 0``, in front
 of a fake OpenAI-compatible model on 127.0.0.1 answering ``contradicted``), so the grade
 contradicts the claim.
 

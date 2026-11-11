@@ -32,7 +32,7 @@ from judge_cases import (
 )
 
 from asago_bundle_core.testing import JUDGE
-from asago_bundle_midojo import judge_service as service
+from asago_bundle_garak import judge_service as service
 
 FIXTURE = json.loads(
     (Path(__file__).parent / "fixtures/rubric/turns.json").read_text(encoding="utf-8")

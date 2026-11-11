@@ -1,4 +1,7 @@
-"""A fake model and the judge service on 127.0.0.1, and judge requests as MiDojo builds them.
+"""A shared-test-helper copy for the sealed MiDojo tests, which need the new Garak judge.
+
+The Garak member owns the original helper; this copy keeps the sealed tests independent
+of the Garak tests directory, which is not an installable Python package.
 
 ``midojo_request`` builds the ``midojo.judge.v1`` body MiDojo's ``reply_judge`` check
 (``midojo.verifiers.judge.ReplyJudge.request``, asago/main 4e5176a) sends for a recorded
@@ -19,7 +22,7 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from asago_bundle_midojo.judge_service import SCHEMA, make_server, model_calls
+from asago_bundle_garak.judge_service import SCHEMA, make_server, model_calls
 
 TOKEN = "service-token"
 MODEL = "judge-model"
