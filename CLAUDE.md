@@ -248,7 +248,14 @@ the group the module skips and names what it needs.
   `verdict_malformed`), a tampered seal whose digest does not hold
   (`snapshot_digest_mismatch`), and one that names another evaluation
   (`delivery_mismatch`): a verdict read from a seal nothing verified would decide an attack
-  on unverified evidence. A chain the probe never sealed, or a generation that errored,
+  on unverified evidence. A verdict whose grade ran a utility check
+  (`grade_validity.utility.status` is not `not_applicable`) fails the same way under its
+  own reason, `verdict_utility_graded`: the receipt records no utility check. The grade's
+  `utility: false` beside `not_applicable` is MiDojo's mark of an unauthored check, so it
+  reads, and the block's `utility` record (`value: null`, `not_applicable`,
+  `no_utility_check`) never copies it; `injection_spec_document` refuses a non-null
+  `utility` member with `CompileError` for the same reason. A chain the probe never sealed,
+  or a generation that errored,
   keeps its attempt and fails as `interrupted` or `generation_error`. A sealed chain whose
   release MiDojo's service never acknowledged keeps its attempt and its verdict too, and
   fails as `release_lost`: the probe records the loss on its trace, so the receipt never

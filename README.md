@@ -1083,7 +1083,12 @@ and verdict. A reply episode's `judge.verdict` states
 `supported` for a detection, `contradicted` for a decided resistance, and
 `unresolved` in every other case. A one-chain report also fills the receipt's
 `evaluation` block with the evaluation and snapshot the probe sealed and their verdict;
-a chain sealed short names its evaluation only.
+a chain sealed short names its evaluation only. Every `evaluation` block also carries the
+`utility` record `{value: null, applicability: not_applicable, reason: no_utility_check,
+snapshot_id, pairing_id: null}`: no utility check applied, and the grade's `utility: false`
+(MiDojo's mark of an unauthored check) never becomes a value. A grade whose
+`grade_validity.utility.status` is not `not_applicable` means a check ran, and `parse`
+fails the receipt with `verdict_utility_graded`, stating no attempt.
 
 ## MiDojo episodes
 
