@@ -17,7 +17,7 @@ isolated bundle-garak install pulls in neither an SDK, Garak nor the MiDojo harn
 
 2026-11-11: the SDK modules the adapter reads moved to `midojo_spec`.
 
-The adapter currently pins `midojo-sdk` at `d5677d3`, which keeps the two host-facing
+Before that move the adapter pinned `midojo-sdk` at `d5677d3`, which kept the two host-facing
 keyword arguments `open_evaluation(episode=...)` and
 `MidojoInjectionSpecTarget(episode_for_payload=...)` as deprecated forwarding aliases for
 one cycle; its parent `adb4c0d` removed the pre-rename `episode` names (see "M9: the
