@@ -3,7 +3,8 @@
 ``fixtures/midojo/`` holds byte copies of MiDojo's own files: ``injection_spec_document/``
 the documents its reader accepts and refuses
 (``tests/fixtures/injection_spec_document/``), ``snapshot_digest/vectors.json`` its digest
-vectors (``tests/fixtures/snapshot_digest/vectors.json``), and the two documents it moved
+vectors (``packages/midojo-spec/vectors/snapshot/vectors.json`` at the pinned revision),
+and the two documents it moved
 out of the goldens: the cm.58 ``episode.json`` (``legacy_documents/``) and its verdict
 (``verdict_document/``). ``test_the_copies_are_midojo_s_own`` pins each copy's sha256, so a
 copy that drifts from the files MiDojo published at the pinned revision fails here. The v0
@@ -23,12 +24,7 @@ from typing import Any
 
 import jsonschema
 import pytest
-from midojo_sdk.injection_spec_schema import (
-    INJECTION_SPEC_DOCUMENT_V1,
-    LEGACY_INJECTION_SPEC_DOCUMENT_V1,
-    load_legacy_schema,
-    load_schema,
-)
+from midojo_spec.injection_spec_schema import INJECTION_SPEC_DOCUMENT_V1, load_schema
 
 from asago_injection_spec.document import (
     DELIVERIES,
@@ -78,19 +74,19 @@ def test_the_copies_are_midojo_s_own(name: str) -> None:
 
 
 def test_the_lock_names_the_revision_the_copies_come_from() -> None:
-    """The copies are MiDojo's files at the revision this repository pins its SDK to."""
+    """The copies are MiDojo's files at the revision this repository pins its contracts to."""
 
     pyproject = (Path(__file__).resolve().parents[3] / "pyproject.toml").read_text(
         encoding="utf-8"
     )
     pin = re.search(
-        r'midojo-sdk = \{ git = "[^"]+",\s*subdirectory = "interception/python-sdk",\s*'
+        r'midojo-spec = \{ git = "[^"]+",\s*subdirectory = "packages/midojo-spec",\s*'
         r'rev = "([0-9a-f]{40})"',
         pyproject,
     )
 
-    assert pin, "pyproject.toml pins midojo-sdk by git rev"
-    assert PINNED["source"] == f"midojo asago/main {pin.group(1)}"
+    assert pin, "pyproject.toml pins midojo-spec by git rev"
+    assert PINNED["source"] == f"midojo local {pin.group(1)}"
 
 
 def test_the_copies_are_the_vectors_and_nothing_else() -> None:
@@ -105,14 +101,14 @@ def test_the_copies_are_the_vectors_and_nothing_else() -> None:
 def test_each_v1_vector_is_a_document_of_the_schema_this_adapter_validates_against(
     name: str,
 ) -> None:
-    """MiDojo's published v1 documents validate against the schema its own SDK ships."""
+    """MiDojo's published v1 documents validate against the schema its contracts ship."""
 
     jsonschema.validate(_read(DOCUMENTS / f"{name}.json"), load_schema())
 
 
-def test_the_schema_constant_is_the_one_the_sdk_names() -> None:
+def test_the_schema_constant_is_the_one_the_contracts_name() -> None:
     assert INJECTION_SPEC_SCHEMA == INJECTION_SPEC_DOCUMENT_V1 == "midojo-injection-spec-v1"
-    assert LEGACY_INJECTION_SPEC_SCHEMA == LEGACY_INJECTION_SPEC_DOCUMENT_V1
+    assert LEGACY_INJECTION_SPEC_SCHEMA == "midojo-episode-v1"
 
 
 def test_build_envelope_writes_the_episode_as_given() -> None:
@@ -171,7 +167,7 @@ def test_a_v1_document_under_the_old_id_still_reads() -> None:
     """A recorded v1 envelope holds the document's old ID; the reader takes it."""
 
     episode = _read(DOCUMENTS / "v1_single.json") | {
-        "schema_version": LEGACY_INJECTION_SPEC_DOCUMENT_V1
+        "schema_version": LEGACY_INJECTION_SPEC_SCHEMA
     }
 
     with pytest.warns(DeprecationWarning, match="midojo-episode-v1") as raised:
@@ -179,18 +175,17 @@ def test_a_v1_document_under_the_old_id_still_reads() -> None:
 
     assert "midojo-injection-spec-v1" in str(raised[0].message)
     assert envelope.source_version == ENVELOPE_SCHEMA
-    assert envelope.episode["schema_version"] == LEGACY_INJECTION_SPEC_DOCUMENT_V1
+    assert envelope.episode["schema_version"] == LEGACY_INJECTION_SPEC_SCHEMA
 
 
-def test_the_old_id_is_a_schema_of_its_own() -> None:
-    """MiDojo keeps the old ID's schema, which is why the reader names both IDs."""
+def test_the_old_id_is_the_v1_schema_s_closed_shape() -> None:
+    """The old ID names the same closed shape, which is why the reader names both IDs."""
 
     document = _read(DOCUMENTS / "v1_single.json")
 
-    jsonschema.validate(
-        document | {"schema_version": LEGACY_INJECTION_SPEC_DOCUMENT_V1},
-        load_legacy_schema(),
-    )
+    schema = load_schema()
+    schema["properties"]["schema_version"] = {"description": "any document version"}
+    jsonschema.validate(document | {"schema_version": LEGACY_INJECTION_SPEC_SCHEMA}, schema)
 
 
 def test_reading_a_v0_wrapper_warns_that_it_is_deprecated() -> None:

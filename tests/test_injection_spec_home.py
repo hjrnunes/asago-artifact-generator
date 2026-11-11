@@ -57,7 +57,7 @@ def test_the_injection_spec_is_a_workspace_member() -> None:
             "asago-handoff>=0.1,<0.2",
             "asago-package>=0.1,<0.2",
             "pyyaml>=6.0",
-            "midojo-sdk",
+            "midojo-spec",
         ],
     }
     assert project["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == [

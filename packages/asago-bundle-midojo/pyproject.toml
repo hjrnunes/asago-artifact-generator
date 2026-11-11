@@ -13,8 +13,9 @@ dependencies = [
     # reads too.
     "asago-injection-spec>=0.1,<0.2",
     "asago-package>=0.1,<0.2",
-    # The member's schema and sealed-result tests import the SDK directly.
-    "midojo-sdk",
+    # The member's schema and sealed-result tests import the contracts package directly; it
+    # carries no part of the harness.
+    "midojo-spec",
 ]
 
 [dependency-groups]

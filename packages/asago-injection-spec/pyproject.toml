@@ -14,9 +14,9 @@ dependencies = [
     "asago-package>=0.1,<0.2",
     # ``declared.py`` reads the target's tool list, which is YAML.
     "pyyaml>=6.0",
-    # The SDK alone: it carries injection-spec document v1's schema and the snapshot digest,
-    # and it imports no part of the harness.
-    "midojo-sdk",
+    # The contracts package alone: it carries injection-spec document v1's schema, the
+    # plan codec and the snapshot digest, and it imports no part of the harness.
+    "midojo-spec",
 ]
 
 [tool.uv.sources]

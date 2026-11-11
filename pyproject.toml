@@ -72,10 +72,6 @@ midojo-spec = { git = "file:///Users/hjrnunes/workspace/asago/midojo", subdirect
 # The producer-owned report kit: the components every HTML report renders with. Declared by
 # name above; the path stays here.
 asago-report-kit = { path = "../asago-scenario-generator/packages/asago-report-kit", editable = true }
-# MiDojo's light SDK: the injection-spec document v1 schema and the snapshot digest. The
-# adapter depends on the SDK alone; the harness (``midojo``) never enters this workspace. The
-# revision is a pushed ``asago/main`` SHA, and the subdirectory is the SDK's workspace member.
-midojo-sdk = { git = "https://github.com/hjrnunes/midojo.git", subdirectory = "interception/python-sdk", rev = "d5677d358db7cabff0980f6e110e4b18abb468c6" }
 # The producer app: the writer-to-reader pair test's in-process writer. Named by
 # the ``producer-pair`` dependency group only, so the default dev group never
 # needs this checkout.

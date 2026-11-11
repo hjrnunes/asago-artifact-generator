@@ -34,6 +34,6 @@ def test_the_library_declares_only_its_runtime_dependencies() -> None:
         "asago-contracts-core",
         "asago-handoff",
         "asago-package",
-        "midojo-sdk",
+        "midojo-spec",
         "pyyaml",
     }
