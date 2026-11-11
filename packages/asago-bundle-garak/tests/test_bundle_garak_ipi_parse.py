@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,7 @@ from ipi_cases import (
     write_planted_package,
     write_report,
 )
+from midojo_spec.judge_exchange import Exchange, Observed, now_iso, read_exchanges
 
 from asago_bundle_garak.cli import main
 from asago_bundle_garak.compiler import compile_package
@@ -698,11 +700,27 @@ def test_a_reply_episodes_failed_judge_call_counts_its_row_and_is_inconclusive(
         records=(record,),
     )
     output = make_bundle(tmp_path, entries, claim_level="reply")
+    failed = replace(
+        Exchange.observed(
+            Observed(
+                started_at=now_iso(), duration_ms=12, http_status=500, error="InternalServerError"
+            ),
+            request_id="sha256:" + "0" * 64,
+            ask=0,
+            model="judge-model",
+            prompt_version="garak-rubric-judge-v1",
+            messages=[
+                {"role": "system", "content": "judge"},
+                {"role": "user", "content": "claim"},
+            ],
+        ),
+        sequence=0,
+    )
     service = output / "judge_service"
     service.mkdir()
-    (service / "judge-record.jsonl").write_text(
-        '{"reply": null, "error": "InternalServerError"}\n', encoding="utf-8"
-    )
+    record_file = service / "judge-record.jsonl"
+    record_file.write_text(json.dumps(failed.to_json()) + "\n", encoding="utf-8")
+    assert read_exchanges(record_file)[0].reply is None
 
     receipt = parse_report(
         output / "bundle", output / "execution-receipt.json", records_dir=output
