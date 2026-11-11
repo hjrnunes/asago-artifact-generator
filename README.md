@@ -564,9 +564,9 @@ package is `artifact-package-v5`, and its `stimulus.json` states `mode`
 (`single` or `sequential`) and `turn_count`; a functional handoff's stimulus
 stays as authored. Before any model request, a shape the consumer cannot
 author stops with a typed finding: `shape_channel_unsupported` (the runtime
-contract lists no matching `delivery`, such as `planted_item` for `indirect`),
-`shape_forged_transcript_unsupported`, or `shape_turn_count_unsupported`
-(more turns than `limits.max_planned_turns`, default 4). A handoff whose
+contract lists no matching `delivery`, such as `planted_item` for `indirect`)
+or `shape_turn_count_unsupported` (more turns than `limits.max_planned_turns`,
+default 4). A handoff whose
 `attack_shape` breaks the vendored schema or its cross-field rules is refused
 at load with `shape_version_malformed`.
 

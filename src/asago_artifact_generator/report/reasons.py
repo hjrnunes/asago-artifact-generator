@@ -155,9 +155,6 @@ _CHECKS = {
     ),
     "shape_delivery_mismatch": "The stimulus does not deliver the turns the attack shape plans.",
     "shape_error": "A field does not have the required shape.",
-    "shape_forged_transcript_unsupported": (
-        "The attack shape forges a transcript, which no runtime delivers."
-    ),
     "shape_seed_slot_unavailable": (
         "The indirect attack shape needs a seed slot the runtime contract does not list."
     ),

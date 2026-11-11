@@ -77,13 +77,6 @@ def test_a_multi_turn_direct_shape_is_refused_when_the_runtime_lists_no_sequenti
     assert finding["details"] == {"channel": "direct", "runtime_delivery": ["direct_user_message"]}
 
 
-def test_a_forged_transcript_shape_is_refused(tmp_path: Path) -> None:
-    result, transport = _run(tmp_path, "adversarial-forged-transcript.json")
-
-    finding = _assert_refused(result, transport, "shape_forged_transcript_unsupported")
-    assert finding["details"] == {"threat_label": "forged_transcript_threat"}
-
-
 def test_a_shape_with_more_turns_than_the_runtime_plans_is_refused(tmp_path: Path) -> None:
     runtime = {**_RUNTIME, "limits": {"max_turns": 8, "max_planned_turns": 2}}
 
@@ -133,11 +126,13 @@ def test_a_shape_the_runtime_can_deliver_is_not_refused(
 
 
 def test_a_refusal_names_the_scenario_as_not_executable(tmp_path: Path) -> None:
-    result, _ = _run(tmp_path, "adversarial-forged-transcript.json")
+    runtime = {**_RUNTIME, "delivery": ["direct_user_message"]}
+
+    result, _ = _run(tmp_path, "adversarial-direct-multi-turn.json", runtime)
 
     [finding] = result.findings
     assert "not executable" in finding.detail
-    assert "forges a transcript" in finding.detail
+    assert "needs the sequential_user_turns delivery" in finding.detail
 
 
 def test_the_malformed_shape_refusal_carries_its_code_and_path() -> None:

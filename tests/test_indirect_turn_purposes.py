@@ -96,14 +96,13 @@ def test_the_indirect_plan_payload_builds_for_every_benign_turn_purpose(
 def test_every_purpose_the_contract_allows_on_a_benign_user_turn_has_an_indirect_meaning() -> None:
     allowed = _allowed_on_benign_user()
 
-    assert "forged_history" not in allowed
-    assert set(allowed) == set(_PURPOSES) - {"forged_history"}
+    assert set(allowed) == set(_PURPOSES)
     assert set(allowed) <= set(_TURN_MEANINGS)
 
 
 def test_every_purpose_the_contract_allows_on_an_attacker_user_turn_has_a_meaning() -> None:
     allowed = _allowed_on_attacker_user()
 
-    assert {_READ, "follow_up_on_item", "forged_history"}.isdisjoint(allowed)
+    assert {_READ, "follow_up_on_item"}.isdisjoint(allowed)
     assert allowed
     assert set(allowed) <= set(_PURPOSE_MEANINGS)

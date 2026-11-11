@@ -7,16 +7,6 @@ keeps the import path the adapter's callers and tests already have.
 
 from __future__ import annotations
 
-from asago_handoff.shape import (
-    CHANNEL_DIRECT,
-    CHANNEL_FORGED,
-    CHANNEL_INDIRECT,
-    attack_shape_violation,
-)
+from asago_handoff.shape import CHANNEL_DIRECT, CHANNEL_INDIRECT, attack_shape_violation
 
-__all__ = [
-    "CHANNEL_DIRECT",
-    "CHANNEL_FORGED",
-    "CHANNEL_INDIRECT",
-    "attack_shape_violation",
-]
+__all__ = ["CHANNEL_DIRECT", "CHANNEL_INDIRECT", "attack_shape_violation"]

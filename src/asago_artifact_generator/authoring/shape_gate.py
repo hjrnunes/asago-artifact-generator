@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..attack_shape import CHANNEL_DIRECT, CHANNEL_FORGED, CHANNEL_INDIRECT
+from ..attack_shape import CHANNEL_DIRECT, CHANNEL_INDIRECT
 from ..input_adapter import InputView
 from .core import Finding
 from .planted_item import PLANTED_ITEM_DELIVERY, choose_planted_target, unavailable_details
@@ -21,14 +21,12 @@ DEFAULT_MAX_PLANNED_TURNS = 4
 _SHAPE_PATH = "attack_shape"
 
 
-def _delivery_for(shape: dict[str, Any]) -> str | None:
-    """Return the runtime delivery a shape needs, or None when no delivery can carry it."""
+def _delivery_for(shape: dict[str, Any]) -> str:
+    """Return the runtime delivery a shape needs."""
 
     if shape["channel"] == CHANNEL_INDIRECT:
         return PLANTED_ITEM_DELIVERY
-    if shape["channel"] == CHANNEL_DIRECT:
-        return SEQUENTIAL_DELIVERY if shape["turn_count"] > 1 else DIRECT_DELIVERY
-    return None
+    return SEQUENTIAL_DELIVERY if shape["turn_count"] > 1 else DIRECT_DELIVERY
 
 
 def max_planned_turns(runtime_contract: dict[str, Any]) -> int:
@@ -57,8 +55,6 @@ def shape_refusal_findings(
     shape = view.attack_shape
     if shape is None or shape["channel"] == CHANNEL_DIRECT and shape["turn_count"] == 1:
         return []
-    if shape["channel"] == CHANNEL_FORGED:
-        return [_forged_refusal(shape)]
     findings = []
     delivery = runtime_contract.get("delivery")
     listed = list(delivery) if isinstance(delivery, list) else []
@@ -74,15 +70,6 @@ def shape_refusal_findings(
 
 def _refusal(code: str, text: str, details: dict[str, Any]) -> Finding:
     return Finding(code, text, _SHAPE_PATH, details, stage="plan")
-
-
-def _forged_refusal(shape: dict[str, Any]) -> Finding:
-    return _refusal(
-        "shape_forged_transcript_unsupported",
-        "the scenario is not executable: its attack shape forges a transcript, "
-        "which no runtime delivers",
-        {"threat_label": shape["threat_label"]},
-    )
 
 
 def _channel_refusal(shape: dict[str, Any], listed: list[Any]) -> Finding:
