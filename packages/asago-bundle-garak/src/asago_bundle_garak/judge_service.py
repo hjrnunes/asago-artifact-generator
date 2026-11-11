@@ -50,9 +50,11 @@ carries the status's standard text only.
 
 With ``--record PATH``, the service uses one ``midojo_spec.judge_exchange.ExchangeLog``
 per server to append a ``midojo.judge-exchange.v1`` JSONL row for every model request,
-answered or failed. A request-local ``ask`` counts its model sends from zero. The log
-redacts the service token and model key in text, but keeps the original digests that
-``details.records`` reports; it writes no prompts or replies to the access log. A
+answered or failed. It creates or tightens the file to mode 0600 before binding, and
+refuses an unusable path as a configuration error. A request-local ``ask`` counts
+model sends from zero. The log redacts the service token and model key in text, but
+keeps the original digests that ``details.records`` reports; it writes no prompts
+or replies to the access log. A
 recording failure answers HTTP 500 without a verdict. Without ``--record`` the service
 writes no exchange log and accepts the same request IDs it accepted before the move.
 
@@ -77,6 +79,7 @@ import json
 import os
 import re
 import signal
+import stat
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -485,6 +488,24 @@ def model_calls(model_url: str, model: str) -> CallFactory:
 # --- the server -------------------------------------------------------------------------
 
 
+def _private_record(path: str | Path) -> ExchangeLog:
+    """Create or tighten the log before listening; leave its contents untouched."""
+
+    try:
+        descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NONBLOCK, 0o600)
+        try:
+            mode = os.fstat(descriptor).st_mode
+            if not stat.S_ISREG(mode):
+                raise OSError("not a regular file")
+            if stat.S_IMODE(mode) & 0o077:
+                os.chmod(path, 0o600)
+        finally:
+            os.close(descriptor)
+    except OSError as exc:
+        raise ServiceConfigError(f"record path {path}: {exc.strerror or str(exc)}") from exc
+    return ExchangeLog(path)
+
+
 def make_server(
     port: int,
     calls: CallFactory,
@@ -501,7 +522,7 @@ def make_server(
         raise ServiceConfigError("the judge service needs a bearer token")
     expected = f"Bearer {token}".encode()
     secrets = [token, *([model_key] if model_key else [])]
-    exchange_log = ExchangeLog(record_path) if record_path is not None else None
+    exchange_log = _private_record(record_path) if record_path is not None else None
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:  # noqa: N802 -- http.server's name

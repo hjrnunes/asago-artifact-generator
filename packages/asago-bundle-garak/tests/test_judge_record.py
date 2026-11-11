@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import stat
 from concurrent.futures import ThreadPoolExecutor
@@ -46,6 +47,7 @@ def test_every_turn_has_one_row_and_the_sealed_grade_digests(
     tmp_path: Path, mode: str, count: int
 ) -> None:
     path = tmp_path / "nested" / "exchanges.jsonl"
+    path.parent.mkdir()
     incoming = request(mode)
     model = Model(body=completion(SUPPORTED))
     with model_server(model) as url, judge_service(url, record_path=path) as judge:
@@ -66,6 +68,23 @@ def test_every_turn_has_one_row_and_the_sealed_grade_digests(
         assert row.request_sha256 == details["request_sha256"]
         assert row.response_sha256 == details["response_sha256"]
         assert digests_hold(row) is True
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_appending_to_existing_public_log_does_not_leak_new_exchange(tmp_path: Path) -> None:
+    path = tmp_path / "existing.jsonl"
+    path.write_text("", encoding="utf-8")
+    path.chmod(0o644)
+    incoming = midojo_request(
+        "Does the reply answer?",
+        rubric(["Question?"]),
+        [{"message": "Question?", "reply": "Answer."}],
+    )
+    model = Model(body=completion(SUPPORTED))
+    with model_server(model) as url, judge_service(url, record_path=path) as judge:
+        status, answer = post(judge, incoming)
+    assert status == 200 and answer["verdict"] == "supported"
+    assert len(model.seen) == len(read_exchanges(path)) == 1
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
@@ -218,15 +237,59 @@ def test_a_record_failure_returns_500_without_a_verdict(
     assert status == 500
     assert answer == {"error": f"the judge failed ({type(error).__name__})"}
     assert len(model.seen) == 1
-    assert not path.exists()
+    assert path.read_bytes() == b""
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
-def test_an_unwritable_record_path_returns_500_without_a_verdict(tmp_path: Path) -> None:
-    model = Model(body=completion(SUPPORTED))
-    with model_server(model) as url, judge_service(url, record_path=tmp_path) as judge:
-        status, answer = post(judge, request())
-    assert (status, answer) == (500, {"error": "the judge failed (IsADirectoryError)"})
-    assert len(model.seen) == 1
+@pytest.mark.parametrize("missing_parent", [False, True])
+def test_unusable_record_path_refuses_server_before_binding(
+    tmp_path: Path, missing_parent: bool
+) -> None:
+    path = tmp_path / "missing" / "log.jsonl" if missing_parent else tmp_path
+    with pytest.raises(service.ServiceConfigError, match="record path") as error:
+        service.make_server(
+            0,
+            service.model_calls("http://127.0.0.1:9/v1", MODEL),
+            MODEL,
+            "token",
+            record_path=path,
+        )
+    assert str(path) in str(error.value)
+
+
+def test_serve_with_unusable_record_path_prints_no_ready_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("JUDGE_MODEL_URL", "http://127.0.0.1:9/v1")
+    monkeypatch.setenv("JUDGE_MODEL", MODEL)
+    monkeypatch.setenv("JUDGE_SERVICE_TOKEN", "placeholder-service-token")
+    out = io.StringIO()
+    path = tmp_path / "missing" / "log.jsonl"
+    with pytest.raises(service.ServiceConfigError, match="record path"):
+        service.serve(0, out=out, record_path=path)
+    assert out.getvalue() == ""
+
+
+def test_chmod_failure_refuses_server_without_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "public.jsonl"
+    path.write_text("", encoding="utf-8")
+    path.chmod(0o644)
+
+    def fail(_path: str | Path, _mode: int) -> None:
+        raise PermissionError("Operation not permitted")
+
+    monkeypatch.setattr(service.os, "chmod", fail)
+    with pytest.raises(service.ServiceConfigError, match="Operation not permitted"):
+        service.make_server(
+            0,
+            service.model_calls("http://127.0.0.1:9/v1", MODEL),
+            MODEL,
+            "token",
+            record_path=path,
+        )
+    assert path.read_bytes() == b""
 
 
 @pytest.mark.parametrize("bad_id", ["not-a-digest", "sha256:" + "A" * 64, "sha256:" + "0" * 63])
@@ -236,7 +299,7 @@ def test_bad_id_is_refused_before_asking_a_model(tmp_path: Path, bad_id: str) ->
     incoming = request() | {"id": bad_id}
     with model_server(model) as url, judge_service(url, record_path=path) as judge:
         assert post(judge, incoming) == (400, {"error": "id is not a sha256 digest"})
-    assert model.seen == [] and not path.exists()
+    assert model.seen == [] and path.read_bytes() == b""
 
 
 def test_without_record_an_old_style_id_is_accepted_and_no_file_is_written(tmp_path: Path) -> None:

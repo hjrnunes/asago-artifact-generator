@@ -33,7 +33,7 @@ from midojo_spec import rubric_judge as rubric_judge
 from midojo_spec.judge_exchange import read_exchanges
 
 MESSAGES = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
-KEY = "sk-judge-key-that-stays-here"
+KEY = "placeholder-model-key"
 # The installed command, as an operator starts it.
 COMMAND = [str(Path(sys.executable).parent / "asago-bundle-garak"), "judge-serve", "--port", "0"]
 
@@ -233,4 +233,24 @@ def test_judge_serve_without_its_environment_exits_before_listening() -> None:
 
     assert result.returncode == 1
     assert "JUDGE_SERVICE_TOKEN" in result.stderr
+    assert result.stdout == ""
+
+
+def test_judge_serve_with_unusable_record_exits_before_listening(tmp_path: Path) -> None:
+    path = tmp_path / "missing" / "log.jsonl"
+    environ = {
+        **os.environ,
+        "JUDGE_MODEL_URL": "http://127.0.0.1:9/v1",
+        "JUDGE_MODEL": "judge-model",
+        "JUDGE_SERVICE_TOKEN": "placeholder-service-token",
+    }
+    result = subprocess.run(
+        [*COMMAND, "--record", str(path)],
+        env=environ,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 1
+    assert str(path) in result.stderr and "No such file or directory" in result.stderr
     assert result.stdout == ""

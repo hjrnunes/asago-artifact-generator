@@ -34,9 +34,9 @@ from judge_cases import (
 
 from asago_bundle_garak import judge_service as service
 
-PLAIN_KEY = "sk-model-key-0123456789"
+PLAIN_KEY = "placeholder-model-key"
 # A key whose JSON spelling differs from its text: a quote, a backslash, a slash, non-ASCII.
-ESCAPED_KEY = 'sk-"model"\\key/é-0123'
+ESCAPED_KEY = 'placeholder-"model"\\key/é-0123'
 KEYS = [pytest.param(PLAIN_KEY, id="plain-key"), pytest.param(ESCAPED_KEY, id="escaped-key")]
 # A key a reference path can name (letters, digits and underscores).
 NAMEABLE_KEY = "sk_model_key_0123456789"
