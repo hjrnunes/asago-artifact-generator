@@ -22,7 +22,6 @@ APPLICATION = (
     "asago_artifact_generator",
     "asago_bundle_core",
     "asago_bundle_garak",
-    "asago_bundle_midojo",
     "asago_injection_spec",
     "yaml",
 )

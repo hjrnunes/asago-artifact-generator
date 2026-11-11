@@ -1,13 +1,13 @@
 """The injection-spec compiler: a planted_item package becomes one MiDojo injection spec.
 
-This library owns the document the MiDojo adapter compiles and the reader that parses its
-sealed result, so ``bundle-garak`` and ``bundle-midojo`` share one implementation and neither
-depends on the other. It reads the target's declarations (``declared``), places each seed item
-in a tool result (``placement``), checks that the conversation can reach its record
-(``reachable``), writes the consumer envelope around MiDojo's document (``document``,
-``injection_spec``), and reads the sealed snapshot, verdict and delivery documents back into
-an execution receipt (``sealed``). :mod:`asago_injection_spec.judge_turns` owns the vocabulary
-compile and the judge service share.
+This library owns the document the adapter compiles and the reader that parses its sealed
+result, so the adapter declares it rather than carrying a copy. It reads the target's
+declarations (``declared``), places each seed item in a tool result (``placement``), checks
+that the conversation can reach its record (``reachable``), writes the consumer envelope
+around MiDojo's document (``document``, ``injection_spec``), and reads the sealed snapshot,
+verdict and delivery documents back into an execution receipt (``sealed``).
+:mod:`asago_injection_spec.judge_turns` owns the vocabulary compile and the judge service
+share.
 """
 
 from __future__ import annotations

@@ -13,4 +13,4 @@ contracts/tool-call-condition/tool-call-condition-v1/vectors/** linguist-generat
 contracts/tool-call-condition/tool-call-condition-v2/vectors/** linguist-generated=true
 src/asago_artifact_generator/report_kit/catalog.html linguist-generated=true
 # The generate_*.py scripts beside them.
-packages/asago-bundle-midojo/tests/fixtures/rubric/*.json linguist-generated=true
+packages/asago-bundle-garak/tests/fixtures/rubric/*.json linguist-generated=true

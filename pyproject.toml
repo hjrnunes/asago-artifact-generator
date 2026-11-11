@@ -32,7 +32,6 @@ asago-artifact-generator = "asago_artifact_generator.cli:app"
 dev = [
     "asago-bundle-core",
     "asago-bundle-garak",
-    "asago-bundle-midojo",
     "asago-injection-spec>=0.1,<0.2",
     "pytest>=8.0",
     "ruff>=0.6",
@@ -64,7 +63,6 @@ asago-contracts-core = { path = "../asago-scenario-generator/packages/asago-cont
 asago-handoff = { path = "../asago-scenario-generator/packages/asago-handoff", editable = true }
 asago-bundle-core = { workspace = true }
 asago-bundle-garak = { workspace = true }
-asago-bundle-midojo = { workspace = true }
 asago-injection-spec = { workspace = true }
 asago-package = { workspace = true }
 # Local milestone pin: re-point this source to the fork SHA before release.
@@ -95,7 +93,6 @@ src = [
     "scripts",
     "packages/asago-bundle-core/src",
     "packages/asago-bundle-garak/src",
-    "packages/asago-bundle-midojo/src",
     "packages/asago-injection-spec/src",
     "packages/asago-package/src",
 ]

@@ -2,8 +2,8 @@
 
 The consumer authority is ``contracts/midojo-delivery/`` at the repository root; this
 package carries the installed copy. The first test refuses a copy that differs, and the
-rest read the recorded v1 documents and the v2 cases the term.5a rename added, with the
-refusals each version owes.
+rest read the recorded v2 documents and the v1 cases a run before the term.5a rename
+wrote, with the refusals each version owes.
 """
 
 from __future__ import annotations
@@ -42,10 +42,8 @@ _REPO = Path(__file__).resolve().parents[3]
 _AUTHORITY = _REPO / "contracts" / "midojo-delivery"
 _INSTALLED = CONTRACTS_DIR / "midojo-delivery"
 _VERSIONS = (LEGACY_VERSION, VERSION)
-# A run recorded before term.5a: the MiDojo adapter's placed and regraded fixtures hold
-# the delivery documents the runner wrote then, none carrying the envelope.
-_RECORDED_V1 = _REPO / "packages" / "asago-bundle-midojo" / "tests" / "fixtures"
-# A run recorded after the change: the Garak route's fixtures hold the runner's envelope.
+# A run recorded after the term.5a rename: the Garak route's fixtures hold the runner's
+# envelope.
 _RECORDED_V2 = _REPO / "packages" / "asago-bundle-garak" / "tests" / "fixtures" / "ipi"
 
 
@@ -169,24 +167,6 @@ def test_the_reader_accepts_both_versions() -> None:
 
     assert read_delivery(v1).version == LEGACY_VERSION
     assert read_delivery(v2).version == VERSION
-
-
-def _recorded_v1() -> list[Path]:
-    """Every delivery document a pre-rename run recorded, read by its ``schema_version``."""
-
-    return [
-        path
-        for path in sorted(_RECORDED_V1.rglob("delivery.json"))
-        if _json(path).get("schema_version") == LEGACY_VERSION
-    ]
-
-
-@pytest.mark.parametrize("case", _recorded_v1(), ids=lambda path: path.parent.name)
-def test_the_reader_accepts_the_recorded_v1_runs(case: Path) -> None:
-    document = _json(case)
-
-    assert ENVELOPE_FIELD not in document, "a run recorded before term.5a carries no envelope"
-    assert read_delivery(document).version == LEGACY_VERSION
 
 
 @pytest.mark.parametrize(

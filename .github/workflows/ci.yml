@@ -91,7 +91,6 @@ jobs:
         adapter:
           - asago-bundle-core
           - asago-bundle-garak
-          - asago-bundle-midojo
           - asago-injection-spec
         include:
           - adapter: asago-bundle-core
@@ -99,12 +98,6 @@ jobs:
             libraries: --with ./packages/asago-package
           - adapter: asago-bundle-garak
             module: asago_bundle_garak
-            libraries: >-
-              --with ./packages/asago-package
-              --with ./packages/asago-bundle-core
-              --with ./packages/asago-injection-spec
-          - adapter: asago-bundle-midojo
-            module: asago_bundle_midojo
             libraries: >-
               --with ./packages/asago-package
               --with ./packages/asago-bundle-core

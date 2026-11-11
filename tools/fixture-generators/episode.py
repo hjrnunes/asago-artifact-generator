@@ -1,6 +1,7 @@
 """Run each compiled episode in MiDojo, in front of the fixture target, and record the results.
 
-Run with MiDojo's interpreter at the revision to record (see ``tests/injection_spec_cases.py``)::
+Run with MiDojo's interpreter at the revision to record (see
+``packages/asago-injection-spec/tests/injection_spec_cases.py``)::
 
     uv run --frozen python <consumer>/tools/fixture-generators/episode.py \
         <dir holding <case>/injection-spec.json>

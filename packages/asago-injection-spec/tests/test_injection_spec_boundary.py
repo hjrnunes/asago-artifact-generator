@@ -11,7 +11,7 @@ import asago_injection_spec
 PACKAGE = Path(asago_injection_spec.__file__).resolve().parent
 PROJECT = Path(__file__).resolve().parents[1] / "pyproject.toml"
 APPLICATION = "asago_artifact_generator"
-ADAPTERS = ("asago_bundle_garak", "asago_bundle_midojo")
+ADAPTERS = ("asago_bundle_garak",)
 
 
 def test_no_module_in_the_library_imports_an_adapter_or_the_application() -> None:
