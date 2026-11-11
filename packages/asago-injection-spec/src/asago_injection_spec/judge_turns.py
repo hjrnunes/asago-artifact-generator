@@ -8,7 +8,7 @@ timeout, re-exported so a caller reads the whole vocabulary from one module.
 
 from __future__ import annotations
 
-from midojo_sdk.rubric_judge import TIMEOUT_SECONDS
+from midojo_spec.rubric_judge import TIMEOUT_SECONDS
 
 __all__ = ["ALL_TURNS", "FINAL_TURN", "JUDGE_TURNS", "TIMEOUT_SECONDS", "judged_count"]
 

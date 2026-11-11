@@ -62,7 +62,7 @@ from midojo.runtimes.openshell import (
 )
 from midojo.runtimes.openshell.logs import parse_ocsf_lines
 from midojo_api import InjectionSpec, open_context
-from midojo_sdk.injection import InjectionPlan
+from midojo_spec.injection import InjectionPlan
 from pydantic import BaseModel
 
 REFERRALS = {"P-1": "REF-101", "P-2": "REF-104"}

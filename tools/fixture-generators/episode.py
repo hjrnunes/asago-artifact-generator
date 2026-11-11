@@ -65,7 +65,7 @@ from midojo.interception_host import HostInterception, HostInterceptor
 from midojo.runtimes import UnmanagedRuntime
 from midojo.verifiers import register_verifier
 from midojo_api import InjectionSpec, open_context, thaw
-from midojo_sdk.injection import InjectionPlan
+from midojo_spec.injection import InjectionPlan
 
 REVISION = subprocess.run(
     ["git", "rev-parse", "HEAD"],

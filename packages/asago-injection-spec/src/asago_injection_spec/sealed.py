@@ -61,7 +61,7 @@ transformation), ``placed_digest`` (the same of the transformed text written) an
 (``{id, target, mode}``: the instruction's target in the plan codec's form, its mode, and
 ``id`` the target's digest, ``slot_id``). Each is optional, null or absent when not
 reported, and only a placement has any; the snapshot ID leaves a null one out
-(``midojo_sdk.snapshot``). ``delivery.json`` facts may carry the same three keys.
+(``midojo_spec.snapshot``). ``delivery.json`` facts may carry the same three keys.
 
 Each outcome in ``call_injections`` gets ``payload_sha256``, the SHA-256 of the payload text
 placed before its transformation, and ``slot``, the seed slot it was placed in (``id``,
@@ -93,7 +93,7 @@ observation, the observation no ``http_requests`` (sealed before it existed), or
 list from a log read that is not ``complete``. The snapshot ID is computed as before.
 
 The snapshot must be the one MiDojo sealed: its ``snapshot_id`` is MiDojo's digest of its
-content, recomputed here (``midojo_sdk.snapshot``), so a snapshot whose content changed
+content, recomputed here (``midojo_spec.snapshot``), so a snapshot whose content changed
 under its ID is refused. The verdict must name the snapshot's evaluation and the snapshot
 itself, its validity must agree with its grade, and its evidence status must be exactly
 the snapshot's (``grading.grade`` keeps the snapshot's). The snapshot's turns must be the
@@ -117,7 +117,7 @@ from pathlib import Path
 from typing import Any
 
 from asago_contracts_core import ENVELOPE_FIELD, ContractEnvelopeError
-from midojo_sdk.snapshot import CONTENT_FIELDS, DigestFault, verified
+from midojo_spec.snapshot import CONTENT_FIELDS, DigestFault, verified
 
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.mcp_records import decoded, read_json, text
@@ -216,7 +216,7 @@ RESULT_PARTS = frozenset({"content_block", "structured_content"})
 # The status of a call whose arguments, or from c0bee12 whose result, did not match an
 # instruction's, at occurrence 0.
 UNMATCHED = "unmatched"
-# ``types.InjectionStatus``: the values of ``midojo_sdk.injection.OutcomeStatus``.
+# ``types.InjectionStatus``: the values of ``midojo_spec.injection.OutcomeStatus``.
 INJECTION_STATUSES = frozenset(
     {
         "applied",
@@ -680,7 +680,7 @@ def _sealed_slot_shape(slot: Any) -> bool:
 
 
 def slot_id(target: Any) -> str | None:
-    """MiDojo's ID of a tool-output place (``midojo_sdk.injection.InjectionSlot.id``):
+    """MiDojo's ID of a tool-output place (``midojo_spec.injection.InjectionSlot.id``):
     ``sha256:<hex>`` of the target's JSON with sorted keys, compact, not ASCII-escaped, in
     UTF-8. None for a target that is not an object or has no such encoding (a lone surrogate).
     """

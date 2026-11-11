@@ -15,11 +15,12 @@ trusted code and not data), so the conversion drops it. This adapter never ran t
 verifiers; the sealed reader reads the turns, the plan and the placements only.
 
 The reader also accepts a document under its old ID, ``midojo-episode-v1``: the recorded
-fixtures hold it, and MiDojo reads it for one release with a deprecation warning.
+fixtures hold it. The contracts package reads the current ID only, so the old ID is this
+consumer's own one-release rule, read with a deprecation warning.
 
-Version strings and the injection-spec schema come from
-``midojo_sdk.injection_spec_schema``, so this module follows MiDojo without copying its
-constants.
+The version string and the injection-spec schema come from
+``midojo_spec.injection_spec_schema``, so this module follows MiDojo without copying its
+constants; the old ID above is the one constant the consumer keeps, for its own readers.
 """
 
 from __future__ import annotations
@@ -31,18 +32,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from midojo_sdk.injection_spec_schema import (
-    INJECTION_SPEC_DOCUMENT_V1,
-    LEGACY_INJECTION_SPEC_DOCUMENT_V1,
-)
+from midojo_spec.injection_spec_schema import INJECTION_SPEC_DOCUMENT_V1
 
 from asago_bundle_core.errors import BundleError
 
 ENVELOPE_SCHEMA = "asago-midojo-package-v1"
 LEGACY_SCHEMA = "midojo-episode-v2"
 INJECTION_SPEC_SCHEMA = INJECTION_SPEC_DOCUMENT_V1
-# The document's old ID, which a reader accepts for one release.
-LEGACY_INJECTION_SPEC_SCHEMA = LEGACY_INJECTION_SPEC_DOCUMENT_V1
+# The document's old ID, which this reader accepts for one release: the recorded
+# fixtures hold it. The contracts package reads the current ID only, so this is the
+# consumer's own release rule, the same closed shape under the old name.
+LEGACY_INJECTION_SPEC_SCHEMA = "midojo-episode-v1"
 # The name this constant had before the document's rename; kept for one release.
 EPISODE_SCHEMA = INJECTION_SPEC_SCHEMA
 SINGLE = "single"

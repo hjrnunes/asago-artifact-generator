@@ -1103,15 +1103,16 @@ no seed command, so the interceptor's placements are the only planted text. The
 Garak adapter reaches the same result through the Garak IPI route:
 its `compile --target` writes `ipi-episodes.json`, and Garak's `InjectionSpecProbe`
 probe plants through the same host interceptor. Neither adapter writes a `seed.json`
-into the target. The adapter reads and writes MiDojo's documents through `midojo-sdk`,
-which `pyproject.toml` pins by commit to `asago/main` at `d5677d3` (subdirectory
-`interception/python-sdk`), and it never imports `midojo`: the injection-spec schema,
-the plan and the snapshot digest are the SDK's
-(`midojo_sdk.injection_spec_schema`, `midojo_sdk.injection` and `midojo_sdk.snapshot`).
-The Garak adapter's judge service uses `midojo-spec` for the rubric judge and its
-exchange log. The local `midojo-spec` pin in `pyproject.toml` needs a fork SHA at the
-milestone.
-The runner runs the injection spec with the same revision, `asago/main` at `d5677d3`. It
+into the target. The adapter reads and writes MiDojo's documents through `midojo-spec`,
+the contracts package `pyproject.toml` pins by commit to the MiDojo reset lane at
+`31a77fd` (subdirectory `packages/midojo-spec`), and it never imports `midojo`: the
+injection-spec schema, the plan, the snapshot digest, the rubric judge and the judge
+exchange log are the contracts package's (`midojo_spec.injection_spec_schema`,
+`midojo_spec.injection`, `midojo_spec.snapshot`, `midojo_spec.rubric_judge` and
+`midojo_spec.judge_exchange`). The local `midojo-spec` pin in `pyproject.toml` needs a
+fork SHA at the milestone.
+The runner runs the injection spec with the same revision, the MiDojo reset lane at
+`31a77fd`. It
 reads the v1 document under either ID: `midojo.evaluation_handle.open`, with
 `HostInterception` (`src/midojo/interception_host.py`), `midojo.grade`
 (`src/midojo/control_plane/grading.py`), and, for a reply episode, MiDojo's `reply_judge`
@@ -1146,7 +1147,7 @@ contract's terms, and the slot's record key: the list item property it selects b
 outside a list, the call argument or the result property it matches.
 
 `episode` (the key every recorded package states) holds exactly MiDojo's `midojo-injection-spec-v1`
-document, and `compile` validates it against `midojo_sdk.injection_spec_schema`:
+document, and `compile` validates it against `midojo_spec.injection_spec_schema`:
 
 - `interception`: `{"mode": "host", "upstream": "endpoint.mcp_url"}`. The runner gives
   the interceptor the target config's MCP endpoint at run time; the document holds no
@@ -1511,7 +1512,7 @@ payload the host placed in the environment has no delivery fact, so its
 exposure, and `injection_delivered`, stay unknown; a response-injection placement gives
 real facts.
 `parse` recomputes the snapshot's ID with MiDojo's digest of its content
-(`midojo_sdk.snapshot.verified`, the SDK's port of `state.snapshot_digest`), and fails a
+(`midojo_spec.snapshot.verified`, the contracts package's port of `state.snapshot_digest`), and fails a
 snapshot whose content changed under its ID
 (`snapshot_digest_mismatch`); a value JSON cannot carry back as MiDojo held it fails the
 same way, as MiDojo's own client refuses that round trip. A verdict that names another

@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from midojo_sdk.snapshot import snapshot_digest
+from midojo_spec.snapshot import snapshot_digest
 
 from conftest import REPO
 
@@ -129,7 +129,7 @@ def sealed_snapshot(
 
     ``outcomes`` gives a call's ``injection_outcomes`` by ``call_id``, as MiDojo's
     interceptor seals them; a call it does not name states none. The snapshot ID is the
-    content's own digest, so ``midojo_sdk.snapshot.verified`` accepts it.
+    content's own digest, so ``midojo_spec.snapshot.verified`` accepts it.
     """
 
     content = {

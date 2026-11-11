@@ -29,7 +29,7 @@ from injection_spec_cases import (
     SEQUENTIAL_TURNS,
     SINGLE_TURNS,
 )
-from midojo_sdk.snapshot import canonical, dumps, snapshot_digest
+from midojo_spec.snapshot import canonical, dumps, snapshot_digest
 
 from asago_bundle_core.receipt_contract import read_receipt
 from asago_injection_spec.route import ROUTES

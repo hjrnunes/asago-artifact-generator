@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 from injection_spec_cases import EPISODES, PLANTED, REGRADED
-from midojo_sdk.snapshot import snapshot_digest
+from midojo_spec.snapshot import snapshot_digest
 from placed_cases import PLACED
 from result_record_cases import CLINIC_PLANTED
 from test_sealed_placement import NOTE_SLOT, REFERRAL_SLOT, outcomes, parsed, placed, sha256

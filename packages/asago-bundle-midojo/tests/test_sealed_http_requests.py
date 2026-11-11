@@ -19,7 +19,7 @@ from typing import Any
 import jsonschema
 import pytest
 from injection_spec_cases import FIXTURES
-from midojo_sdk.snapshot import snapshot_digest
+from midojo_spec.snapshot import snapshot_digest
 from result_record_cases import RESULT_RECORDS
 
 from asago_injection_spec.sealed import parse_sealed

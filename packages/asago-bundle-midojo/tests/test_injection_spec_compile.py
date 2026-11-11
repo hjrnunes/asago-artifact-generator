@@ -46,18 +46,18 @@ from injection_spec_cases import (
     write_case_package,
     write_planted_package,
 )
-from midojo_sdk.injection_spec_schema import (
-    LEGACY_INJECTION_SPEC_DOCUMENT_V1,
-    load_legacy_schema,
-    load_schema,
-)
+from midojo_spec.injection_spec_schema import load_schema
 
 from asago_bundle_core.conformance import check_gap
 from asago_bundle_core.gap import CapabilityGap
 from asago_bundle_core.target import load_target_config
 from asago_bundle_core.testing import sequential_stimulus, single_stimulus
 from asago_bundle_midojo.cli import main
-from asago_injection_spec.document import ENVELOPE_FIELDS, ENVELOPE_SCHEMA
+from asago_injection_spec.document import (
+    ENVELOPE_FIELDS,
+    ENVELOPE_SCHEMA,
+    LEGACY_INJECTION_SPEC_SCHEMA,
+)
 from asago_injection_spec.injection_spec import INJECTION_SPEC_FIELDS
 from asago_injection_spec.injection_spec_compile import (
     INJECTION_SPEC_FILE,
@@ -205,12 +205,14 @@ def test_every_recorded_fixture_document_is_midojo_s_own_v1_shape() -> None:
         "result-record/referral/episode.json",
     }, "the fixtures under episode-a5f81e9 hold the v0 wrapper and are read elsewhere"
     # A recorded fixture holds the document as compile wrote it before the rename, so it
-    # names MiDojo's old ID and its old schema. M9 regenerates them.
+    # names MiDojo's old ID, the same closed shape under the old name. M9 regenerates them.
+    schema = load_schema()
+    schema["properties"]["schema_version"] = {"description": "any document version"}
     for path in sorted(documents):
         document = json.loads((FIXTURES / path).read_text(encoding="utf-8"))
         assert document["schema_version"] == ENVELOPE_SCHEMA, path
-        assert document["episode"]["schema_version"] == LEGACY_INJECTION_SPEC_DOCUMENT_V1, path
-        jsonschema.validate(document["episode"], load_legacy_schema())
+        assert document["episode"]["schema_version"] == LEGACY_INJECTION_SPEC_SCHEMA, path
+        jsonschema.validate(document["episode"], schema)
 
 
 def test_a_command_attempt_episode_sends_the_user_turn_and_checks_the_condition(

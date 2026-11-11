@@ -111,7 +111,7 @@ def _garak_python() -> Path:
     if not python.is_file():
         pytest.skip(f"the garak checkout has no environment: {python}")
     installed = subprocess.run(
-        [str(python), "-c", "import fastmcp, garak, midojo, midojo_sdk"],
+        [str(python), "-c", "import fastmcp, garak, midojo, midojo_spec"],
         capture_output=True,
         text=True,
     )

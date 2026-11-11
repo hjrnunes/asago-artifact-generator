@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 import yaml
-from midojo_sdk.injection_spec_schema import INJECTION_SPEC_DOCUMENT_V1
+from midojo_spec.injection_spec_schema import INJECTION_SPEC_DOCUMENT_V1
 
 from asago_bundle_core.testing import write_test_package
 from asago_injection_spec import injection_spec_compile

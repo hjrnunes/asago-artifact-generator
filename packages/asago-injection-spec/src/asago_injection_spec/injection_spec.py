@@ -2,9 +2,9 @@
 
 MiDojo describes one run as a frozen ``InjectionSpec`` and writes it as a
 ``midojo-injection-spec-v1`` document (``src/midojo/injection_spec_document.py``; the schema
-is ``midojo_sdk.injection_spec_schema.load_schema()``). The document holds the user
-``turns``, the injection ``plan`` (``midojo_sdk.injection.InjectionPlan``,
-``interception/python-sdk/src/midojo_sdk/injection.py``), the ``security`` and ``utility``
+is ``midojo_spec.injection_spec_schema.load_schema()``). The document holds the user
+``turns``, the injection ``plan`` (``midojo_spec.injection.InjectionPlan``,
+MiDojo's shared contracts package), the ``security`` and ``utility``
 checks as authored specs, the initial ``environment`` of the simulated tools, the
 ``runtime`` definition, the interception settings, the agent's tool policy, and the
 provenance IDs ``suite_name``, ``user_task_id`` and ``injection_task_id`` (null when no
@@ -15,7 +15,7 @@ names, with every member written and every tuple as a list. MiDojo's
 A planted item becomes a ``tool_output`` instruction: MiDojo's host interceptor
 (``midojo.interception_host``) forwards each call to the target's MCP server and places
 the payload in the result of the instruction's tool, at its ``structured_content`` path
-(``midojo_sdk.mcp``). A path step is a key, a list index, or a record selector
+(the interceptor's own MCP result shape). A path step is a key, a list index, or a record selector
 (``RecordSelector``), written as MiDojo's plan data writes it: ``{"field": <key>,
 "equals": <value>}``. A target may also name ``call_arguments``, an object of the call's
 top-level arguments and their values: only a call whose arguments match gets the
@@ -41,9 +41,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from midojo_sdk.injection_spec_schema import INJECTION_SPEC_DOCUMENT_V1
+from midojo_spec.injection_spec_schema import INJECTION_SPEC_DOCUMENT_V1
 
-# ``midojo_sdk.injection`` enum values.
+# ``midojo_spec.injection`` enum values.
 TOOL_OUTPUT = "tool_output"
 STRUCTURED_CONTENT = "structured_content"
 FIRST = "first"

@@ -506,7 +506,7 @@ def refusal(trace: Mapping[str, Any]) -> tuple[str, str] | None:
 def verifies(trace: Mapping[str, Any]) -> bool:
     """Whether the stored snapshot still hashes to the ID the trace and the verdict name."""
 
-    from midojo_sdk.snapshot import DigestFault, verified
+    from midojo_spec.snapshot import DigestFault, verified
 
     snapshot = trace.get("snapshot")
     if not isinstance(snapshot, dict):
@@ -1126,7 +1126,7 @@ def tampered(snapshot: Mapping[str, Any]) -> dict[str, Any]:
 
     edited = copy.deepcopy(dict(snapshot))
     edited["turns"][0]["reply"] = TAMPERED_REPLY
-    from midojo_sdk.snapshot import DigestFault, verified
+    from midojo_spec.snapshot import DigestFault, verified
 
     try:
         verified(edited)

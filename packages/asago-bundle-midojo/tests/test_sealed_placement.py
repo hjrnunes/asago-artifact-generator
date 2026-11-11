@@ -21,7 +21,7 @@ from typing import Any
 import jsonschema
 import pytest
 from injection_spec_cases import EPISODES, PLANTED, REGRADED
-from midojo_sdk.snapshot import snapshot_digest
+from midojo_spec.snapshot import snapshot_digest
 from result_record_cases import CLINIC_PLANTED, RESULT_RECORDS
 
 from asago_injection_spec.sealed import UNPLACED, parse_sealed

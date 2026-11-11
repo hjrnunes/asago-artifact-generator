@@ -52,8 +52,12 @@ from midojo.control_plane.state import snapshot_digest
 from midojo.interception_host import HostInterception
 from midojo.runtimes import UnmanagedRuntime
 from midojo_api import InjectionSpec, open_context, thaw
-from midojo_sdk.injection import InjectionPlan, InterceptorCapability, capability_gaps
-from midojo_sdk.mcp import MIDOJO_MCP_CAPABILITY
+from midojo_spec.injection import (
+    MIDOJO_MCP_CAPABILITY,
+    InjectionPlan,
+    InterceptorCapability,
+    capability_gaps,
+)
 
 # Each patient's referral and education records, by the record's own ID.
 REFERRALS = {"P-1": "REF-101", "P-2": "REF-104"}

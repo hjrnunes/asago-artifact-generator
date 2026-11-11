@@ -1,9 +1,9 @@
-"""The episode verifier's two import paths: its sibling rubric, and the SDK fallback.
+"""The episode verifier's two import paths: its sibling rubric, and the judge fallback.
 
 ``tools/fixture-generators/asago_verifiers/asago_episode_judge.py`` is the verifier a
 reply episode names. Beside an episode it sits with ``asago_rubric.py``, a byte-for-byte
 MiDojo-adapter copy that imports the standard library only, and the verifier imports
-that sibling first; without it, the verifier imports ``midojo_sdk.rubric_judge``
+that sibling first; without it, the verifier imports ``midojo_spec.rubric_judge``
 directly, the path the removed ``authoring/rubric_judge.py`` shim used to serve. Both
 paths must bind every name the verifier uses, so each test loads the file from a fresh
 copy of the package, once without the sibling and once with it.
@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from midojo_sdk import rubric_judge
+from midojo_spec import rubric_judge
 
 REPO = Path(__file__).resolve().parents[1]
 VERIFIERS = REPO / "tools" / "fixture-generators" / "asago_verifiers"
@@ -44,7 +44,7 @@ def _verifier(tmp_path: Path, *, sibling: bool) -> Any:
         sys.path.remove(str(tmp_path))
 
 
-def test_the_fallback_binds_the_sdk_judge(tmp_path: Path) -> None:
+def test_the_fallback_binds_the_contracts_judge(tmp_path: Path) -> None:
     verifier = _verifier(tmp_path, sibling=False)
 
     assert not (tmp_path / "asago_verifiers" / "asago_rubric.py").exists()

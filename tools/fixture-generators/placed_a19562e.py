@@ -62,7 +62,7 @@ from midojo.delivery import delivery_facts, exposure
 from midojo.interception_host import HostInterception, HostInterceptor
 from midojo.runtimes import UnmanagedRuntime
 from midojo_api import InjectionSpec, open_context, thaw
-from midojo_sdk.injection import Channel, InjectionPlan, InjectionSlot, payload_digest
+from midojo_spec.injection import Channel, InjectionPlan, InjectionSlot, payload_digest
 
 REGRADED = (
     Path(__file__).resolve().parents[2]

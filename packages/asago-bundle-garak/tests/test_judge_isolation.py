@@ -46,6 +46,12 @@ def _imports(path: Path, module: str) -> set[str]:
     return dependencies
 
 
+def _forbidden(dependency: str) -> bool:
+    """Garak, and every MiDojo distribution but the contracts package (``midojo_spec``)."""
+    root = dependency.split(".")[0]
+    return root == "garak" or (root.startswith("midojo") and root != "midojo_spec")
+
+
 def test_the_judge_and_every_reachable_shared_module_avoid_garak_and_midojo() -> None:
     pending = ["asago_bundle_garak.judge_service"]
     visited: set[str] = set()
@@ -57,19 +63,23 @@ def test_the_judge_and_every_reachable_shared_module_avoid_garak_and_midojo() ->
         path = _module_path(module)
         assert path is not None
         for dependency in _imports(path, module):
-            assert dependency.split(".")[0] not in {"garak", "midojo"}, (path, dependency)
-            # asago_injection_spec still uses midojo_sdk for its schema and snapshot.
-            # Only direct imports by the judge or its own package are forbidden.
-            if module.startswith("asago_bundle_garak"):
-                assert dependency.split(".")[0] != "midojo_sdk", (path, dependency)
+            assert not _forbidden(dependency), (path, dependency)
             if _module_path(dependency) is not None:
                 pending.append(dependency)
 
 
-def test_the_garak_adapter_has_no_direct_sdk_or_harness_import() -> None:
+def test_the_garak_adapter_imports_only_the_contracts_package_of_midojo() -> None:
     for path in _SOURCES["asago_bundle_garak"].rglob("*.py"):
         for dependency in _imports(path, "asago_bundle_garak." + path.stem):
-            assert dependency.split(".")[0] not in {"garak", "midojo", "midojo_sdk"}, (
-                path,
-                dependency,
-            )
+            assert not _forbidden(dependency), (path, dependency)
+
+
+def test_the_rule_names_what_it_forbids() -> None:
+    assert [
+        _forbidden(name)
+        for name in ("garak.probes", "midojo", "midojo.control_plane", "midojo_mim.service")
+    ] == [True] * 4
+    assert [
+        _forbidden(name)
+        for name in ("midojo_spec", "midojo_spec.rubric_judge", "asago_package", "json")
+    ] == [False] * 4

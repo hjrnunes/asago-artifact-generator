@@ -30,7 +30,7 @@ whose ``snapshot_digest`` differs from its ID). It writes:
 ``reported/command-single/detected/`` is that scenario with each applied outcome's
 delivery facts as the 13d5487 interceptor reports a placement in a structured field that
 its text block mirrors (``selected`` true, the instruction's ``transformation``, and
-``emitted`` both parts, in the order ``midojo_sdk.mcp._emitted`` lists them), named,
+``emitted`` both parts, in the order MiDojo's MCP interceptor lists them), named,
 rebuilt, graded and written the same way. No interceptor sealed it: the facts are derived;
 the snapshot ID, the grade and the delivery document are MiDojo's.
 
@@ -56,7 +56,7 @@ from midojo.control_plane.state import _canonical, _dumps
 from midojo.delivery import delivery_facts, exposure
 from midojo.verifiers import register_verifier
 from midojo_api import InjectionSpec
-from midojo_sdk.injection import InjectionPlan
+from midojo_spec.injection import InjectionPlan
 
 # The verifier payload a v0 episode names, imported when a case declares one.
 VERIFIERS = Path(__file__).resolve().parent / "asago_verifiers"

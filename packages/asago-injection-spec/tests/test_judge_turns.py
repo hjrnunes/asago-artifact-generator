@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from midojo_sdk.rubric_judge import TIMEOUT_SECONDS as JUDGE_TIMEOUT_SECONDS
+from midojo_spec.rubric_judge import TIMEOUT_SECONDS as JUDGE_TIMEOUT_SECONDS
 
 import asago_injection_spec
 from asago_injection_spec.judge_turns import (

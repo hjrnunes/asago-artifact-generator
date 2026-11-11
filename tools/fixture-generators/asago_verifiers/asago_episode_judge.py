@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from typing import Any
 
 # In an episode's verifiers package the rubric judge sits beside this file as
-# ``asago_rubric.py``; without it, the SDK holds the same judge.
+# ``asago_rubric.py``; without it, the contracts package holds the same judge.
 try:
     from .asago_rubric import (  # type: ignore[import-not-found]
         RUBRIC_NAME,
@@ -47,7 +47,7 @@ try:
 except ModuleNotFoundError as exc:
     if exc.name != f"{__package__}.asago_rubric":
         raise
-    from midojo_sdk.rubric_judge import (
+    from midojo_spec.rubric_judge import (
         RUBRIC_NAME,
         build_evidence,
         field,

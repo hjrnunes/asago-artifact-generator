@@ -22,7 +22,7 @@ import jsonschema
 import pytest
 from asago_contracts_core import write_envelope
 from injection_spec_cases import EPISODES, REGRADED
-from midojo_sdk.snapshot import snapshot_digest
+from midojo_spec.snapshot import snapshot_digest
 
 from asago_bundle_midojo.cli import main
 from asago_injection_spec.delivery_contract import installed_specs

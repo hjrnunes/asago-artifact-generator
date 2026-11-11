@@ -61,7 +61,7 @@ from midojo.control_plane.client import snapshot_from_response
 from midojo.control_plane.models import SnapshotResponse
 from midojo.control_plane.state import _canonical, _dumps
 from midojo_api import InjectionSpec
-from midojo_sdk.injection import InjectionPlan
+from midojo_spec.injection import InjectionPlan
 
 SUPPORTED = json.dumps({"verdict": "supported", "evidence_refs": ["messages[0].content"]})
 CONTRADICTED = json.dumps({"verdict": "contradicted", "evidence_refs": ["messages[0].content"]})

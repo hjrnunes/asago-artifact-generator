@@ -6,11 +6,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from midojo_sdk.injection_spec_schema import (
-    INJECTION_SPEC_DOCUMENT_V1,
-    LEGACY_INJECTION_SPEC_DOCUMENT_V1,
-)
+from midojo_spec.injection_spec_schema import INJECTION_SPEC_DOCUMENT_V1
 
+from asago_injection_spec.document import LEGACY_INJECTION_SPEC_SCHEMA
 from asago_injection_spec.injection_spec_compile import (
     INJECTION_SPEC_FILE,
     LEGACY_EPISODE_FILE,
@@ -88,7 +86,7 @@ def as_written(fixture: Path, package: Path) -> dict[str, bytes]:
     ]
     return {
         INJECTION_SPEC_FILE: recorded.replace(
-            LEGACY_INJECTION_SPEC_DOCUMENT_V1.encode(), INJECTION_SPEC_DOCUMENT_V1.encode()
+            LEGACY_INJECTION_SPEC_SCHEMA.encode(), INJECTION_SPEC_DOCUMENT_V1.encode()
         )
         .replace(RECORDED_TOOL_REVISION_RANGE.encode(), TOOL_REVISION_RANGE.encode())
         .replace(recorded_digest.encode(), package_digest.encode())
