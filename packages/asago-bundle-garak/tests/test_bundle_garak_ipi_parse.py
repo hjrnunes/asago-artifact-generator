@@ -896,6 +896,31 @@ def test_a_grade_with_an_unknown_utility_status_is_malformed_not_a_utility_grade
     assert receipt["attempts"] == []
 
 
+@pytest.mark.parametrize("status", ["valid", "invalid", "unclear"])
+def test_an_errored_chain_never_states_a_verdict_that_ran_a_utility_check(
+    tmp_path: Path, status: str
+) -> None:
+    """A generation error outranks the seal checks, and the grade is still never stated.
+
+    The run failed, so the receipt names the error and keeps the attempt, as it does for any
+    verdict this parser cannot read; the block states no verdict and no utility value.
+    """
+
+    sealed = trace(calls=(WITHDRAW,), security=True, utility_status=status, error="ToolRunFailed")
+    entries = chain(
+        texts=TEXTS,
+        sealed=sealed,
+        records=(verdict_record("detected", security=True),),
+    )
+
+    receipt = parse(make_bundle(tmp_path, entries))
+
+    assert receipt["incomplete_reason"] == "generation_error"
+    assert len(receipt["attempts"]) == 1
+    assert receipt["evaluation"]["verdict"] is None
+    assert receipt["evaluation"]["utility"] == no_utility(sealed["snapshot_id"])
+
+
 def test_an_unreadable_grade_leaves_the_episode_verdict_null(tmp_path: Path) -> None:
     """A verdict this parser cannot shape-check fails the seal; it never grades an attempt."""
 
