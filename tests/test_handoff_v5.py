@@ -70,8 +70,8 @@ _NOTE = (
     "on it is the fault. preconditions hold before the attack "
     "starts. procedure lists the attack steps in order; each step names its MITRE ATLAS "
     "tactic and technique and its channel: tool_data is content planted in what a tool "
-    "returns, user_turn is a user message, forged_history is an invented earlier turn of "
-    "the conversation. worst_case_threat is the worst loss the hazard can cause."
+    "returns, user_turn is a user message. worst_case_threat is the worst loss the hazard "
+    "can cause."
 )
 
 

@@ -27,7 +27,7 @@ from typer.testing import CliRunner
 
 import replay_gate
 from asago_artifact_generator import cli
-from asago_artifact_generator.authoring.core import CALL1_PROMPT_VERSION_V30
+from asago_artifact_generator.authoring.core import CALL1_PROMPT_VERSION_V31
 from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.contract_kit import canonical_json
 from replay_gate import (
@@ -1051,7 +1051,7 @@ OLDER_CALL1_ENTRY = replay_gate.ExpectedPromptDifference(
     stage="call1",
     template="authoring-call1",
     from_prompt_version="authoring-call1-v26",
-    to_prompt_version=CALL1_PROMPT_VERSION_V30,
+    to_prompt_version=CALL1_PROMPT_VERSION_V31,
     bead="asago-vfh7",
     reason="the vfh7 recording carries authoring-call1-v26",
 )
@@ -1078,8 +1078,10 @@ def test_no_declared_prompt_difference_remains() -> None:
     six 7bt8.6 entries declare its move to the versions the code renders now
     (call1 v30, plan review v29, call2 v34, artifact review v30, correction
     v49/v52); 7bt8.7 advanced call2, artifact review and artifact correction
-    over the same text and added its adoption line, so those entries name the
-    current versions directly.  The term.2-era entries are gone: bead
+    over the same text and added its adoption line, and the structured-analysis
+    note then dropped its forged-history clause, so every entry names the
+    current versions (call1 v31, plan review v30, call2 v35, artifact review
+    v31, correction v50/v53) directly.  The term.2-era entries are gone: bead
     asago-sy73 lists them.
     """
 
@@ -1087,17 +1089,17 @@ def test_no_declared_prompt_difference_remains() -> None:
         (entry.stage, entry.from_prompt_version, entry.to_prompt_version, entry.bead)
         for entry in replay_gate.EXPECTED_PROMPT_DIFFERENCES
     ] == [
-        ("call1", "authoring-call1-v29", "authoring-call1-v30", "asago-7bt8.6"),
-        ("plan_review", "authoring-plan-review-v28", "authoring-plan-review-v29", "asago-7bt8.6"),
-        ("call2", "authoring-call2-v31", "authoring-call2-v34", "asago-7bt8.6"),
+        ("call1", "authoring-call1-v29", "authoring-call1-v31", "asago-7bt8.6"),
+        ("plan_review", "authoring-plan-review-v28", "authoring-plan-review-v30", "asago-7bt8.6"),
+        ("call2", "authoring-call2-v31", "authoring-call2-v35", "asago-7bt8.6"),
         (
             "artifact_review",
             "authoring-artifact-review-v27",
-            "authoring-artifact-review-v30",
+            "authoring-artifact-review-v31",
             "asago-7bt8.6",
         ),
-        ("correction", "authoring-correction-v47", "authoring-correction-v49", "asago-7bt8.6"),
-        ("correction", "authoring-correction-v48", "authoring-correction-v52", "asago-7bt8.6"),
+        ("correction", "authoring-correction-v47", "authoring-correction-v50", "asago-7bt8.6"),
+        ("correction", "authoring-correction-v48", "authoring-correction-v53", "asago-7bt8.6"),
     ]
 
 
@@ -1173,7 +1175,7 @@ def test_replay_client_refuses_a_difference_after_the_version_its_entry_names(
 ) -> None:
     entry = _declare(monkeypatch)
     client = ReplayChatClient([_call(prompt_version=entry.from_prompt_version)])
-    client.prompt = replay_gate.PromptIdentity(entry.stage, "authoring-call1-v31")
+    client.prompt = replay_gate.PromptIdentity(entry.stage, "authoring-call1-v32")
 
     with pytest.raises(ConnectionError, match="prompt mismatch"):
         client.chat.completions.create(**_request(user="a later prompt"))
@@ -1236,7 +1238,7 @@ def test_replay_client_leaves_an_undeclared_version_move_unmatched(
 
     _declare(monkeypatch)
     client = ReplayChatClient([_call(prompt_version="authoring-call1-v29")])
-    client.prompt = replay_gate.PromptIdentity("call1", CALL1_PROMPT_VERSION_V30)
+    client.prompt = replay_gate.PromptIdentity("call1", CALL1_PROMPT_VERSION_V31)
 
     client.chat.completions.create(**_request())
 
@@ -1485,7 +1487,7 @@ def test_gate_fails_an_entry_the_recording_carries_but_matches_nothing(
         stage="call1",
         template="authoring-call1",
         from_prompt_version="authoring-call1-v26",
-        to_prompt_version="authoring-call1-v31",
+        to_prompt_version="authoring-call1-v32",
         bead="asago-vfh7",
         reason="an entry whose to-version the code does not render",
     )
@@ -1513,7 +1515,7 @@ def _superseded(
     item: str = TASK_ID,
     dispatch_index: int = 1,
     stage: str = "call1",
-    prompt_version: str = CALL1_PROMPT_VERSION_V30,
+    prompt_version: str = CALL1_PROMPT_VERSION_V31,
     prompt_sha256: str = "a" * 64,
     bead: str = "asago-t971",
     reason: str = "t971 re-authors the recorded item",
@@ -1543,7 +1545,7 @@ def _superseded_mismatch(dispatch_index: int = 1, stage: str = "call1") -> dict[
     return {
         "dispatch_index": dispatch_index,
         "stage": stage,
-        "prompt_version": CALL1_PROMPT_VERSION_V30,
+        "prompt_version": CALL1_PROMPT_VERSION_V31,
         "detail": "user message differs from the recording",
     }
 
@@ -1745,7 +1747,7 @@ def test_gate_declares_a_superseded_item_and_passes(
     assert "superseded: 1 declared superseded items" in report
     assert (
         "  superseded: run-test SCN-901 dispatch 1"
-        f" (call1, {CALL1_PROMPT_VERSION_V30}): bead asago-t971:"
+        f" (call1, {CALL1_PROMPT_VERSION_V31}): bead asago-t971:"
         " t971 re-authors the recorded item"
     ) in report
     assert asdict(item)["superseded"]["recording"] == "run-test"
@@ -1773,7 +1775,7 @@ def test_gate_matches_a_superseded_item_a_declared_difference_covered(
         stage="call1",
         template="authoring-call1",
         from_prompt_version=from_version,
-        to_prompt_version=CALL1_PROMPT_VERSION_V30,
+        to_prompt_version=CALL1_PROMPT_VERSION_V31,
         bead="asago-7bt8.6",
         reason="the declared change that covers the pinned dispatch",
     )
@@ -1792,7 +1794,7 @@ def test_gate_matches_a_superseded_item_a_declared_difference_covered(
     assert item.mismatches == []
     [record] = item.declared
     assert record["from_prompt_version"] == from_version
-    assert record["to_prompt_version"] == CALL1_PROMPT_VERSION_V30
+    assert record["to_prompt_version"] == CALL1_PROMPT_VERSION_V31
     assert item.served >= entry.dispatch_index
 
 
@@ -1938,7 +1940,7 @@ def test_stage_report_names_a_stale_superseded_item() -> None:
     assert "superseded: 0 declared superseded items" in report
     assert (
         "  stale superseded item: run-test SCN-901 dispatch 1"
-        f" (call1, {CALL1_PROMPT_VERSION_V30}): bead asago-t971:"
+        f" (call1, {CALL1_PROMPT_VERSION_V31}): bead asago-t971:"
         " the recording no longer mismatches at the declared dispatch"
     ) in report
 
@@ -2180,7 +2182,7 @@ def test_main_uses_the_declared_superseded_items(
     output = capsys.readouterr().out
     assert (
         "  superseded: run-test SCN-901 dispatch 1"
-        f" (call1, {CALL1_PROMPT_VERSION_V30}): bead asago-t971:"
+        f" (call1, {CALL1_PROMPT_VERSION_V31}): bead asago-t971:"
     ) in output
     assert "superseded:      1" in output
     assert output.splitlines()[-1] == "PASS"

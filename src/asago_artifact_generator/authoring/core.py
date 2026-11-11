@@ -25,18 +25,18 @@ if TYPE_CHECKING:
 AUTHORING_INTERFACE_VERSION_V2 = "artifact-authoring-v2"
 # The response wire remains v2, while its model-facing templates advance
 # independently; each constant names the template version dispatched now.
-CALL1_PROMPT_VERSION_V30 = "authoring-call1-v30"
-CALL2_PROMPT_VERSION_V34 = "authoring-call2-v34"
+CALL1_PROMPT_VERSION_V31 = "authoring-call1-v31"
+CALL2_PROMPT_VERSION_V35 = "authoring-call2-v35"
 # Corrections share one template family; the plan and artifact stages advance apart.
-CORRECTION_PROMPT_VERSION_V49 = "authoring-correction-v49"
-CORRECTION_PROMPT_VERSION_V52 = "authoring-correction-v52"
+CORRECTION_PROMPT_VERSION_V50 = "authoring-correction-v50"
+CORRECTION_PROMPT_VERSION_V53 = "authoring-correction-v53"
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
-PLAN_REVIEW_PROMPT_VERSION_V29 = "authoring-plan-review-v29"
-ARTIFACT_REVIEW_PROMPT_VERSION_V30 = "authoring-artifact-review-v30"
-PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V29
-ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V30
+PLAN_REVIEW_PROMPT_VERSION_V30 = "authoring-plan-review-v30"
+ARTIFACT_REVIEW_PROMPT_VERSION_V31 = "authoring-artifact-review-v31"
+PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V30
+ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V31
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 
 

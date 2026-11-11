@@ -177,71 +177,83 @@ class ExpectedPromptDifference:
 # and the gate's stale rule ignores the pairs in between that no recording
 # carries at its from-version with this to-version reachable.  The term.2-era
 # entries are gone: bead asago-sy73 lists them, and the re-recorded corpus
-# carries every pre-7bt8.6 version.
+# carries every pre-7bt8.6 version.  The structured-analysis note then lost its
+# forged-history clause, which advanced every stage once more over the same
+# guidance (call1 v31, plan review v30, call2 v35, artifact review v31,
+# correction v50/v53); the entries name those versions.
 EXPECTED_PROMPT_DIFFERENCES: tuple[ExpectedPromptDifference, ...] = (
     ExpectedPromptDifference(
         stage="call1",
         template="authoring-call1",
         from_prompt_version="authoring-call1-v29",
-        to_prompt_version="authoring-call1-v30",
+        to_prompt_version="authoring-call1-v31",
         bead="asago-7bt8.6",
         reason=(
             "the omission-trigger gate reads the bound condition and its author"
-            " guidance changes the plan-author prompt"
+            " guidance changes the plan-author prompt; the structured-analysis"
+            " note then dropped its forged-history clause"
         ),
     ),
     ExpectedPromptDifference(
         stage="plan_review",
         template="authoring-plan-review",
         from_prompt_version="authoring-plan-review-v28",
-        to_prompt_version="authoring-plan-review-v29",
+        to_prompt_version="authoring-plan-review-v30",
         bead="asago-7bt8.6",
         reason=(
             "the reviewer guidance and the omission-trigger rule it renders"
-            " change the plan-review prompt"
+            " change the plan-review prompt; the structured-analysis note then"
+            " dropped its forged-history clause"
         ),
     ),
     ExpectedPromptDifference(
         stage="call2",
         template="authoring-call2",
         from_prompt_version="authoring-call2-v31",
-        to_prompt_version="authoring-call2-v34",
+        to_prompt_version="authoring-call2-v35",
         bead="asago-7bt8.6",
         reason=(
             "the omission outcome and not_called condition guidance change the"
             " artifact-author prompt; 7bt8.7 advanced the same text to v33 and"
-            " its adoption line to v34"
+            " its adoption line to v34, and the structured-analysis note then"
+            " dropped its forged-history clause"
         ),
     ),
     ExpectedPromptDifference(
         stage="artifact_review",
         template="authoring-artifact-review",
         from_prompt_version="authoring-artifact-review-v27",
-        to_prompt_version="authoring-artifact-review-v30",
+        to_prompt_version="authoring-artifact-review-v31",
         bead="asago-7bt8.6",
         reason=(
             "the omission outcome example changes the artifact-review prompt;"
-            " 7bt8.7 advanced the same text to v29 and its adoption line to v30"
+            " 7bt8.7 advanced the same text to v29 and its adoption line to v30,"
+            " and the structured-analysis note then dropped its forged-history"
+            " clause"
         ),
     ),
     ExpectedPromptDifference(
         stage="correction",
         template="authoring-correction",
         from_prompt_version="authoring-correction-v47",
-        to_prompt_version="authoring-correction-v49",
+        to_prompt_version="authoring-correction-v50",
         bead="asago-7bt8.6",
-        reason="the plan-correction guidance changes with the plan prompt it repairs",
+        reason=(
+            "the plan-correction guidance changes with the plan prompt it repairs;"
+            " the structured-analysis note then dropped its forged-history clause"
+        ),
     ),
     ExpectedPromptDifference(
         stage="correction",
         template="authoring-correction",
         from_prompt_version="authoring-correction-v48",
-        to_prompt_version="authoring-correction-v52",
+        to_prompt_version="authoring-correction-v53",
         bead="asago-7bt8.6",
         reason=(
             "the artifact-correction guidance changes with the artifact prompt"
             " it repairs; 7bt8.7 advanced the same text to v51 and its adoption"
-            " line to v52"
+            " line to v52, and the structured-analysis note then dropped its"
+            " forged-history clause"
         ),
     ),
 )
