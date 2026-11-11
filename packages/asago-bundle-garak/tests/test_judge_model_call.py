@@ -30,6 +30,7 @@ from judge_cases import (
     rubric,
 )
 from midojo_spec import rubric_judge as rubric_judge
+from midojo_spec.judge_exchange import read_exchanges
 
 MESSAGES = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
 KEY = "sk-judge-key-that-stays-here"
@@ -158,7 +159,10 @@ def test_no_proxy_is_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) 
 # --- the service as ``judge-serve`` starts it --------------------------------------------
 
 
-def test_judge_serve_answers_on_loopback_and_keeps_the_key_to_the_model() -> None:
+@pytest.mark.parametrize("record", [False, True])
+def test_judge_serve_answers_on_loopback_and_keeps_the_key_to_the_model(
+    tmp_path: Path, record: bool
+) -> None:
     """The command reads its model and token from its environment, says where it listens,
     answers MiDojo's request, and stops on SIGTERM; the key reaches the model alone."""
 
@@ -171,8 +175,9 @@ def test_judge_serve_answers_on_loopback_and_keeps_the_key_to_the_model() -> Non
             "OPENAICOMPATIBLE_API_KEY": KEY,
             "JUDGE_SERVICE_TOKEN": TOKEN,
         }
+        path = tmp_path / "judge.jsonl"
         process = subprocess.Popen(
-            COMMAND,
+            [*COMMAND, *(["--record", str(path)] if record else [])],
             env=environ,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -204,6 +209,11 @@ def test_judge_serve_answers_on_loopback_and_keeps_the_key_to_the_model() -> Non
     assert KEY not in json.dumps(answers) + out + err
     assert TOKEN not in out + err
     assert err.splitlines() == ["POST 200", "POST 401", "POST 400"]
+    if record:
+        (row,) = read_exchanges(path)
+        assert (row.request_id, row.ask, row.sequence) == (request["id"], 0, 0)
+    else:
+        assert not path.exists()
 
 
 def test_judge_serve_without_its_environment_exits_before_listening() -> None:

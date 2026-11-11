@@ -17,6 +17,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 
 from asago_bundle_garak.judge_service import SCHEMA, make_server, model_calls
@@ -104,14 +105,17 @@ def model_server(model: Model) -> Iterator[str]:
 
 @contextmanager
 def judge_service(
-    model_url: str, token: str = TOKEN, model_key: str | None = None
+    model_url: str,
+    token: str = TOKEN,
+    model_key: str | None = None,
+    record_path: Path | None = None,
 ) -> Iterator[str]:
     """Run the judge service in this process in front of ``model_url``; yield its URL.
 
     It logs as it does in production; ``model_key`` is the key it keeps out of answers.
     """
 
-    server = make_server(0, model_calls(model_url, MODEL), MODEL, token, model_key)
+    server = make_server(0, model_calls(model_url, MODEL), MODEL, token, model_key, record_path)
     thread = threading.Thread(
         target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
     )

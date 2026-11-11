@@ -121,6 +121,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve_cmd.add_argument(
         "--port", type=int, default=DEFAULT_PORT, help="port on 127.0.0.1; 0 takes a free one"
     )
+    serve_cmd.add_argument(
+        "--record",
+        type=Path,
+        help="append each model request to a midojo.judge-exchange.v1 JSONL log",
+    )
     serve_cmd.set_defaults(handler=_judge_serve)
     return parser
 
@@ -190,7 +195,7 @@ def _parse(args: argparse.Namespace) -> int:
 
 def _judge_serve(args: argparse.Namespace) -> int:
     try:
-        serve(args.port)
+        serve(args.port, record_path=args.record)
     except ServiceConfigError as exc:
         print(f"judge-serve: {exc}", file=sys.stderr)
         return EXIT_INPUT

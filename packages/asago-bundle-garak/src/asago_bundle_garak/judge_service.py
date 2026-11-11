@@ -67,14 +67,17 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import signal
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, TextIO
 
+from midojo_spec.judge_exchange import Exchange, ExchangeLog, Observed
 from midojo_spec.rubric_judge import (
     KEY_NAME,
     PROMPT_VERSION,
@@ -134,8 +137,10 @@ READY = "judge service on"
 REDACTED = "[redacted]"
 
 JudgeCall = Callable[[list[dict[str, str]]], Any]
-# Makes the call that asks the model, given the seconds it may take.
-CallFactory = Callable[[float], JudgeCall]
+Observer = Callable[[list[dict[str, str]], Observed], None]
+# Makes the call that asks the model, given its budget and optional recorder.
+CallFactory = Callable[[float, Observer | None], JudgeCall]
+_RECORD_ID = re.compile(r"sha256:[0-9a-f]{64}")
 
 
 class ServiceConfigError(Exception):
@@ -390,17 +395,40 @@ def judge(
     calls: CallFactory,
     model: str | None,
     secrets: Sequence[str] = (),
+    exchange_log: ExchangeLog | None = None,
 ) -> dict[str, Any]:
     """Return the ``midojo.judge.v1`` response to a valid request, asking the model by a call
     from ``calls`` given the request's budget, with ``secrets`` redacted from what it
     describes."""
+
+    ask = 0
+
+    def observe(messages: list[dict[str, str]], observed: Observed) -> None:
+        nonlocal ask
+        assert exchange_log is not None
+        exchange_log.append(
+            Exchange.observed(
+                observed,
+                request_id=request["id"],
+                ask=ask,
+                model=model,
+                prompt_version=PROMPT_VERSION,
+                messages=messages,
+                secrets=secrets,
+            )
+        )
+        ask += 1
 
     rubric = parse_rubric(request["claim"], request["rubric"])
     if rubric is None:
         records = [record("unresolved", [], RUBRIC_INVALID)]
         judge_turns = None
     else:
-        records = judge_records(rubric, request, calls(budget_seconds(rubric)))
+        records = judge_records(
+            rubric,
+            request,
+            calls(budget_seconds(rubric), observe if exchange_log is not None else None),
+        )
         judge_turns = rubric.judge_turns
     final = records[-1]
     secrets = [secret for secret in secrets if secret]
@@ -429,7 +457,7 @@ def model_calls(model_url: str, model: str) -> CallFactory:
     redirect, no proxy from the environment, the key from ``OPENAICOMPATIBLE_API_KEY``.
     """
 
-    def calls(budget: float) -> JudgeCall:
+    def calls(budget: float, observer: Observer | None = None) -> JudgeCall:
         deadline = time.monotonic() + budget
 
         def call(messages: list[dict[str, str]]) -> Any:
@@ -437,7 +465,9 @@ def model_calls(model_url: str, model: str) -> CallFactory:
             if left <= 0:
                 raise JudgeCallError("APITimeoutError")
             ends = time.monotonic() + left
-            return http_judge(model_url, model, timeout=left, deadline=ends)(messages)
+            return http_judge(model_url, model, timeout=left, deadline=ends, observer=observer)(
+                messages
+            )
 
         return call
 
@@ -453,15 +483,17 @@ def make_server(
     model: str | None,
     token: str,
     model_key: str | None = None,
+    record_path: str | Path | None = None,
 ) -> ThreadingHTTPServer:
     """Return a server on 127.0.0.1 answering ``POST`` on any path with :func:`judge`, to
     ``token`` only, redacting ``token`` and ``model_key`` from its answers; ``port`` 0
-    takes a free port."""
+    takes a free port. One ``ExchangeLog`` per server records every sent model request."""
 
     if not token:
         raise ServiceConfigError("the judge service needs a bearer token")
     expected = f"Bearer {token}".encode()
     secrets = [token, *([model_key] if model_key else [])]
+    exchange_log = ExchangeLog(record_path) if record_path is not None else None
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:  # noqa: N802 -- http.server's name
@@ -475,8 +507,10 @@ def make_server(
                 return self._send(400, {"error": "the request is not JSON"})
             if (problem := request_problem(request)) is not None:
                 return self._send(400, {"error": problem})
+            if exchange_log is not None and _RECORD_ID.fullmatch(request["id"]) is None:
+                return self._send(400, {"error": "id is not a sha256 digest"})
             try:
-                return self._send(200, judge(request, calls, model, secrets))
+                return self._send(200, judge(request, calls, model, secrets, exchange_log))
             except Exception as exc:  # the type only: a message may quote a header
                 return self._send(500, {"error": f"the judge failed ({type(exc).__name__})"})
 
@@ -523,12 +557,14 @@ def environment_config(environ: Mapping[str, str]) -> tuple[str, str, str]:
     return values[MODEL_URL_ENV], values[MODEL_ENV], token
 
 
-def serve(port: int = DEFAULT_PORT, out: TextIO = sys.stdout) -> None:
+def serve(
+    port: int = DEFAULT_PORT, out: TextIO = sys.stdout, record_path: str | Path | None = None
+) -> None:
     """Serve until SIGINT or SIGTERM; print ``judge service on <url>`` once it listens."""
 
     model_url, model, token = environment_config(os.environ)
     calls = model_calls(model_url, model)
-    server = make_server(port, calls, model, token, os.environ.get(KEY_NAME))
+    server = make_server(port, calls, model, token, os.environ.get(KEY_NAME), record_path)
 
     def stop(_signum: int, _frame: Any) -> None:
         raise KeyboardInterrupt
