@@ -25,7 +25,7 @@ pre-rename names are gone" below). Before it, `24b0b23`
 renamed the sealed outcome's, the delivery fact's and the exposure item's `probe_key` to
 `slot_key` and keeps a reader for the old key; `InjectionInstruction.probe_key` (the
 plan's own field) stays. Before that, `162233f` moved the rubric
-judge into the SDK (`midojo_sdk.rubric_judge`, stdlib only; the consumer's
+judge into the SDK (its `rubric_judge` module, stdlib only; the consumer's
 `authoring/rubric_judge.py` re-exported it until that shim was removed) and pinned the
 console goldens to a fixed height, `9e1f90f` retired the tool-call-condition v1 fixtures
 from MiDojo's test suite, and the SDK was unchanged since `6198645` (the
@@ -92,7 +92,7 @@ the range and the document ID back when they compare a new compile.
   to the injection spec); a target can match the call's arguments from `b5b8c75`, the
   interceptor copies a placement into a text block that mirrors the structured content from
   `3824922`, an injection spec can carry a `result_record` target from `c0bee12`, and a
-  reply from `cab2a35`. The adapter imports `midojo_sdk` only (the injection-spec schema,
+  reply from `cab2a35`. The adapter imports the SDK only (the injection-spec schema,
   the injection plan and the snapshot digest) and never `midojo`: its pinned SDK runs the
   consumer's checks, and the runner's MiDojo runs the injection spec. It plants by
   response injection. `compile_injection_spec` (`injection_spec_compile.py`, CLI `compile
@@ -102,7 +102,7 @@ the range and the document ID back when they compare a new compile.
   `scenario_id`, `package_digest`, `claim_level`, `delivery`, `placements` and
   `tool_revision_range`, and `episode` (the key every recorded package states), exactly
   MiDojo's `midojo-injection-spec-v1` document (`injection_spec.py`, validated against
-  `midojo_sdk.injection_spec_schema`): host `interception` (the runner gives the
+  the SDK's `injection_spec_schema` module): host `interception` (the runner gives the
   interceptor the target's `endpoint.mcp_url`; the agent gets only the interceptor's
   endpoint and token, and neither it nor the target sees a MiDojo session), the allowed
   `tools` and their write disposition (`forward` by default), `verifiers` `[]`, and
@@ -147,7 +147,7 @@ the range and the document ID back when they compare a new compile.
   (exit 3). `parse_sealed` (`sealed.py`, CLI `parse --snapshot --verdict
   [--delivery] [--driver]`) reads the snapshot (`GET .../snapshot`) and the verdict (`evaluation_id`,
   `snapshot_id`, `grade`) into `execution-receipt-v2`, after recomputing the snapshot ID,
-  MiDojo's digest of the content (`midojo_sdk.snapshot`, `verified`), and requiring every
+  MiDojo's digest of the content (the SDK's `snapshot` module, `verified`), and requiring every
   call to be the
   interceptor's record: security true/false/null is detected/not_detected/inconclusive,
   never coerced, explained by the grade's `security_reason` (a true or false grade without
