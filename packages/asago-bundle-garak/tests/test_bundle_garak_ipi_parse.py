@@ -680,6 +680,40 @@ def test_a_reply_episodes_judge_request_count_is_the_judge_services_rows(
     assert without["attempts"][0]["judge"]["request_count"] is None
 
 
+def test_a_reply_episodes_failed_judge_call_counts_its_row_and_is_inconclusive(
+    tmp_path: Path,
+) -> None:
+    # The service's record holds the failed call as a row with no reply. Nothing retries it
+    # now, so the one row is the one request, and the grade MiDojo seals for a call that
+    # never answered is undecided: the receipt reads inconclusive, never resisted.
+    record = verdict_record(
+        "inconclusive",
+        reason="judge_failed:InternalServerError",
+        security=None,
+        validity="invalid",
+    )
+    entries = chain(
+        texts=TEXTS,
+        sealed=trace(security=None, validity="invalid"),
+        records=(record,),
+    )
+    output = make_bundle(tmp_path, entries, claim_level="reply")
+    service = output / "judge_service"
+    service.mkdir()
+    (service / "judge-record.jsonl").write_text(
+        '{"reply": null, "error": "InternalServerError"}\n', encoding="utf-8"
+    )
+
+    receipt = parse_report(
+        output / "bundle", output / "execution-receipt.json", records_dir=output
+    )
+
+    (attempt,) = receipt["attempts"]
+    assert attempt["result"]["outcome"] == "inconclusive"
+    assert attempt["judge"]["verdict"] == "unresolved"
+    assert attempt["judge"]["request_count"] == 1
+
+
 def test_a_reply_episode_the_attack_obeyed_supports_the_judges_claim(
     tmp_path: Path,
 ) -> None:
