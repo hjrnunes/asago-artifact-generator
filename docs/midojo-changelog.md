@@ -12,8 +12,10 @@ request. The implementation uses `midojo_spec.rubric_judge` and
 `midojo_spec.judge_exchange`; the MiDojo adapter keeps compile, parse and its sealed
 reply tests. Its test-only `judge-test` group names bundle-garak. The model key and
 service token are redacted from logged text while the row keeps the original digests.
-`midojo-sdk` remains a dependency of asago-injection-spec, so an isolated bundle-garak
-install still pulls in the SDK, but not Garak or the MiDojo harness.
+`asago-injection-spec` and both adapters reach MiDojo through `midojo-spec` alone, so an
+isolated bundle-garak install pulls in neither an SDK, Garak nor the MiDojo harness.
+
+2026-11-11: the SDK modules the adapter reads moved to `midojo_spec`.
 
 The adapter currently pins `midojo-sdk` at `d5677d3`, which keeps the two host-facing
 keyword arguments `open_evaluation(episode=...)` and
