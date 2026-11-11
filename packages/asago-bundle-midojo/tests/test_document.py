@@ -6,10 +6,14 @@ the documents its reader accepts and refuses
 vectors (``packages/midojo-spec/vectors/snapshot/vectors.json`` at the pinned revision),
 and the two documents it moved
 out of the goldens: the cm.58 ``episode.json`` (``legacy_documents/``) and its verdict
-(``verdict_document/``). ``test_the_copies_are_midojo_s_own`` pins each copy's sha256, so a
-copy that drifts from the files MiDojo published at the pinned revision fails here. The v0
-copy is the cm.58 ``episode.json`` verbatim, the file this adapter wrote before the envelope
-and the version MiDojo read as v0.
+(``verdict_document/``). ``test_the_copies_are_midojo_s_own`` pins each copy's sha256 in
+``midojo.lock``, so a copy that changes without the lock fails here; it does not compare a
+copy with MiDojo's file at the pinned revision. Four copies are older than that revision's
+files and are kept as they were recorded, because the owner decided not to re-sync them (a
+later change deletes this adapter): ``injection_spec_document/README.md``,
+``legacy_documents/v0_cm58_episode.json``, ``verdict_document/v0_cm58_verdict.json`` and
+``snapshot_digest/vectors.json``. The v0 copy is the cm.58 ``episode.json`` verbatim, the
+file this adapter wrote before the envelope and the version MiDojo read as v0.
 """
 
 from __future__ import annotations
@@ -68,13 +72,13 @@ def _envelope(episode: dict[str, Any]) -> dict[str, Any]:
 
 @pytest.mark.parametrize("name", sorted(PINS))
 def test_the_copies_are_midojo_s_own(name: str) -> None:
-    """Every copy is byte-identical to the vector MiDojo published, its sha256 in the lock."""
+    """Every copy's bytes are the ones the lock records."""
 
     assert hashlib.sha256((VECTORS / name).read_bytes()).hexdigest() == PINS[name]
 
 
 def test_the_lock_names_the_revision_the_copies_come_from() -> None:
-    """The copies are MiDojo's files at the revision this repository pins its contracts to."""
+    """The lock names the revision this repository pins its contracts to."""
 
     pyproject = (Path(__file__).resolve().parents[3] / "pyproject.toml").read_text(
         encoding="utf-8"
@@ -184,8 +188,10 @@ def test_the_old_id_is_the_v1_schema_s_closed_shape() -> None:
     document = _read(DOCUMENTS / "v1_single.json")
 
     schema = load_schema()
-    schema["properties"]["schema_version"] = {"description": "any document version"}
+    schema["properties"]["schema_version"] = {"const": LEGACY_INJECTION_SPEC_SCHEMA}
     jsonschema.validate(document | {"schema_version": LEGACY_INJECTION_SPEC_SCHEMA}, schema)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(document | {"schema_version": "completely-unsupported-id"}, schema)
 
 
 def test_reading_a_v0_wrapper_warns_that_it_is_deprecated() -> None:

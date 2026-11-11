@@ -207,7 +207,7 @@ def test_every_recorded_fixture_document_is_midojo_s_own_v1_shape() -> None:
     # A recorded fixture holds the document as compile wrote it before the rename, so it
     # names MiDojo's old ID, the same closed shape under the old name. M9 regenerates them.
     schema = load_schema()
-    schema["properties"]["schema_version"] = {"description": "any document version"}
+    schema["properties"]["schema_version"] = {"const": LEGACY_INJECTION_SPEC_SCHEMA}
     for path in sorted(documents):
         document = json.loads((FIXTURES / path).read_text(encoding="utf-8"))
         assert document["schema_version"] == ENVELOPE_SCHEMA, path
