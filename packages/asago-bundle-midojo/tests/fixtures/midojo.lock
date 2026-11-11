@@ -1,8 +1,8 @@
 {
-  "source": "midojo asago/main d5677d358db7cabff0980f6e110e4b18abb468c6",
+  "source": "midojo local 2dcdeafde9f7a3ec511eafa1349df6190554848e",
   "files": {
     "injection_spec_document/README.md": "7c9c10208e82debf4cce80affbeb385cbc6ec1ab48eb1c4e05973e1fbcdc5d98",
-    "injection_spec_document/generate.py": "5fd0adc12ccfd728d0592d0bc7d750c2839e949c0b07d05d2cedbb017e5b926d",
+    "injection_spec_document/generate.py": "9c82958d32fa6e83ff4b82507ff2ab98f7119d9f474123918c273799501467ba",
     "injection_spec_document/refused_bad_disposition.json": "799761dd1059743922987d479cbdb5465f48c3412f5d9be169921901608e2215",
     "injection_spec_document/refused_nonempty_verifiers.json": "92beb0007ddb2a3d4ef17699d0af90928a6c5063d920db4571acaff86bad6e13",
     "injection_spec_document/refused_openshell_predicate_on_unmanaged.json": "68a2230f88f8a770efc28e04403c9c2a6c75cec87c268797f60cf64892c747e3",

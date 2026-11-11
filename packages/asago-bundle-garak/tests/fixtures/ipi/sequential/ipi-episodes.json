@@ -95,7 +95,7 @@
     "metadata": {
       "claim_level": "command_attempt",
       "delivery": "sequential",
-      "package_digest": "0a180bc4a4c43e30fe9b86ae6fd22792a64f984dbb7b1964a431cadae76d46dd",
+      "package_digest": "45eb5a761c1c2aa72f4980d13b275ab62675bc99ee0c851d1d05cd234a523964",
       "package_id": "SCN-102-SCN-102",
       "scenario_id": "SCN-102"
     },
