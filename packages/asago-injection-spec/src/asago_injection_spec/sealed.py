@@ -248,6 +248,15 @@ VERDICT_SCHEMA_VERSION = "midojo-verdict-v1"
 VERDICT_FIELDS = frozenset({"schema_version", "evaluation_id", "snapshot_id", "grade"})
 VERDICT_V0_FIELDS = VERDICT_FIELDS - {"schema_version"}
 GRADED = ("utility", "security")
+# MiDojo assigns ``not_applicable`` to a check the injection spec does not author, and grades it
+# ``False`` beside it; any other status means the check ran.
+NOT_APPLICABLE = "not_applicable"
+# The failure reason of a verdict that grades utility. It is its own reason, so a refused
+# utility check never reads as an unreadable verdict (``verdict_malformed``).
+VERDICT_UTILITY_GRADED = "verdict_utility_graded"
+# The receipt's ``evaluation.utility`` when no utility is measured: the check does not apply
+# because the evaluation carries none, and the grade's ``utility: false`` is never the value.
+NO_UTILITY_CHECK = "no_utility_check"
 GRADE_FIELDS = frozenset(
     {*GRADED, "utility_reason", "security_reason", "grade_validity", "evidence_status"}
 )
@@ -385,7 +394,11 @@ def parse_sealed(
     out = Path(out_path)
     snapshot, reason = read_document(Path(snapshot_path), "snapshot", snapshot_shape)
     verdict, verdict_reason = read_document(
-        Path(verdict_path), "verdict", verdict_shape, verdict_version_reason
+        Path(verdict_path),
+        "verdict",
+        verdict_shape,
+        verdict_version_reason,
+        verdict_utility_reason,
     )
     native = [Path(snapshot_path), Path(verdict_path)]
     delivery, delivery_reason = None, None
@@ -480,13 +493,19 @@ def read_delivery_file(path: Path) -> tuple[dict[str, Any] | None, str | None]:
 
 
 def read_document(
-    path: Path, prefix: str, shape: Any, version_reason: Any = None
+    path: Path,
+    prefix: str,
+    shape: Any,
+    version_reason: Any = None,
+    refusal_reason: Any = None,
 ) -> tuple[dict[str, Any] | None, str | None]:
     """Read one sealed document and check its shape.
 
     ``version_reason``, when given, reads a document that names a ``schema_version`` first: it
     returns why this reader refuses that version (naming it in the reason), or None. A
-    versionless document passes, which is how the cm.58 verdicts read.
+    versionless document passes, which is how the cm.58 verdicts read. ``refusal_reason``,
+    when given, reads a document whose shape holds: it returns why this reader refuses what
+    the document states, under a reason of its own, or None.
     """
 
     if not path.is_file():
@@ -498,6 +517,8 @@ def read_document(
         return None, unknown
     if not shape(document):
         return None, f"{prefix}_malformed"
+    if refusal_reason is not None and (refused := refusal_reason(document)) is not None:
+        return None, refused
     return document, None
 
 
@@ -770,6 +791,21 @@ def verdict_shape(verdict: dict[str, Any]) -> bool:
         and (status == "invalid") == (grade["security"] is None)
         and (grade["security"] is None or isinstance(grade["security_reason"], str))
     )
+
+
+def verdict_utility_reason(verdict: dict[str, Any]) -> str | None:
+    """Return why this reader refuses the verdict because it grades utility; None reads it.
+
+    A grade whose ``grade_validity.utility.status`` is not ``not_applicable`` says a utility
+    check ran, and the receipt records no utility check, so reading the grade would state its
+    security result and drop the utility result beside it. The status decides, never the
+    grade's ``utility`` value: MiDojo writes ``utility: false`` beside ``not_applicable`` on
+    every grade whose injection spec has no utility check, and that grade reads. Call this on
+    a verdict ``verdict_shape`` accepts.
+    """
+
+    status = verdict["grade"]["grade_validity"]["utility"]["status"]
+    return None if status == NOT_APPLICABLE else VERDICT_UTILITY_GRADED
 
 
 def _judgements_shape(judgements: Any) -> bool:
@@ -1156,7 +1192,9 @@ def evaluation_block(
     is the evaluation's plan (``read_plan``), or None when the sealed result does not hold
     together, so the outcomes' placements cannot be established. ``runtime`` is what the
     caller recorded of how the target was hosted (``runtime_block``); the key is left out
-    when it recorded none, so the receipt reads as one written before the field existed.
+    when it recorded none, so the receipt reads as one written before the field existed. The
+    block always carries ``utility`` (``utility_block``), the record that no utility check
+    applied, whatever the grade says of utility.
     """
 
     grade = verdict["grade"] if verdict else None
@@ -1180,10 +1218,29 @@ def evaluation_block(
         if delivery is None
         else [_unplaced(fact) for fact in delivery["delivery"]],
         "exposure": None if delivery is None else _exposure(delivery["exposure"]),
+        "utility": utility_block(snapshot),
     }
     if runtime is not None:
         block["runtime"] = runtime
     return block
+
+
+def utility_block(snapshot: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the ``evaluation.utility`` record of an evaluation: no utility check applied.
+
+    Every evaluation block states it, so a reader never mistakes a missing record for one.
+    ``value`` is null and never the grade's ``utility`` (``False`` beside ``not_applicable``);
+    ``snapshot_id`` is the block's own, null for a chain sealed short; and ``pairing_id`` is
+    null because no run is paired with a benign baseline.
+    """
+
+    return {
+        "value": None,
+        "applicability": NOT_APPLICABLE,
+        "reason": NO_UTILITY_CHECK,
+        "snapshot_id": snapshot["snapshot_id"] if snapshot else None,
+        "pairing_id": None,
+    }
 
 
 def _unplaced(item: dict[str, Any]) -> dict[str, Any]:

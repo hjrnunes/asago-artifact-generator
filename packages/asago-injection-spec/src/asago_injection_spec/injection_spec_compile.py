@@ -40,7 +40,8 @@ inputs give the same bytes.
   directory holds ``injection-spec.json`` alone, and ``verifiers`` names no verifier for the
   runner to register.
 - There is no utility check and no environment, and the runtime is ``unmanaged``: the
-  runner connects the agent.
+  runner connects the agent. A compile whose injection spec carries a utility check raises
+  ``CompileError`` (``refuse_utility_check``).
 
 MiDojo runs planted_item packages only. A package whose stimulus delivers its attack in
 the user turns (a direct or user-turn package), a single package with history, a
@@ -123,6 +124,8 @@ JUDGE_URL_ENV = "JUDGE_URL"
 JUDGE_TOKEN_ENV = "JUDGE_TOKEN"
 # What the check waits beyond the service's budget for the answer to travel.
 JUDGE_MARGIN_SECONDS = 10
+# The compile's reason for an injection spec that carries a utility check.
+UTILITY_CHECK_REFUSED = "utility_check_refused"
 
 
 class CompileError(BundleError):
@@ -209,13 +212,15 @@ def injection_spec_document(
         "allowed": allowed,
         "write_disposition": write_dispositions(allowed, declared, write_disposition or {}),
     }
+    spec = injection_spec(
+        turns=turns,
+        plan=injection_plan([item.instruction() for item in planted]),
+        security=security,
+        tools=tools,
+    )
+    refuse_utility_check(spec)
     document = build_envelope(
-        injection_spec(
-            turns=turns,
-            plan=injection_plan([item.instruction() for item in planted]),
-            security=security,
-            tools=tools,
-        ),
+        spec,
         package_id=package.manifest.package_id,
         scenario_id=package.manifest.scenario_id,
         package_digest=package.manifest.manifest_digest,
@@ -225,6 +230,22 @@ def injection_spec_document(
         tool_revision_range=TOOL_REVISION_RANGE,
     )
     return document
+
+
+def refuse_utility_check(spec: Mapping[str, Any]) -> None:
+    """Raise ``CompileError`` when the injection spec carries a utility check.
+
+    No package input reaches this: the spec writes ``utility`` null and a package has no
+    utility member. The guard stops a later compile path that authors one, because the receipt
+    records no utility check and a run would report a check it never states as not applicable.
+    The message names ``UTILITY_CHECK_REFUSED``, the compile's own reason.
+    """
+
+    if spec.get("utility") is not None:
+        raise CompileError(
+            f"{UTILITY_CHECK_REFUSED}: the injection spec carries a utility check, and the "
+            f"receipt records none"
+        )
 
 
 def allowed_tools(

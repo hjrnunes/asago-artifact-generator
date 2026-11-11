@@ -6,15 +6,21 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 from midojo_sdk.injection_spec_schema import INJECTION_SPEC_DOCUMENT_V1
 
 from asago_bundle_core.testing import write_test_package
+from asago_injection_spec import injection_spec_compile
 from asago_injection_spec.document import ENVELOPE_FIELDS, ENVELOPE_SCHEMA
 from asago_injection_spec.injection_spec_compile import (
     INJECTION_SPEC_FILE,
     TOOL_REVISION_RANGE,
+    UTILITY_CHECK_REFUSED,
+    CompileError,
     compile_injection_spec,
+    injection_spec_document,
+    refuse_utility_check,
 )
 from asago_package.package_io import SEED_MEMBER, build_package, write_package
 
@@ -121,3 +127,41 @@ def test_compile_writes_the_envelope_and_its_placement(tmp_path: Path) -> None:
             "record_key": SLOT["record_key"],
         }
     ]
+
+
+def test_the_compile_writes_no_utility_check(tmp_path: Path) -> None:
+    document = injection_spec_document(planted_package(tmp_path), target=TARGET / "target.yaml")
+
+    assert document["episode"]["utility"] is None
+
+
+@pytest.mark.parametrize("utility", [{"predicate": "tool_call_condition"}, {}, False, "check"])
+def test_a_compile_that_would_write_a_utility_check_is_refused_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, utility: Any
+) -> None:
+    """No package input reaches the guard, so the test stands in for a later compile path."""
+
+    real = injection_spec_compile.injection_spec
+
+    def with_utility(**kwargs: Any) -> dict[str, Any]:
+        return {**real(**kwargs), "utility": utility}
+
+    monkeypatch.setattr(injection_spec_compile, "injection_spec", with_utility)
+    out = tmp_path / "out"
+
+    with pytest.raises(CompileError, match=UTILITY_CHECK_REFUSED):
+        compile_injection_spec(planted_package(tmp_path), out, target=TARGET / "target.yaml")
+
+    assert not out.exists()
+
+
+def test_the_utility_refusal_names_its_own_reason() -> None:
+    with pytest.raises(CompileError) as raised:
+        refuse_utility_check({"utility": {"predicate": "tool_call_condition"}})
+
+    assert str(raised.value).startswith(f"{UTILITY_CHECK_REFUSED}:")
+
+
+@pytest.mark.parametrize("spec", [{"utility": None}, {}])
+def test_a_spec_without_a_utility_check_passes_the_guard(spec: dict[str, Any]) -> None:
+    refuse_utility_check(spec)

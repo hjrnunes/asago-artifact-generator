@@ -655,6 +655,55 @@ def test_a_decided_grade_without_its_security_reason_is_malformed(
     assert receipt["evaluation"]["verdict"] is None
 
 
+def test_every_evaluation_block_states_that_no_utility_check_applied(tmp_path: Path) -> None:
+    """``utility: false`` beside ``not_applicable`` is MiDojo's mark of an unauthored check.
+
+    The receipt's record is not applicable with no value, so the grade's ``false`` never
+    becomes a utility result.
+    """
+
+    verdict = with_grade("command-single", "detected", utility=False)
+    assert verdict["grade"]["grade_validity"]["utility"]["status"] == "not_applicable"
+
+    receipt = parsed(tmp_path, "command-single", "detected", verdict=verdict)
+
+    block = receipt["evaluation"]
+    assert block["utility"] == {
+        "value": None,
+        "applicability": "not_applicable",
+        "reason": "no_utility_check",
+        "snapshot_id": block["snapshot_id"],
+        "pairing_id": None,
+    }
+    assert block["snapshot_id"] is not None
+    assert receipt["execution_status"] == "completed"
+
+
+@pytest.mark.parametrize("status", ["valid", "invalid"])
+def test_a_grade_that_ran_a_utility_check_fails_the_receipt_with_its_own_reason(
+    tmp_path: Path, status: str
+) -> None:
+    validity = recorded("command-single", "detected", "verdict.json")["grade"]["grade_validity"]
+    verdict = with_grade(
+        "command-single",
+        "detected",
+        utility=True,
+        grade_validity={**validity, "utility": {"status": status, "reasons": []}},
+    )
+
+    receipt = parsed(tmp_path, "command-single", "detected", verdict=verdict)
+
+    assert (receipt["execution_status"], receipt["incomplete_reason"]) == (
+        "failed",
+        "verdict_utility_graded",
+    )
+    assert receipt["attempts"] == []
+    assert receipt["runtime_status"] is None
+    assert receipt["evaluation"]["verdict"] is None
+    assert receipt["evaluation"]["utility"]["applicability"] == "not_applicable"
+    assert receipt["evaluation"]["utility"]["value"] is None
+
+
 def test_a_call_outside_the_turns_fails_the_receipt(tmp_path: Path) -> None:
     calls = recorded("command-single", "detected", "snapshot.json")["function_calls"]
     calls[0]["turn"] = 3
@@ -815,7 +864,8 @@ def test_a_parse_without_a_runtime_writes_the_saved_receipt_byte_for_byte(
     run at consumer fd0de5a. The amendment moved the envelope's ``spec_digest`` (a spec's
     identity covers its schema, and the schema now declares the optional runtime), so the
     comparison carries that one envelope field over; every other byte must match, so a parse
-    that recorded a runtime key or reshaped anything else fails here.
+    that recorded a runtime key or reshaped anything else fails here. The saved text also holds
+    the constant ``evaluation.utility`` record every evaluation block states.
     """
 
     run = run_dir(tmp_path, "command-single", "detected")

@@ -137,6 +137,13 @@
     "evidence_status": {},
     "exposure": null,
     "snapshot_id": "sha256:a64ef655018e5534247e9b2a74e480de8afaa479717a97d6fc4a16aa740973d5",
+    "utility": {
+      "applicability": "not_applicable",
+      "pairing_id": null,
+      "reason": "no_utility_check",
+      "snapshot_id": "sha256:a64ef655018e5534247e9b2a74e480de8afaa479717a97d6fc4a16aa740973d5",
+      "value": null
+    },
     "verdict": {
       "attempted": null,
       "blocked": null,

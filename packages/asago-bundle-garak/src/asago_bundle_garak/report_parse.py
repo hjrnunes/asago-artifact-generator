@@ -83,6 +83,7 @@ from asago_injection_spec.sealed import (
     sealed_failure_of,
     snapshot_shape,
     verdict_shape,
+    verdict_utility_reason,
 )
 
 from .compiler import (
@@ -662,10 +663,17 @@ def sealed_snapshot(trace: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def sealed_verdict(trace: dict[str, Any]) -> dict[str, Any] | None:
-    """Return the verdict the trace sealed, or None when it states none this parser reads."""
+    """Return the verdict the trace sealed, or None when it states none this parser reads.
+
+    A verdict whose grade ran a utility check is one this parser does not read
+    (``verdict_utility_reason``): the receipt records no utility check, so it states none of
+    that grade.
+    """
 
     found = trace.get("verdict")
-    return found if isinstance(found, dict) and verdict_shape(found) else None
+    if isinstance(found, dict) and verdict_shape(found) and verdict_utility_reason(found) is None:
+        return found
+    return None
 
 
 def sealed_delivery(trace: dict[str, Any]) -> dict[str, Any] | None:
@@ -726,7 +734,7 @@ def sealed_trace_failure(trace: dict[str, Any]) -> str | None:
         return unreadable_document(trace.get("snapshot"), "snapshot")
     verdict = sealed_verdict(trace)
     if verdict is None:
-        return unreadable_document(trace.get("verdict"), "verdict")
+        return unreadable_verdict(trace.get("verdict"))
     return sealed_failure_of(snapshot, verdict, sealed_delivery(trace))
 
 
@@ -735,11 +743,26 @@ def unreadable_document(document: Any, prefix: str) -> str:
 
     ``read_document`` (``asago_injection_spec.sealed``) names a document the seal never
     states ``<prefix>_missing`` and one it states but cannot shape-check
-    ``<prefix>_malformed``. This route names the same reasons, never a new one: the
-    orchestrator's receipt reader places those reasons in evidence integrity.
+    ``<prefix>_malformed``. This route names the same reasons: the orchestrator's receipt
+    reader places those reasons in evidence integrity.
     """
 
     return f"{prefix}_missing" if document is None else f"{prefix}_malformed"
+
+
+def unreadable_verdict(document: Any) -> str:
+    """Return the reason MiDojo's reader names for a sealed verdict it cannot read.
+
+    That is ``unreadable_document``'s, except for a verdict whose shape holds and whose grade
+    ran a utility check: ``verdict_utility_graded`` (``verdict_utility_reason``), its own
+    reason, so a refused check never reads as a malformed verdict.
+    """
+
+    if isinstance(document, dict) and verdict_shape(document):
+        refused = verdict_utility_reason(document)
+        if refused is not None:
+            return refused
+    return unreadable_document(document, "verdict")
 
 
 def chain_attempts(entries: list[Any]) -> dict[int, list[dict[str, Any]]]:

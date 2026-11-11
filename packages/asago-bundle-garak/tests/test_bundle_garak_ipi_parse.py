@@ -762,6 +762,7 @@ def test_the_receipt_names_the_route_and_what_the_probe_sealed(tmp_path: Path) -
         ],
         "delivery": [],
         "exposure": UNEXPOSED,
+        "utility": no_utility(sealed["snapshot_id"]),
     }
     report = output / "bundle" / "reports" / f"{SCENARIO}.report.jsonl"
     assert receipt["native"] == [
@@ -797,7 +798,102 @@ def test_an_interrupted_chain_names_its_evaluation_but_no_snapshot(tmp_path: Pat
         "call_injections": None,
         "delivery": None,
         "exposure": None,
+        "utility": no_utility(None),
     }
+
+
+def no_utility(snapshot_id: str | None) -> dict[str, Any]:
+    """The ``evaluation.utility`` record every evaluation block states: no check applied."""
+
+    return {
+        "value": None,
+        "applicability": "not_applicable",
+        "reason": "no_utility_check",
+        "snapshot_id": snapshot_id,
+        "pairing_id": None,
+    }
+
+
+@pytest.mark.parametrize("name", sorted(CASES))
+def test_every_evaluation_block_states_the_no_utility_record(tmp_path: Path, name: str) -> None:
+    """The record is there whatever the chain's outcome, and names the block's own snapshot."""
+
+    receipt = parse(make_bundle(tmp_path, CASES[name]))
+
+    block = receipt["evaluation"]
+    assert block["utility"] == no_utility(block["snapshot_id"])
+
+
+def test_a_grade_of_false_beside_not_applicable_never_becomes_a_false_utility(
+    tmp_path: Path,
+) -> None:
+    """MiDojo writes ``utility: false`` with ``not_applicable``; the receipt has no utility value.
+
+    The record is not applicable, so ``value`` is null: a copied ``false`` would report a
+    utility check that failed when none ran, and the schema refuses a value there.
+    """
+
+    sealed = trace(calls=(WITHDRAW,), security=True, effect=True, utility=False)
+    assert sealed["verdict"]["grade"]["utility"] is False
+    assert sealed["verdict"]["grade"]["grade_validity"]["utility"]["status"] == "not_applicable"
+    entries = chain(
+        texts=TEXTS,
+        sealed=sealed,
+        records=(verdict_record("detected", security=True),),
+    )
+
+    receipt = parse(make_bundle(tmp_path, entries))
+
+    utility = receipt["evaluation"]["utility"]
+    assert utility["value"] is None
+    assert utility["applicability"] == "not_applicable"
+    assert receipt["execution_status"] == "completed"
+    assert receipt["evaluation"]["verdict"]["security"] is True
+
+
+@pytest.mark.parametrize("status", ["valid", "invalid"])
+@pytest.mark.parametrize("utility", [True, False, None])
+def test_a_grade_that_ran_a_utility_check_is_refused_with_its_own_reason(
+    tmp_path: Path, status: str, utility: bool | None
+) -> None:
+    """The receipt records no utility check, so a grade that ran one states no attempt.
+
+    The reason is its own, never ``verdict_malformed``: the verdict is well formed and what it
+    states is what this receipt cannot carry. The block still records no utility.
+    """
+
+    sealed = trace(calls=(WITHDRAW,), security=True, utility=utility, utility_status=status)
+    entries = chain(
+        texts=TEXTS,
+        sealed=sealed,
+        records=(verdict_record("detected", security=True),),
+    )
+
+    receipt = parse(make_bundle(tmp_path, entries))
+
+    assert (receipt["execution_status"], receipt["incomplete_reason"]) == (
+        "failed",
+        "verdict_utility_graded",
+    )
+    assert receipt["attempts"] == []
+    assert receipt["evaluation"]["verdict"] is None
+    assert receipt["evaluation"]["utility"] == no_utility(sealed["snapshot_id"])
+
+
+def test_a_grade_with_an_unknown_utility_status_is_malformed_not_a_utility_grade(
+    tmp_path: Path,
+) -> None:
+    sealed = trace(calls=(WITHDRAW,), security=True, utility_status="unclear")
+    entries = chain(
+        texts=TEXTS,
+        sealed=sealed,
+        records=(verdict_record("detected", security=True),),
+    )
+
+    receipt = parse(make_bundle(tmp_path, entries))
+
+    assert receipt["incomplete_reason"] == "verdict_malformed"
+    assert receipt["attempts"] == []
 
 
 def test_an_unreadable_grade_leaves_the_episode_verdict_null(tmp_path: Path) -> None:

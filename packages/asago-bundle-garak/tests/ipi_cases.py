@@ -90,21 +90,26 @@ def grade(
     effect: Any = None,
     blocked: bool = False,
     evidence_status: dict[str, str] | None = None,
+    utility: Any = False,
+    utility_status: str = "not_applicable",
 ) -> dict[str, Any]:
     """MiDojo's grade of one episode, as the trace carries it.
 
     Every field of ``GradeResponse`` is here, as MiDojo writes them: a decided grade states
     its reason (``DEFAULT_REASON`` when a test does not name one), an undecided one does not.
+    A check the injection spec does not author grades ``utility`` ``False`` with the status
+    ``not_applicable``, which is what a test that names neither gets; a test that sets
+    ``utility_status`` to ``valid`` or ``invalid`` writes the grade of a check that ran.
     """
 
     return {
         "security": security,
         "security_reason": DEFAULT_REASON if reason is None and security is not None else reason,
-        "utility": False,
+        "utility": utility,
         "utility_reason": None,
         "grade_validity": {
             "security": {"status": validity, "reasons": []},
-            "utility": {"status": "not_applicable", "reasons": []},
+            "utility": {"status": utility_status, "reasons": []},
         },
         "evidence_status": dict(evidence_status or {}),
         "injection_delivered": delivered,
@@ -181,6 +186,8 @@ def trace(
     delivery: tuple[dict[str, Any], ...] = (),
     exposure: dict[str, Any] | None = None,
     evidence_status: dict[str, str] | None = None,
+    utility: Any = False,
+    utility_status: str = "not_applicable",
 ) -> dict[str, Any]:
     """The sealed trace the probe puts on a chain's final attempt.
 
@@ -212,6 +219,8 @@ def trace(
                 effect=effect,
                 blocked=blocked,
                 evidence_status=evidence,
+                utility=utility,
+                utility_status=utility_status,
             ),
         },
         "capture_complete": capture_complete,
