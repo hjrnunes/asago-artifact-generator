@@ -20,13 +20,6 @@ dependencies = [
 [project.scripts]
 asago-bundle-garak = "asago_bundle_garak.cli:main"
 
-[dependency-groups]
-# The parity test reads each sealed fixture case through ``bundle-midojo parse`` as well.
-# Neither the library nor the CLI imports the MiDojo adapter, so it is a test-only dependency;
-# the parity module skips where the adapter is absent, and the isolated CI run also deselects
-# the marker (``-m "not parity"``) where it is installed.
-parity = ["asago-bundle-midojo"]
-
 [tool.uv.sources]
 asago-bundle-core = { workspace = true }
 asago-injection-spec = { workspace = true }
@@ -37,6 +30,3 @@ packages = ["src/asago_bundle_garak"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = [
-    "parity: reads each sealed case through bundle-garak and bundle-midojo; needs the test-only MiDojo adapter",
-]

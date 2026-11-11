@@ -1,8 +1,7 @@
 """Build a ``bundle-garak`` receipt from one sealed ``fixtures/ipi`` case.
 
-The parity test and the fixture generator's ``--check`` both read the seven cases this way.
-This module reads only the Garak adapter, so its importers need no MiDojo adapter; only
-:mod:`test_bundle_garak_parity` compares the receipt with ``bundle-midojo``'s.
+The fixture tests and the fixture generator's ``--check`` both read the seven cases this
+way. This module reads only the Garak adapter, so its importers need no MiDojo adapter.
 """
 
 from __future__ import annotations

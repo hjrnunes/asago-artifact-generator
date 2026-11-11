@@ -140,11 +140,6 @@ dependencies = [
     { name = "midojo-spec" },
 ]
 
-[package.dev-dependencies]
-parity = [
-    { name = "asago-bundle-midojo" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
@@ -153,9 +148,6 @@ requires-dist = [
     { name = "asago-package", editable = "packages/asago-package" },
     { name = "midojo-spec", git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=32e3b541244459626582ca00f31ac91ec29e06d2" },
 ]
-
-[package.metadata.requires-dev]
-parity = [{ name = "asago-bundle-midojo", editable = "packages/asago-bundle-midojo" }]
 
 [[package]]
 name = "asago-bundle-midojo"

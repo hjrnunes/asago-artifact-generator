@@ -73,8 +73,7 @@ jobs:
   # the authoring application. The isolated environment installs only the member, the Asago
   # members it declares and pytest, so an import of the authoring application fails and
   # names the leak. `bundle-garak` declares the injection-spec library, not the MiDojo
-  # adapter: its parity test (the only test that reads both adapters) is marked `parity` and
-  # deselected here.
+  # adapter, and reads it through that dependency.
   adapter-isolation:
     name: ${{ matrix.adapter }} without the authoring application (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -104,7 +103,6 @@ jobs:
               --with ./packages/asago-package
               --with ./packages/asago-bundle-core
               --with ./packages/asago-injection-spec
-            pytest_args: -m "not parity"
           - adapter: asago-bundle-midojo
             module: asago_bundle_midojo
             libraries: >-
