@@ -48,6 +48,14 @@ listens on 127.0.0.1 only. Its access log names each request's method (``POST``,
 ``-``) and status, never the path, a header or the request line, and an error answer
 carries the status's standard text only.
 
+With ``--record PATH``, the service uses one ``midojo_spec.judge_exchange.ExchangeLog``
+per server to append a ``midojo.judge-exchange.v1`` JSONL row for every model request,
+answered or failed. A request-local ``ask`` counts its model sends from zero. The log
+redacts the service token and model key in text, but keeps the original digests that
+``details.records`` reports; it writes no prompts or replies to the access log. A
+recording failure answers HTTP 500 without a verdict. Without ``--record`` the service
+writes no exchange log and accepts the same request IDs it accepted before the move.
+
 Each judged turn is one model request, sent once, as the rubric judge's ``http_judge``
 sends it. A model request may take up to 180 seconds (``TIMEOUT_SECONDS``, the old
 judge's), and one ``midojo.judge.v1`` request's model requests share 180 seconds per
@@ -55,7 +63,7 @@ judged turn (``budget_seconds``): the check's ``timeout_seconds`` is that and a 
 (``injection_spec_compile.judge_timeout_seconds``). The time left bounds the connect (a socket
 timeout); from then on the connection's socket is shut down at the deadline, so an answer
 whose status line, headers, body, chunk framing or trailers trickle in is cut off there
-(``judge_failed:APITimeoutError``). The service keeps no state between
+(``judge_failed:APITimeoutError``). The service keeps no grading state between
 requests: MiDojo may ask up to three times in one grading, first on the whole run, then
 without the blocked calls (for ``blocked``), then without the blocked and unfinished calls
 (for ``effect_observed``), and each request is judged on its own.

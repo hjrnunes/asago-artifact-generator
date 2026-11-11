@@ -1,7 +1,7 @@
 """The injection-spec library owns the compiler, the document and the sealed readers.
 
 The implementation lives in the ``asago-injection-spec`` workspace member. ``bundle-midojo``
-and ``bundle-garak`` import it directly, and ``bundle-midojo`` reads the judge-turn constants
+and ``bundle-garak`` import it directly, and ``bundle-garak`` reads the judge-turn constants
 from the member; ``bundle-garak`` declares the member instead of ``bundle-midojo``. The one
 remaining reference to the adapter in Garak's tests is the marked parity test, which reads one
 seal through both parsers.

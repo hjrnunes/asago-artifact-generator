@@ -33,7 +33,7 @@ inputs give the same bytes.
   whose value is the package's condition. A reply is checked with MiDojo's builtin
   ``reply_judge`` predicate: its claim is the judge's question, its rubric the judge's
   criteria and facts with the episode's user turns and ``judge_turns``, and it asks the
-  judge service (``judge_service.py``) at the URL in ``JUDGE_URL`` with the token in
+  Garak adapter's ``judge-serve`` at the URL in ``JUDGE_URL`` with the token in
   ``JUDGE_TOKEN``, sending the earlier turns and the recorded calls. It waits 180
   seconds for each turn the service judges, and 10 more (``judge_timeout_seconds``).
   A planted_item run does no package setup, so the judge gets no runtime facts. The

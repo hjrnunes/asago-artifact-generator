@@ -1106,9 +1106,11 @@ probe plants through the same host interceptor. Neither adapter writes a `seed.j
 into the target. The adapter reads and writes MiDojo's documents through `midojo-sdk`,
 which `pyproject.toml` pins by commit to `asago/main` at `d5677d3` (subdirectory
 `interception/python-sdk`), and it never imports `midojo`: the injection-spec schema,
-the plan, the snapshot digest and the rubric judge are the SDK's
-(`midojo_sdk.injection_spec_schema`, `midojo_sdk.injection`, `midojo_sdk.snapshot` and
-`midojo_sdk.rubric_judge`).
+the plan and the snapshot digest are the SDK's
+(`midojo_sdk.injection_spec_schema`, `midojo_sdk.injection` and `midojo_sdk.snapshot`).
+The Garak adapter's judge service uses `midojo-spec` for the rubric judge and its
+exchange log. The local `midojo-spec` pin in `pyproject.toml` needs a fork SHA at the
+milestone.
 The runner runs the injection spec with the same revision, `asago/main` at `d5677d3`. It
 reads the v1 document under either ID: `midojo.evaluation_handle.open`, with
 `HostInterception` (`src/midojo/interception_host.py`), `midojo.grade`
@@ -1124,7 +1126,8 @@ asago-bundle-midojo compile PACKAGE --out INJECTION_SPEC_DIR --target target.yam
 # and may write delivery.json from midojo.delivery; a reply episode's grade asks
 # the judge service
 JUDGE_MODEL_URL=http://127.0.0.1:8001/v1 JUDGE_MODEL=judge-name OPENAICOMPATIBLE_API_KEY=... \
-JUDGE_SERVICE_TOKEN=... asago-bundle-midojo judge-serve [--port 8780]
+JUDGE_SERVICE_TOKEN=... asago-bundle-garak judge-serve [--port 8780] \
+  [--record judge-record.jsonl]
 asago-bundle-midojo parse INJECTION_SPEC_DIR --snapshot snapshot.json --verdict verdict.json \
   [--delivery delivery.json] --out execution-receipt.json [--driver midojo] \
   [--runtime {openshell,unmanaged}] [--runtime-evidence FACT]... \
@@ -1259,8 +1262,8 @@ with no retry, no proxy from the environment and no redirect followed. With
 a run with one sends a second, different request in the same grading. The same inputs
 give the same bytes.
 
-`asago-bundle-midojo judge-serve` answers that request with the rubric judge
-(`midojo_sdk.rubric_judge`, Garak's port): for
+`asago-bundle-garak judge-serve` answers that request with the rubric judge
+(`midojo_spec.rubric_judge`, Garak's port): for
 the conversation the request holds it sends the model the requests Garak's `RubricJudge`
 sends, one per judged turn (the last turn for `final`, each in order for `all`, whose last
 verdict is the answer), checked against Garak's (`midojo`'s `tests/fixtures/rubric/`). It
@@ -1271,6 +1274,17 @@ answers
 judge_turns, request_count, records}`, each record a judged turn's `verdict`,
 `evidence_refs`, `reason`, `prompt_version`, `request_sha256` (the judge request sent) and
 `response_sha256` (the model's text), each digest the SHA-256 hex of the UTF-8 text or null.
+Pass `--record judge-record.jsonl` to append a `midojo.judge-exchange.v1` JSONL row
+for every model request, including failed calls. `midojo_spec.judge_exchange` defines
+the row, the strict reader and the redaction rules. Each row names the incoming request
+ID and the zero-based `ask` within that request; it holds the model, prompt version,
+messages, reply or error, HTTP status, usage, timing and the request and response
+digests. Its digests match the corresponding `details.records` entry before redaction.
+The file has mode 0600 and can contain prompts and replies; keep it private. The service
+replaces its bearer token and model key in the recorded text with `[redacted]` without
+changing the digests. Without `--record`, the service writes no exchange log. With it,
+the service rejects an ID outside `sha256:` plus 64 lowercase hex digits with HTTP 400
+before asking a model; a recording failure returns HTTP 500 without a verdict.
 Neither the evidence nor the model's text is echoed back, so `details` stays within
 MiDojo's nesting limit (64) whatever the tool arguments. The answer's only strings from
 outside the service are `model` (its environment's) and the evidence references (the

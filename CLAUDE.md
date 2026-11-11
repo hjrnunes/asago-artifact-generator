@@ -199,6 +199,9 @@ the group the module skips and names what it needs.
   that same template with the resolved values (`fill_template`, which `instantiate_bundle`
   also uses). The bundle's MCP server is the authorized config's `endpoint.mcp_url`.
   Its CLI `instantiate` requires `--package`, `--target` and `--run`.
+  The CLI also runs `judge-serve --record PATH` for a reply episode. The service appends one
+  `midojo.judge-exchange.v1` row per model request through `midojo_spec.judge_exchange`;
+  it imports neither Garak nor the MiDojo harness. Without `--record`, it writes no log.
   A `planted_item` package takes the IPI route: `compile --target` writes `ipi-episodes.json`
   (one `{injection_spec, placements, metadata}` entry, the injection spec the shared
   injection-spec library's `injection_spec_document` builds and that envelope's
@@ -272,9 +275,10 @@ the group the module skips and names what it needs.
   (delivered, undelivered, incomplete, blocked, sequential, reply-judged and a tampered
   snapshot), each with the report, the snapshot, the verdict and the delivery document
   MiDojo produced, plus `expected.json` naming the outcome the route must state.
-  `tools/fixture-generators/garak_ipi.py` reseals them with the MiDojo interpreter
-  (`--check` reproduces every file byte for byte), and its README says what each case is
-  real evidence of and what the report composes.
+  `tools/fixture-generators/garak_ipi.py` reseals them with the MiDojo interpreter;
+  `--check` compares the result with the pinned files. With the current MiDojo
+  interpreter, `--check` reports 14 stale files on both the base and this branch.
+  The fixture README says what each case is real evidence of and what the report composes.
 - `packages/asago-injection-spec/`: the injection-spec library workspace member
   (`asago_injection_spec`): the compiler from a `planted_item` package to one MiDojo
   injection spec, the consumer envelope, the placement and reachability checks, the
@@ -285,7 +289,8 @@ the group the module skips and names what it needs.
   only test that also reads `bundle-midojo`, and it is marked `parity` because the MiDojo
   adapter is a test-only dependency.
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member (the compile and
-  parse CLIs and the judge service). It imports the injection-spec library directly and
+  parse CLIs). Its sealed reply tests drive the Garak adapter's judge service. It imports
+  the injection-spec library directly and
   holds no module that re-exports it: the former `declared`, `document`, `injection_spec`,
   `injection_spec_compile`, `placement`, `reachable`, `route` and `sealed` alias modules
   and the pre-rename `episode` modules are gone. Its revision history, fixture provenance

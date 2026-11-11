@@ -4,6 +4,17 @@ This page holds the MiDojo adapter's revision history, fixture provenance and
 implementation notes, moved out of the agent guide (`CLAUDE.md`) so that guide
 stays short.
 
+## 2026-11-11: the Garak adapter owns the judge service and its exchange log
+
+`asago-bundle-garak judge-serve` now serves the reply judge. Pass `--record PATH` to
+write one `midojo.judge-exchange.v1` JSONL row for each answered or failed model
+request. The implementation uses `midojo_spec.rubric_judge` and
+`midojo_spec.judge_exchange`; the MiDojo adapter keeps compile, parse and its sealed
+reply tests. Its test-only `judge-test` group names bundle-garak. The model key and
+service token are redacted from logged text while the row keeps the original digests.
+`midojo-sdk` remains a dependency of asago-injection-spec, so an isolated bundle-garak
+install still pulls in the SDK, but not Garak or the MiDojo harness.
+
 The adapter currently pins `midojo-sdk` at `d5677d3`, which keeps the two host-facing
 keyword arguments `open_evaluation(episode=...)` and
 `MidojoInjectionSpecTarget(episode_for_payload=...)` as deprecated forwarding aliases for

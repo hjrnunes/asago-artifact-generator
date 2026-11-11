@@ -4,8 +4,9 @@
 byte because `test_judge_service.py` reads it: the fixture holds the conversations the
 judge service grades and the judge records Garak made for them.
 
-The judge moved into the MiDojo fork (`midojo_sdk.rubric_judge`), so `vectors.json` and
-`fidelity.json` moved with it, to `midojo:tests/fixtures/rubric/`, and so did their tests.
+The rubric judge now lives in `midojo_spec.rubric_judge`; its original vectors and
+fidelity cases moved into MiDojo's fixture set. The Garak adapter keeps `turns.json`
+because its judge-service test reads the exact conversations and requests.
 
 The generators stay here because they need Garak's interpreter and, for
 `generate_fidelity.py` and `generate_turns.py`, this package's sink and adapter:
