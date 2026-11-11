@@ -237,12 +237,15 @@ def test_judge_serve_without_its_environment_exits_before_listening() -> None:
 
 
 def test_judge_serve_with_unusable_record_exits_before_listening(tmp_path: Path) -> None:
-    path = tmp_path / "missing" / "log.jsonl"
+    token = "placeholder-service-token"
+    key = "placeholder-model-key"
+    path = tmp_path / token / key / "log.jsonl"
     environ = {
         **os.environ,
         "JUDGE_MODEL_URL": "http://127.0.0.1:9/v1",
         "JUDGE_MODEL": "judge-model",
-        "JUDGE_SERVICE_TOKEN": "placeholder-service-token",
+        "JUDGE_SERVICE_TOKEN": token,
+        "OPENAICOMPATIBLE_API_KEY": key,
     }
     result = subprocess.run(
         [*COMMAND, "--record", str(path)],
@@ -252,5 +255,10 @@ def test_judge_serve_with_unusable_record_exits_before_listening(tmp_path: Path)
         timeout=30,
     )
     assert result.returncode == 1
-    assert str(path) in result.stderr and "No such file or directory" in result.stderr
+    assert result.stderr == (
+        "judge-serve: the record file cannot be created or made private "
+        "(No such file or directory)\n"
+    )
     assert result.stdout == ""
+    assert token not in result.stdout + result.stderr
+    assert key not in result.stdout + result.stderr

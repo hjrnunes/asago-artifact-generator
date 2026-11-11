@@ -496,13 +496,17 @@ def _private_record(path: str | Path) -> ExchangeLog:
         try:
             mode = os.fstat(descriptor).st_mode
             if not stat.S_ISREG(mode):
-                raise OSError("not a regular file")
+                raise ServiceConfigError("the record path is not a regular file")
             if stat.S_IMODE(mode) & 0o077:
-                os.chmod(path, 0o600)
+                # Tighten the inode we checked, not a pathname that could be replaced.
+                os.fchmod(descriptor, 0o600)
         finally:
             os.close(descriptor)
     except OSError as exc:
-        raise ServiceConfigError(f"record path {path}: {exc.strerror or str(exc)}") from exc
+        reason = os.strerror(exc.errno) if exc.errno is not None else type(exc).__name__
+        raise ServiceConfigError(
+            f"the record file cannot be created or made private ({reason})"
+        ) from None
     return ExchangeLog(path)
 
 

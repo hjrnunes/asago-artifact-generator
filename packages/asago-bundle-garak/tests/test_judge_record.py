@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import errno
 import io
 import json
+import os
 import stat
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -241,12 +243,15 @@ def test_a_record_failure_returns_500_without_a_verdict(
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
-@pytest.mark.parametrize("missing_parent", [False, True])
+@pytest.mark.parametrize(
+    ("missing_parent", "reason"),
+    [(False, "Is a directory"), (True, "No such file or directory")],
+)
 def test_unusable_record_path_refuses_server_before_binding(
-    tmp_path: Path, missing_parent: bool
+    tmp_path: Path, missing_parent: bool, reason: str
 ) -> None:
     path = tmp_path / "missing" / "log.jsonl" if missing_parent else tmp_path
-    with pytest.raises(service.ServiceConfigError, match="record path") as error:
+    with pytest.raises(service.ServiceConfigError, match=reason) as error:
         service.make_server(
             0,
             service.model_calls("http://127.0.0.1:9/v1", MODEL),
@@ -254,7 +259,22 @@ def test_unusable_record_path_refuses_server_before_binding(
             "token",
             record_path=path,
         )
-    assert str(path) in str(error.value)
+    assert str(path) not in str(error.value)
+
+
+def test_fifo_record_path_is_not_a_regular_file(tmp_path: Path) -> None:
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("this platform does not support FIFOs")
+    path = tmp_path / "pipe"
+    os.mkfifo(path)
+    with pytest.raises(service.ServiceConfigError, match="the record path is not a regular file"):
+        service.make_server(
+            0,
+            service.model_calls("http://127.0.0.1:9/v1", MODEL),
+            MODEL,
+            "placeholder-service-token",
+            record_path=path,
+        )
 
 
 def test_serve_with_unusable_record_path_prints_no_ready_line(
@@ -265,7 +285,7 @@ def test_serve_with_unusable_record_path_prints_no_ready_line(
     monkeypatch.setenv("JUDGE_SERVICE_TOKEN", "placeholder-service-token")
     out = io.StringIO()
     path = tmp_path / "missing" / "log.jsonl"
-    with pytest.raises(service.ServiceConfigError, match="record path"):
+    with pytest.raises(service.ServiceConfigError, match="the record file cannot be created"):
         service.serve(0, out=out, record_path=path)
     assert out.getvalue() == ""
 
@@ -277,10 +297,10 @@ def test_chmod_failure_refuses_server_without_writing(
     path.write_text("", encoding="utf-8")
     path.chmod(0o644)
 
-    def fail(_path: str | Path, _mode: int) -> None:
-        raise PermissionError("Operation not permitted")
+    def fail(_descriptor: int, _mode: int) -> None:
+        raise PermissionError(errno.EPERM, "placeholder-model-key")
 
-    monkeypatch.setattr(service.os, "chmod", fail)
+    monkeypatch.setattr(service.os, "fchmod", fail)
     with pytest.raises(service.ServiceConfigError, match="Operation not permitted"):
         service.make_server(
             0,
