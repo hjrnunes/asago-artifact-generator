@@ -1,4 +1,8 @@
-"""The tools a target config declares: ``tools-list.json`` and ``runtime-spec.yaml`` beside it."""
+"""The tools a target config declares: ``tools-list.json`` and ``runtime-spec.yaml`` beside it.
+
+Moved from the MiDojo adapter's suite; the fixtures for the variant builder come from the
+injection-spec library's own case builders (``injection_spec_cases``).
+"""
 
 from __future__ import annotations
 

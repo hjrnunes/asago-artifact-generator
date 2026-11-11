@@ -101,7 +101,7 @@ src = [
 ]
 # MiDojo's fixture copies are byte for byte MiDojo's: its lock pins each sha256, and MiDojo
 # styles its own ``generate.py`` at its line length, so neither lint nor format reads them.
-extend-exclude = ["packages/asago-bundle-midojo/tests/fixtures/midojo"]
+extend-exclude = ["packages/asago-injection-spec/tests/fixtures/midojo"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]

@@ -101,9 +101,9 @@ def dependency_sources() -> Iterator[Path]:
 for _source in (*consumer_sources(), *dependency_sources()):
     if str(_source) not in sys.path:
         sys.path.insert(0, str(_source))
-# The case builders the generator reads stay in the MiDojo adapter's suite; they build
-# packages with the library's own helpers and import no adapter.
-_CASE_BUILDERS = REPO / "packages/asago-bundle-midojo/tests"
+# The case builders the generator reads stay in the injection-spec library's suite; they
+# build packages with the library's own helpers and import no adapter.
+_CASE_BUILDERS = REPO / "packages/asago-injection-spec/tests"
 if str(_CASE_BUILDERS) not in sys.path:
     sys.path.insert(0, str(_CASE_BUILDERS))
 

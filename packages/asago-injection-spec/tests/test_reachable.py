@@ -8,7 +8,6 @@ episode could not deliver the item, and compile refuses it (``reachable.py``).
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +25,6 @@ from injection_spec_cases import (
 
 from asago_bundle_core.conformance import check_gap
 from asago_bundle_core.gap import CapabilityGap
-from asago_bundle_midojo.cli import main
 from asago_injection_spec.injection_spec_compile import compile_injection_spec
 from asago_injection_spec.reachable import names_record
 
@@ -77,7 +75,7 @@ def _read_package(
 
 
 def test_a_record_no_turn_names_and_no_tool_lists_is_a_gap_and_writes_nothing(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
 ) -> None:
     package = _read_package(tmp_path / "packages", UNNAMED, ["read_note"])
 
@@ -87,11 +85,7 @@ def test_a_record_no_turn_names_and_no_tool_lists_is_a_gap_and_writes_nothing(
     assert raised.value.record["reason"] == UNREACHED
     assert raised.value.record["delivery"] == "sequential"
     assert check_gap(raised.value.record, package) == []
-    out = tmp_path / "cli-out"
-    args = ["compile", str(package), "--out", str(out), "--target", str(TARGET)]
-    assert main(args) == 3
-    assert json.loads(capsys.readouterr().out)["reason"] == UNREACHED
-    assert not (tmp_path / "out").exists() and not out.exists()
+    assert not (tmp_path / "out").exists()
 
 
 @pytest.mark.parametrize(

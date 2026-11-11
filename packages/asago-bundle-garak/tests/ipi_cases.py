@@ -1,7 +1,7 @@
 """The planted packages, and the reports an ``InjectionSpecProbe`` run writes, for the tests.
 
-The packages come from the MiDojo adapter's own builders
-(``packages/asago-bundle-midojo/tests/injection_spec_cases.py``): both adapters compile the
+The packages come from the injection-spec library's own builders
+(``packages/asago-injection-spec/tests/injection_spec_cases.py``): both adapters compile the
 same package for the same fixture target, and the entry Garak writes must carry the
 injection spec MiDojo compiled. The reports follow what ``garak/probes/midojo.py`` and
 ``garak/detectors/midojo.py`` write: each turn's attempt at status 1, the turn that
@@ -22,11 +22,11 @@ from midojo_spec.snapshot import snapshot_digest
 
 from conftest import REPO
 
-MIDOJO_TESTS = REPO / "packages" / "asago-bundle-midojo" / "tests"
-if str(MIDOJO_TESTS) not in sys.path:
-    sys.path.insert(0, str(MIDOJO_TESTS))
+INJECTION_SPEC_TESTS = REPO / "packages" / "asago-injection-spec" / "tests"
+if str(INJECTION_SPEC_TESTS) not in sys.path:
+    sys.path.insert(0, str(INJECTION_SPEC_TESTS))
 
-from injection_spec_cases import (  # noqa: E402, F401  the MiDojo adapter's builders, by path
+from injection_spec_cases import (  # noqa: E402, F401  the library's builders, by path
     CONDITION,
     JUDGE,
     PIGGYBANK,

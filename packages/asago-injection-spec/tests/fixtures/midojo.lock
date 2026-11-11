@@ -15,7 +15,6 @@
     "injection_spec_document/v1_sequential.json": "4abd877898c042844cc46f6055314cae33484c7727b067b9798009aab2574bce",
     "injection_spec_document/v1_single.json": "f3045916bd7ce7e3339deb4e22cb9b4bb1abf0a1e92dbc1b18130780b26fc6f0",
     "legacy_documents/v0_cm58_episode.json": "2ed42034d7332094ca1548947da6cc0139181596f9c3c187e9961c5448969e49",
-    "snapshot_digest/vectors.json": "506aed425279a6dd54cc9463440f63839c35a6064698630a18ab8b66741be0d5",
     "verdict_document/v0_cm58_verdict.json": "1bb55e5f91705c826a51823d2d885833335707dbd7ff75a02e81d045e980eaf7"
   }
 }

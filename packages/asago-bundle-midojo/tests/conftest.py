@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,11 @@ from asago_injection_spec.injection_spec_compile import (
 )
 
 REPO = Path(__file__).resolve().parents[3]
+# The case builders moved to the injection-spec library's suite; the adapter's remaining
+# tests read them from there.
+INJECTION_SPEC_TESTS = REPO / "packages" / "asago-injection-spec" / "tests"
+if str(INJECTION_SPEC_TESTS) not in sys.path:
+    sys.path.insert(0, str(INJECTION_SPEC_TESTS))
 RECEIPT_SCHEMA = REPO / "contracts/execution-receipt/execution-receipt-v2/schema.json"
 DELIVERY_CONTRACT = REPO / "contracts/midojo-delivery"
 # The range the recorded fixtures name, compiled at 8e8208f. Compile's minimum rose to

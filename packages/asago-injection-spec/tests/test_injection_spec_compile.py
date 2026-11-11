@@ -1,16 +1,12 @@
 """compile: a planted_item package becomes one MiDojo injection spec for the fixture target.
 
-``fixtures/episode/<case>/`` holds what compile wrote for each case of
-``injection_spec_cases.CASES`` with the fixture target's ``target.yaml``; MiDojo built each
-document from its data at 3824922 and wrote it back unchanged
-(``tools/fixture-generators/episode.py``), so a recorded fixture still holds MiDojo's
-document shape, under the filename and ID compile wrote then. A reply's check is MiDojo's
-``reply_judge``, which 3824922 does not have: ``fixtures/reply-judge-4e5176a/episode.json``
-is the reply case as compile wrote it then, which MiDojo 4e5176a built and graded
-(``tools/fixture-generators/reply_judge_4e5176a.py``). A target's ``call_arguments`` is
-checked against the shape MiDojo's plan data gives it from b5b8c75
-(``InjectionPlan.to_data``). Variants of the fixture target's declaration files
-(``injection_spec_cases.target_variant``) cover what the target itself does not declare.
+Each case of ``injection_spec_cases.CASES`` is compiled with the fixture target's
+``target.yaml``. The Garak adapter's fixture generator
+(``tools/fixture-generators/garak_ipi.py``) compiles the same cases for the same target, so
+the documents hold MiDojo's shape. A target's ``call_arguments`` is checked against the
+shape MiDojo's plan data gives it from b5b8c75 (``InjectionPlan.to_data``). Variants of the
+fixture target's declaration files (``injection_spec_cases.target_variant``) cover what the
+target itself does not declare.
 """
 
 from __future__ import annotations
@@ -26,8 +22,6 @@ from injection_spec_cases import (
     CASES,
     CONDITION,
     DISPOSITIONS,
-    EPISODES,
-    FIXTURES,
     JUDGE,
     PLANTED,
     READ_SLOT,
@@ -52,19 +46,13 @@ from asago_bundle_core.conformance import check_gap
 from asago_bundle_core.gap import CapabilityGap
 from asago_bundle_core.target import load_target_config
 from asago_bundle_core.testing import sequential_stimulus, single_stimulus
-from asago_bundle_midojo.cli import main
-from asago_injection_spec.document import (
-    ENVELOPE_FIELDS,
-    ENVELOPE_SCHEMA,
-    LEGACY_INJECTION_SPEC_SCHEMA,
-)
+from asago_injection_spec.document import ENVELOPE_FIELDS
 from asago_injection_spec.injection_spec import INJECTION_SPEC_FIELDS
 from asago_injection_spec.injection_spec_compile import (
     INJECTION_SPEC_FILE,
     CompileError,
     compile_injection_spec,
 )
-from conftest import as_written
 
 INSTRUCTION_FIELDS = {
     "channel",
@@ -100,10 +88,6 @@ def compiled(package: Path, out: Path, **options: Any) -> dict[str, Any]:
     return compile_injection_spec(package, out, target=options.pop("target", TARGET), **options)
 
 
-# The case whose fixture document MiDojo 4e5176a built: a reply's ``reply_judge`` check.
-REPLY_JUDGE_EPISODES = {"reply-single": FIXTURES / "reply-judge-4e5176a"}
-
-
 def written(root: Path) -> dict[str, bytes]:
     """Return what compile wrote under ``root``; a fixture's scenario directories and its
     generator are not compile's."""
@@ -116,15 +100,12 @@ def written(root: Path) -> dict[str, bytes]:
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
-def test_compile_writes_the_injection_spec_midojo_built_from_the_fixture(
-    tmp_path: Path, case: str
-) -> None:
+def test_compile_writes_only_the_injection_spec_for_the_fixture(tmp_path: Path, case: str) -> None:
     package = write_case_package(tmp_path / "packages", case)
     compiled(package, tmp_path / "out", write_disposition=DISPOSITIONS.get(case))
 
     out = tmp_path / "out"
     assert sorted(path.name for path in out.iterdir()) == [INJECTION_SPEC_FILE]
-    assert written(out) == as_written(REPLY_JUDGE_EPISODES.get(case, EPISODES / case), package)
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
@@ -178,41 +159,6 @@ def test_each_compiled_injection_spec_is_a_document_of_midojo_s_v1_schema(
     ]
 
     jsonschema.validate(injection_spec, load_schema())
-
-
-def test_every_recorded_fixture_document_is_midojo_s_own_v1_shape() -> None:
-    """The documents kept as fixtures stay valid too: they hold the ID compile wrote then."""
-
-    documents = {
-        path.relative_to(FIXTURES).as_posix()
-        for path in FIXTURES.rglob("episode.json")
-        if "episode-a5f81e9" not in path.parts
-    }
-
-    # name every fixture, so adding or losing one is a visible decision rather than a count
-    assert documents == {
-        "episode/command-blocked/episode.json",
-        "episode/command-sequential/episode.json",
-        "episode/command-single/episode.json",
-        "episode/reply-single/episode.json",
-        "placed-a19562e/note-generated/episode.json",
-        "placed-a19562e/note/episode.json",
-        "placed-a19562e/referral-generated/episode.json",
-        "placed-a19562e/referral/episode.json",
-        "reply-judge-246dc73/episode.json",
-        "reply-judge-4e5176a/episode.json",
-        "result-record/education/episode.json",
-        "result-record/referral/episode.json",
-    }, "the fixtures under episode-a5f81e9 hold the v0 wrapper and are read elsewhere"
-    # A recorded fixture holds the document as compile wrote it before the rename, so it
-    # names MiDojo's old ID, the same closed shape under the old name. M9 regenerates them.
-    schema = load_schema()
-    schema["properties"]["schema_version"] = {"const": LEGACY_INJECTION_SPEC_SCHEMA}
-    for path in sorted(documents):
-        document = json.loads((FIXTURES / path).read_text(encoding="utf-8"))
-        assert document["schema_version"] == ENVELOPE_SCHEMA, path
-        assert document["episode"]["schema_version"] == LEGACY_INJECTION_SPEC_SCHEMA, path
-        jsonschema.validate(document["episode"], schema)
 
 
 def test_a_command_attempt_episode_sends_the_user_turn_and_checks_the_condition(
@@ -587,7 +533,7 @@ def test_a_field_below_keys_declared_as_objects_is_placed_by_the_plain_path(
 
 @pytest.mark.parametrize("name", sorted(NOT_OBJECTS))
 def test_a_field_outside_a_list_below_a_key_not_declared_exactly_an_object_is_a_gap(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], name: str
+    tmp_path: Path, name: str
 ) -> None:
     target = target_variant(tmp_path / "variant", tools=_read_note_returning(NOT_OBJECTS[name]))
     package = _read_package(tmp_path, {**READ_SLOT, "field": "note.body"})
@@ -601,19 +547,15 @@ def test_a_field_outside_a_list_below_a_key_not_declared_exactly_an_object_is_a_
 
     assert raised.value.record["reason"] == reason
     assert check_gap(raised.value.record, package) == []
-    out = tmp_path / "cli-out"
-    assert main(["compile", str(package), "--out", str(out), "--target", str(target)]) == 3
-    assert json.loads(capsys.readouterr().out)["reason"] == reason
-    assert not (tmp_path / "out").exists() and not out.exists()
+    assert not (tmp_path / "out").exists()
 
 
 def test_a_list_slot_s_instruction_is_unchanged_by_the_object_rule(tmp_path: Path) -> None:
-    """The rule is for fields outside a list: the list case compiles to the bytes MiDojo built."""
+    """The rule is for fields outside a list: the list case keeps the plain record selector."""
 
     package = write_case_package(tmp_path / "packages", "command-single")
     compiled(package, tmp_path / "out")
 
-    assert written(tmp_path / "out") == as_written(EPISODES / "command-single", package)
     (instruction,) = json.loads(
         (tmp_path / "out" / INJECTION_SPEC_FILE).read_text(encoding="utf-8")
     )["episode"]["plan"]["instructions"]

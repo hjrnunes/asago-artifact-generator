@@ -13,7 +13,7 @@ files and are kept as they were recorded, because the owner decided not to re-sy
 later change deletes this adapter): ``injection_spec_document/README.md``,
 ``legacy_documents/v0_cm58_episode.json``, ``verdict_document/v0_cm58_verdict.json`` and
 ``snapshot_digest/vectors.json``. The v0 copy is the cm.58 ``episode.json`` verbatim, the
-file this adapter wrote before the envelope and the version MiDojo read as v0.
+file this library wrote before the envelope and the version MiDojo read as v0.
 """
 
 from __future__ import annotations
