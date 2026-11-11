@@ -1292,17 +1292,11 @@ def _sha256(path: Path) -> str:
 
 # --- the shared inconclusive vectors -------------------------------------------
 #
-# MiDojo owns the vectors; the MiDojo package holds the copy this package reads. Each case
+# MiDojo owns the vectors; this package's suite holds the copy it reads. Each case
 # is a sealed run with the outcome every route owes, and the report below is what the probe
 # writes for it: the trace it projects, and the records its detectors made.
 
-VECTORS = (
-    Path(__file__).parents[2]
-    / "asago-bundle-midojo"
-    / "tests"
-    / "fixtures"
-    / "inconclusive_vectors"
-)
+VECTORS = Path(__file__).parent / "fixtures" / "inconclusive_vectors"
 VECTOR_MANIFEST = json.loads((VECTORS / "MANIFEST.json").read_text(encoding="utf-8"))
 VECTOR_CASES = VECTOR_MANIFEST["cases"]
 VECTOR_CONTROL = "control-resisted"
