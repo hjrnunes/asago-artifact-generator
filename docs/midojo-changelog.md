@@ -77,9 +77,9 @@ the range and the document ID back when they compare a new compile.
 
 - `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member. Its compile and
   parse CLIs wrap the `asago-injection-spec` library, which maps a `planted_item` package to
-  one MiDojo injection spec for a target config and parses the sealed result; its
-  `judge_service` answers the reply episode's judge request. The module names `declared.py`,
-  `document.py`, `injection_spec.py`, `injection_spec_compile.py`, `placement.py`,
+  one MiDojo injection spec for a target config and parses the sealed result. The Garak
+  adapter's `judge_service` answers the reply episode's judge request. The module names
+  `declared.py`, `document.py`, `injection_spec.py`, `injection_spec_compile.py`, `placement.py`,
   `reachable.py`, `route.py` and `sealed.py` below are the library's modules under
   `asago_injection_spec`, not files in this package. MiDojo runs the injection spec,
   and the adapter holds no proxy or interception code. It names the MiDojo `asago/main`
@@ -131,9 +131,10 @@ the range and the document ID back when they compare a new compile.
   `reply_judge` (`security.reply_judge`: the judge's question as `claim`, a `rubric` of
   criteria, facts, `runtime_facts`, the user `turns` and `judge_turns`, `JUDGE_URL`/
   `JUDGE_TOKEN`, earlier turns and calls sent, 180 s per judged turn + 10), answered by
-  `judge_service.py` (CLI `judge-serve`, 127.0.0.1; model from `JUDGE_MODEL_URL`,
-  `JUDGE_MODEL`, `OPENAICOMPATIBLE_API_KEY`; token `JUDGE_SERVICE_TOKEN`), which runs
-  `midojo_sdk.rubric_judge` per judged turn, three-valued, its model requests checked
+  the Garak adapter's `judge_service.py` (CLI `judge-serve`, 127.0.0.1; model from
+  `JUDGE_MODEL_URL`, `JUDGE_MODEL`, `OPENAICOMPATIBLE_API_KEY`; token
+  `JUDGE_SERVICE_TOKEN`), which runs
+  `midojo_spec.rubric_judge` per judged turn, three-valued, its model requests checked
   against Garak's (`midojo`'s `tests/fixtures/rubric/`); a conversation that is not the
   rubric's turns is `unresolved`. Its `details` summarize each turn (no evidence or model text),
   the model key and token are redacted, and its log is method and status only.

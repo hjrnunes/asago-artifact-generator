@@ -1281,9 +1281,11 @@ ID and the zero-based `ask` within that request; it holds the model, prompt vers
 messages, reply or error, HTTP status, usage, timing and the request and response
 digests. Its digests match the corresponding `details.records` entry before redaction.
 The file has mode 0600 and can contain prompts and replies; keep it private. The service
-replaces its bearer token and model key in the recorded text with `[redacted]` without
-changing the digests. Without `--record`, the service writes no exchange log. With it,
-the service rejects an ID outside `sha256:` plus 64 lowercase hex digits with HTTP 400
+tightens an existing file before listening and refuses a missing parent or unusable path
+before printing a ready line. It replaces its bearer token and model key in the
+recorded text with `[redacted]` without changing the digests. Without `--record`,
+the service writes no exchange log. With recording, it rejects an ID outside
+`sha256:` plus 64 lowercase hex digits with HTTP 400
 before asking a model; a recording failure returns HTTP 500 without a verdict.
 Neither the evidence nor the model's text is echoed back, so `details` stays within
 MiDojo's nesting limit (64) whatever the tool arguments. The answer's only strings from
@@ -1542,8 +1544,8 @@ revision they come from, which the adapter's `pyproject.toml` pin must match.
 ├── src/asago_artifact_generator/    # authoring, packages, CLI
 ├── packages/asago-package/          # package library (workspace member): artifact-package-v5 writer and loader, binding rules, tool-call-condition evaluator, contract kit, and the authority copies of artifact-package, runtime-contract and capability-gap
 ├── packages/asago-bundle-core/      # shared adapter core (workspace member): the installed tool-bundle and execution-receipt specs, slots, package preparation, target config, conformance helper
-├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse as library entry points
-├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): the compile and parse CLIs and the judge service; both adapters read the compiler from asago-injection-spec
+├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse and the judge service
+├── packages/asago-bundle-midojo/    # MiDojo adapter (workspace member): the compile and parse CLIs; both adapters read the compiler from asago-injection-spec
 ├── packages/asago-injection-spec/   # injection-spec library (workspace member): a planted_item package to one MiDojo injection spec and a sealed result to evidence; neither adapter depends on the other
 ├── contracts/                        # the four consumer-owned contracts and the three producer mirrors the app keeps; each contract keeps a version directory (spec.json, schema.json, cases/, README.md) and a lock over its files, the shared core ships scenario-handoff, and the package library ships artifact-package, runtime-contract and capability-gap
 ├── scripts/                          # quality, replay, and budget tools
