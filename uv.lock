@@ -151,7 +151,7 @@ requires-dist = [
     { name = "asago-contracts-core", editable = "../asago-scenario-generator/packages/asago-contracts-core" },
     { name = "asago-injection-spec", editable = "packages/asago-injection-spec" },
     { name = "asago-package", editable = "packages/asago-package" },
-    { name = "midojo-spec", git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=31a77fd8f5bf12d8eb882afa42f6cdda610cad5f" },
+    { name = "midojo-spec", git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=32e3b541244459626582ca00f31ac91ec29e06d2" },
 ]
 
 [package.metadata.requires-dev]
@@ -178,7 +178,7 @@ requires-dist = [
     { name = "asago-bundle-core", editable = "packages/asago-bundle-core" },
     { name = "asago-injection-spec", editable = "packages/asago-injection-spec" },
     { name = "asago-package", editable = "packages/asago-package" },
-    { name = "midojo-spec", git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=31a77fd8f5bf12d8eb882afa42f6cdda610cad5f" },
+    { name = "midojo-spec", git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=32e3b541244459626582ca00f31ac91ec29e06d2" },
 ]
 
 [package.metadata.requires-dev]
@@ -235,7 +235,7 @@ requires-dist = [
     { name = "asago-contracts-core", editable = "../asago-scenario-generator/packages/asago-contracts-core" },
     { name = "asago-handoff", editable = "../asago-scenario-generator/packages/asago-handoff" },
     { name = "asago-package", editable = "packages/asago-package" },
-    { name = "midojo-spec", git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=31a77fd8f5bf12d8eb882afa42f6cdda610cad5f" },
+    { name = "midojo-spec", git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=32e3b541244459626582ca00f31ac91ec29e06d2" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
 
@@ -645,7 +645,7 @@ wheels = [
 [[package]]
 name = "midojo-spec"
 version = "0.1.0"
-source = { git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=31a77fd8f5bf12d8eb882afa42f6cdda610cad5f#31a77fd8f5bf12d8eb882afa42f6cdda610cad5f" }
+source = { git = "file:///Users/hjrnunes/workspace/asago/midojo?subdirectory=packages%2Fmidojo-spec&rev=32e3b541244459626582ca00f31ac91ec29e06d2#32e3b541244459626582ca00f31ac91ec29e06d2" }
 
 [[package]]
 name = "openai"

@@ -1,8 +1,8 @@
 {
-  "source": "midojo local 31a77fd8f5bf12d8eb882afa42f6cdda610cad5f",
+  "source": "midojo local 32e3b541244459626582ca00f31ac91ec29e06d2",
   "files": {
     "injection_spec_document/README.md": "7c9c10208e82debf4cce80affbeb385cbc6ec1ab48eb1c4e05973e1fbcdc5d98",
-    "injection_spec_document/generate.py": "9c82958d32fa6e83ff4b82507ff2ab98f7119d9f474123918c273799501467ba",
+    "injection_spec_document/generate.py": "c9df22b25f6db2317d621a32a9da562a829d9a0b570bdd7d11d434fb6747bc38",
     "injection_spec_document/refused_bad_disposition.json": "799761dd1059743922987d479cbdb5465f48c3412f5d9be169921901608e2215",
     "injection_spec_document/refused_nonempty_verifiers.json": "92beb0007ddb2a3d4ef17699d0af90928a6c5063d920db4571acaff86bad6e13",
     "injection_spec_document/refused_openshell_predicate_on_unmanaged.json": "68a2230f88f8a770efc28e04403c9c2a6c75cec87c268797f60cf64892c747e3",

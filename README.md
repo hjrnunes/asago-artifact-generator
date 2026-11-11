@@ -1105,14 +1105,14 @@ its `compile --target` writes `ipi-episodes.json`, and Garak's `InjectionSpecPro
 probe plants through the same host interceptor. Neither adapter writes a `seed.json`
 into the target. The adapter reads and writes MiDojo's documents through `midojo-spec`,
 the contracts package `pyproject.toml` pins by commit to the MiDojo reset lane at
-`31a77fd` (subdirectory `packages/midojo-spec`), and it never imports `midojo`: the
+`32e3b54` (subdirectory `packages/midojo-spec`), and it never imports `midojo`: the
 injection-spec schema, the plan, the snapshot digest, the rubric judge and the judge
 exchange log are the contracts package's (`midojo_spec.injection_spec_schema`,
 `midojo_spec.injection`, `midojo_spec.snapshot`, `midojo_spec.rubric_judge` and
 `midojo_spec.judge_exchange`). The local `midojo-spec` pin in `pyproject.toml` needs a
 fork SHA at the milestone.
 The runner runs the injection spec with the same revision, the MiDojo reset lane at
-`31a77fd`. It
+`32e3b54`. It
 reads the v1 document under either ID: `midojo.evaluation_handle.open`, with
 `HostInterception` (`src/midojo/interception_host.py`), `midojo.grade`
 (`src/midojo/control_plane/grading.py`), and, for a reply episode, MiDojo's `reply_judge`

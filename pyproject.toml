@@ -68,7 +68,7 @@ asago-bundle-midojo = { workspace = true }
 asago-injection-spec = { workspace = true }
 asago-package = { workspace = true }
 # Local milestone pin: re-point this source to the fork SHA before release.
-midojo-spec = { git = "file:///Users/hjrnunes/workspace/asago/midojo", subdirectory = "packages/midojo-spec", rev = "31a77fd8f5bf12d8eb882afa42f6cdda610cad5f" }
+midojo-spec = { git = "file:///Users/hjrnunes/workspace/asago/midojo", subdirectory = "packages/midojo-spec", rev = "32e3b541244459626582ca00f31ac91ec29e06d2" }
 # The producer-owned report kit: the components every HTML report renders with. Declared by
 # name above; the path stays here.
 asago-report-kit = { path = "../asago-scenario-generator/packages/asago-report-kit", editable = true }
