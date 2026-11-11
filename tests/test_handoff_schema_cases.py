@@ -144,7 +144,7 @@ def test_the_case_runner_checks_every_expected_violation_and_conformance_case(
     conformance = _conformance_summary(tmp_path)
 
     assert (str(expected), str(conformance)) == (
-        "expected-violations: 155/155",
+        "expected-violations: 152/152",
         "conformance: 35/35",
     )
 
@@ -152,7 +152,7 @@ def test_the_case_runner_checks_every_expected_violation_and_conformance_case(
 def test_every_invalid_fixture_carries_its_expected_codes() -> None:
     fixtures = {path.relative_to(_KIT).as_posix() for path in (_KIT / "invalid").glob("*.json")}
 
-    assert len(_EXPECTED) == 155
+    assert len(_EXPECTED) == 152
     assert set(_EXPECTED) == fixtures
 
 

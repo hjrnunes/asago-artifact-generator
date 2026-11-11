@@ -227,7 +227,7 @@ worst_case_threat: Execution of fraudulent or unauthorized financial transaction
 contract:
   id: scenario-handoff
   version: scenario-handoff-v6
-  spec_digest: sha256:a2f3bfe6fa4e3ee926bada66bc420d55a2ea9989a2dd62981acb705426c2f79a
+  spec_digest: sha256:eaa141e8e726dc425a84143cea04b13ce1fc690c0b6c710c4d2f608e9411cf38
   requires: []
   provenance:
     writer: asago_scenario_generator.stpa.scenario_prod.handoff
