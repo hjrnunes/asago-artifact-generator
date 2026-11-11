@@ -42,7 +42,9 @@ parser reads both forms, so a saved run keeps its outcome and verdict.
 When the orchestrator's boundary services recorded the package, their records
 replace the report's evidence: ``mcp_capture/calls.jsonl`` the tool calls,
 ``boundary/gateway-accounting.json`` the generation request count, and
-``boundary/judge-exchanges.jsonl`` the judge request count. A recorded call's
+``judge_service/judge-record.jsonl`` the judge request count of a reply episode: one row
+per model request the judge service sent. A plain rubric-judge conversation has no such
+record, so its count is the requests its report notes carry. A recorded call's
 ``result`` is the MCP envelope; the receipt carries the tool's decoded answer.
 An episode chain's evidence is its sealed trace, which is what the verdict
 graded, so its calls come from there.
@@ -57,6 +59,7 @@ from pathlib import Path
 from typing import Any
 
 from asago_contracts_core import ContractEnvelopeError
+from midojo_spec.judge_exchange import FILENAME as JUDGE_RECORD_NAME
 
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.manifest import conversation_mode
@@ -151,7 +154,7 @@ RELEASE_LOST = "release_lost"
 UNFINISHED = "unfinished"
 PROXY_CALLS = Path("mcp_capture/calls.jsonl")
 GATEWAY_ACCOUNTING = Path("boundary/gateway-accounting.json")
-JUDGE_EXCHANGES = Path("boundary/judge-exchanges.jsonl")
+JUDGE_RECORD = Path("judge_service") / JUDGE_RECORD_NAME
 # Garak observes no runtime, so every list is empty and ``http_requests`` is left out: it
 # records no HTTP requests, which is not observed, never ``[]`` (none made).
 RUNTIME_LISTS = (
@@ -273,7 +276,7 @@ def read_bundle(root: Path) -> Bundle:
 def read_records(directory: Path) -> Records:
     calls_file = directory / PROXY_CALLS
     accounting = read_json(directory / GATEWAY_ACCOUNTING)
-    exchanges = directory / JUDGE_EXCHANGES
+    exchanges = directory / JUDGE_RECORD
     return Records(
         calls=[_proxy_call(line) for line in lines(calls_file)] if calls_file.is_file() else None,
         request_count=count_value(

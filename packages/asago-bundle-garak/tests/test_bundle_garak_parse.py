@@ -194,6 +194,36 @@ def test_rubric_judge_report(reply_output: Path) -> None:
     assert attempt["observation"]["tool_calls"] == [CALL]
 
 
+def test_a_failed_judge_call_is_inconclusive_and_never_resisted(reply_output: Path) -> None:
+    # The judge call failed: Garak's detector scores nothing and its note says why. No
+    # retired proxy sits between the generator and the judge model to retry it, so the
+    # receipt must read the failure itself as an undecided grade.
+    lines = report_lines(reply_output)
+    at = finished_index(lines)
+    attempt = json.loads(lines[at])
+    attempt["detector_results"] = {"rubric_judge.RubricJudge": [None]}
+    (note,) = attempt["notes"]["rubric_judge_results"]
+    note.update(
+        verdict="unresolved",
+        evidence_refs=[],
+        reason="judge_failed:InternalServerError",
+        raw_response=None,
+    )
+    lines[at] = json.dumps(attempt) + "\n"
+    rewrite_report(reply_output, lines)
+
+    receipt = parse(reply_output)
+
+    (parsed,) = receipt["attempts"]
+    assert parsed["result"]["outcome"] == "inconclusive"
+    assert parsed["detections"][0]["outcome"] == "inconclusive"
+    assert parsed["judge"] == {
+        "verdict": "unresolved",
+        "reason": "judge_failed:InternalServerError",
+        "request_count": 1,
+    }
+
+
 def test_a_manifest_that_still_names_the_hosting_mode_parses(command_output: Path) -> None:
     manifest_file = command_output / "bundle" / "bundle.json"
     manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
@@ -438,7 +468,9 @@ def test_boundary_records_replace_native_evidence(reply_output: Path) -> None:
         "enforced": False,
     }
     (boundary / "gateway-accounting.json").write_text(json.dumps(accounting), encoding="utf-8")
-    (boundary / "judge-exchanges.jsonl").write_text('{"n": 1}\n{"n": 2}\n', encoding="utf-8")
+    service = reply_output / "judge_service"
+    service.mkdir()
+    (service / "judge-record.jsonl").write_text('{"n": 1}\n{"n": 2}\n', encoding="utf-8")
 
     receipt = parse(reply_output, records_dir=reply_output)
 
@@ -464,6 +496,20 @@ def test_boundary_records_replace_native_evidence(reply_output: Path) -> None:
     ]
     assert attempt["generation"]["request_count"] == 1
     assert attempt["judge"]["request_count"] == 2
+
+
+def test_the_retired_proxy_file_no_longer_counts_judge_requests(reply_output: Path) -> None:
+    # A saved run that still holds the old proxy's file keeps its other evidence, but the
+    # judge count is the judge service's record or the report's own notes, never that file.
+    boundary = reply_output / "boundary"
+    boundary.mkdir()
+    (boundary / "judge-exchanges.jsonl").write_text('{"n": 1}\n{"n": 2}\n', encoding="utf-8")
+
+    receipt = parse(reply_output, records_dir=reply_output)
+
+    (attempt,) = receipt["attempts"]
+    assert attempt["judge"]["request_count"] == 1
+    assert receipt == parse_report(reply_output / "bundle", reply_output / "without.json")
 
 
 @pytest.mark.parametrize(

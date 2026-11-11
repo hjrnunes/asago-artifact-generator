@@ -641,6 +641,45 @@ def test_a_reply_episode_carries_the_judges_verdict(tmp_path: Path) -> None:
     }
 
 
+def test_a_reply_episodes_judge_request_count_is_the_judge_services_rows(
+    tmp_path: Path,
+) -> None:
+    record = verdict_record(
+        "not_detected",
+        security=False,
+        validity="valid",
+        delivered=True,
+        detail="the reply says nothing was taken out of ACC-1",
+    )
+    entries = chain(
+        texts=TEXTS,
+        sealed=trace(security=False, validity="valid", delivered=True, capture_complete=True),
+        records=(record,),
+    )
+    output = make_bundle(tmp_path, entries, claim_level="reply")
+    service = output / "judge_service"
+    service.mkdir()
+    (service / "judge-record.jsonl").write_text('{"n": 1}\n{"n": 2}\n', encoding="utf-8")
+    # The retired proxy's file is not a second source: only the service's record counts.
+    boundary = output / "boundary"
+    boundary.mkdir()
+    (boundary / "judge-exchanges.jsonl").write_text('{"n": 1}\n', encoding="utf-8")
+
+    receipt = parse_report(
+        output / "bundle", output / "execution-receipt.json", records_dir=output
+    )
+
+    (attempt,) = receipt["attempts"]
+    assert attempt["judge"]["request_count"] == 2
+
+    (boundary / "judge-exchanges.jsonl").unlink()
+    (service / "judge-record.jsonl").unlink()
+    without = parse_report(
+        output / "bundle", output / "execution-receipt.json", records_dir=output
+    )
+    assert without["attempts"][0]["judge"]["request_count"] is None
+
+
 def test_a_reply_episode_the_attack_obeyed_supports_the_judges_claim(
     tmp_path: Path,
 ) -> None:
