@@ -1,10 +1,8 @@
 """The installed ``execution-receipt`` contract: copy, identity, reader rules and cases.
 
 Both bundle adapters write ``execution-receipt.json`` and read it through
-``asago_bundle_core.receipt_contract``. This library ships both versions the reader accepts,
-so the tests compare each copy with the consumer's authority, recompute the spec digests,
-read the receipts the Garak parser wrote, and assert the refusals a reader owes for each
-version.
+``asago_bundle_core.receipt_contract``. These tests compare the installed copy with the authority, recompute its spec digest,
+read the receipts the Garak parser wrote, and assert the reader's refusals.
 """
 
 from __future__ import annotations
@@ -32,7 +30,6 @@ from asago_contracts_core import (
 
 from asago_bundle_core.receipt_contract import (
     CONTRACT,
-    LEGACY_VERSION,
     VERSION,
     installed_specs,
     read_receipt,
@@ -42,7 +39,7 @@ from asago_bundle_core.receipt_contract import (
 REPO = Path(__file__).resolve().parents[3]
 _AUTHORITY = REPO / "contracts" / CONTRACT
 _INSTALLED = Path(__file__).resolve().parents[1] / "src/asago_bundle_core/contracts" / CONTRACT
-_VERSIONS = (LEGACY_VERSION, VERSION)
+_VERSIONS = (VERSION,)
 _DATA = Path(__file__).resolve().parent / "data"
 #: Receipts the Garak parser wrote for a command-attempt and a reply package.
 _WRITTEN_RECEIPTS = ("execution-receipt-v2-command.json", "execution-receipt-v2-reply.json")
@@ -105,7 +102,7 @@ def test_the_installed_spec_is_the_execution_receipt_version(version: str) -> No
     spec = _spec(version)
     root = _INSTALLED / version
     body = _json(root / "spec.json")
-    expected = "optional" if version == LEGACY_VERSION else "required"
+    expected = "required"
 
     assert (spec.contract, spec.version, spec.status, spec.envelope) == (
         CONTRACT,
@@ -118,20 +115,6 @@ def test_the_installed_spec_is_the_execution_receipt_version(version: str) -> No
     assert body["cases"] == "cases"
     assert body["docs"] == "README.md"
     assert spec.spec_digest == spec_digest(body, (root / "schema.json").read_bytes())
-
-
-@pytest.mark.parametrize("case", _cases(LEGACY_VERSION), ids=lambda case: case.stem)
-def test_the_reader_accepts_every_v1_valid_case_as_a_legacy_document(case: Path) -> None:
-    assert read_receipt(_json(case)).version == LEGACY_VERSION
-
-
-@pytest.mark.parametrize("case", _cases(LEGACY_VERSION), ids=lambda case: case.stem)
-def test_the_reader_accepts_every_v1_valid_case_with_the_envelope(case: Path) -> None:
-    written = write_envelope(
-        _json(case), _spec(LEGACY_VERSION), writer="tests.receipt_contract", writer_version="0.1.0"
-    )
-
-    assert read_receipt(written).version == LEGACY_VERSION
 
 
 @pytest.mark.parametrize("case", _cases(VERSION), ids=lambda case: case.stem)
@@ -168,14 +151,6 @@ def test_the_writer_stamps_the_v2_envelope() -> None:
         },
     }
     assert read_receipt(written).version == VERSION
-
-
-def test_the_reader_accepts_both_versions() -> None:
-    v1 = _case(LEGACY_VERSION)
-    v2 = write_receipt(_case(VERSION), writer="tests.receipt_contract", writer_version="0.1.0")
-
-    assert read_receipt(v1).version == LEGACY_VERSION
-    assert read_receipt(v2).version == VERSION
 
 
 @pytest.mark.parametrize("name", _WRITTEN_RECEIPTS)
@@ -220,7 +195,7 @@ def test_an_unknown_requires_entry_is_rejected(version: str) -> None:
 def test_an_unknown_field_outside_an_extension_is_rejected(version: str) -> None:
     spec = _spec(version)
     document = _enveloped(spec, _case(version))
-    document["undeclared"] = "a field neither version declares"
+    document["undeclared"] = "a field the installed version does not declare"
 
     with pytest.raises(UnknownFieldError) as raised:
         read_receipt(document)

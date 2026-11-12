@@ -35,10 +35,6 @@ evaluation and snapshot, and a seal that does not hold together fails the receip
 reason (``snapshot_digest_mismatch`` or ``delivery_mismatch``). A chain sealed short names
 its evaluation and leaves the rest null.
 
-A report recorded before the rename names the probe's old plugins and the old
-``ipi_episode``, ``episode_trace`` and ``episode_verdict_results`` notes; this
-parser reads both forms, so a saved run keeps its outcome and verdict.
-
 When the orchestrator's boundary services recorded the package, their records
 replace the report's evidence: ``mcp_capture/calls.jsonl`` the tool calls,
 ``boundary/gateway-accounting.json`` the generation request count, and
@@ -107,15 +103,12 @@ ATTEMPT_COMPLETE = 2
 OUTCOMES = {1.0: "detected", 0.0: "not_detected"}
 INCONCLUSIVE = "inconclusive"
 DRIVERS = {"command_attempt": "ToolCallCondition", "reply": "RubricJudge"}
-# Each detector's result note, under the names it writes now and the names a report
-# recorded before the rename carries. The first name is the one this parser prefers.
+# Each detector's result note, under the name it writes.
 RECORD_NOTES = {
     "ToolCallCondition": ("tool_call_condition_results",),
     "RubricJudge": ("rubric_judge_results",),
-    "EvaluationVerdict": ("evaluation_verdict_results", "episode_verdict_results"),
-    "EpisodeVerdict": ("episode_verdict_results", "evaluation_verdict_results"),
-    "EvaluationEffect": ("evaluation_effect_results", "episode_effect_results"),
-    "EpisodeEffect": ("episode_effect_results", "evaluation_effect_results"),
+    "EvaluationVerdict": ("evaluation_verdict_results",),
+    "EvaluationEffect": ("evaluation_effect_results",),
 }
 # A verdict's own grade; any other value is inconclusive, never resisted.
 GRADES = frozenset({*OUTCOMES.values(), INCONCLUSIVE})
@@ -123,25 +116,20 @@ GRADES = frozenset({*OUTCOMES.values(), INCONCLUSIVE})
 # three values, so a detection outcome never reaches the judge's vocabulary.
 JUDGE_VERDICTS = {"detected": "supported", "not_detected": "contradicted"}
 UNRESOLVED = "unresolved"
-# The detectors that read an episode's sealed grade, by their bare plugin names. The
-# old names are what a report recorded before the rename carries; both still grade.
+# The detectors that read an episode's sealed grade, by their bare plugin names.
 IPI_VERDICT = IPI_DETECTOR.rsplit(".", 1)[-1]
 IPI_EFFECT_NAME = IPI_EFFECT.rsplit(".", 1)[-1]
-LEGACY_IPI_VERDICT = "EpisodeVerdict"
-LEGACY_IPI_EFFECT = "EpisodeEffect"
-IPI_VERDICTS = (IPI_VERDICT, LEGACY_IPI_VERDICT)
-GRADE_READERS = frozenset({IPI_VERDICT, IPI_EFFECT_NAME, LEGACY_IPI_VERDICT, LEGACY_IPI_EFFECT})
+IPI_VERDICTS = (IPI_VERDICT,)
+GRADE_READERS = frozenset({IPI_VERDICT, IPI_EFFECT_NAME})
 # The driver that drove an IPI report: Garak's own probe, over MiDojo's injection-spec API.
-# A receipt recorded before the rename names ``garak.ipi_episode.IPIEpisode``; the
-# contract accepts both, and this adapter writes the current name.
 IPI_DRIVER = "garak.midojo.InjectionSpecProbe"
 # What the probe's trace says of the chain it closed: ``final`` is a complete seal with the
 # plan's delivery computed; any other word is a chain that stopped short, which states none.
 SEALED_FINAL = "final"
-# The probe's chain and trace notes, now first, then the names a pre-rename report holds.
-CHAIN_NOTES = ("injection_spec_chain", "ipi_episode")
+# The probe's chain and trace notes.
+CHAIN_NOTES = ("injection_spec_chain",)
 METADATA_NOTES = "source_metadata"
-TRACE_NOTES = ("evaluation_trace", "episode_trace")
+TRACE_NOTES = ("evaluation_trace",)
 INTERRUPTED = "interrupted"
 # The trace key the probe writes when MiDojo's service never acknowledged the release after
 # the seal, and the receipt reason that loss becomes. The trace's value is MiDojo's own

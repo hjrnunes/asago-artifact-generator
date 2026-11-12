@@ -1,8 +1,7 @@
-"""The tool-bundle schemas: core loads both versions and decides which manifests are valid.
+"""The installed tool-bundle schema and manifest reader rules.
 
-``schema`` reads a manifest through ``bundle_contract`` first, so ``manifest_errors``
-accepts a v1 document without the envelope and a v2 document with it.
-``validate_manifest`` stays a pure jsonschema check of the current version's payload.
+``manifest_errors`` reads the contract before applying the schema; ``validate_manifest``
+checks the payload without reading the envelope.
 """
 
 from __future__ import annotations
@@ -16,7 +15,6 @@ from asago_contracts_core import write_envelope
 
 from asago_bundle_core.bundle_contract import VERSION, installed_specs
 from asago_bundle_core.schema import (
-    LEGACY_SCHEMA_VERSION,
     SCHEMA_VERSION,
     load_schema,
     manifest_errors,
@@ -24,7 +22,7 @@ from asago_bundle_core.schema import (
 )
 
 DIGEST = "ab" * 32
-VERSIONS = (LEGACY_SCHEMA_VERSION, SCHEMA_VERSION)
+VERSIONS = (SCHEMA_VERSION,)
 
 
 def garak_manifest(version: str = SCHEMA_VERSION) -> dict[str, Any]:
@@ -42,18 +40,10 @@ def garak_manifest(version: str = SCHEMA_VERSION) -> dict[str, Any]:
         "entrypoint": ["{tool_python}", "-m", "garak", "--config", "{bundle}/run.yaml"],
         "native_outputs": ["reports/SCN-001.report.jsonl"],
     }
-    if version == SCHEMA_VERSION:
-        manifest["conversation_mode"] = "single"
-        manifest["values_required"] = [
-            "allowed_tools",
-            "gateway_url",
-            "mcp_url",
-            "messages",
-            "model",
-        ]
-    else:
-        manifest["delivery"] = "single"
-        manifest["requires"] = ["allowed_tools", "gateway_url", "mcp_url", "messages", "model"]
+    manifest["conversation_mode"] = "single"
+    manifest["values_required"] = [
+        "allowed_tools", "gateway_url", "mcp_url", "messages", "model"
+    ]
     return manifest
 
 
@@ -100,17 +90,13 @@ def read_errors(manifest: dict[str, Any]) -> list[str]:
     return manifest_errors(manifest if "contract" in manifest else stamped(manifest))
 
 
-def test_the_current_schema_is_v2_and_v1_still_loads() -> None:
+def test_the_installed_schema_loads() -> None:
     current = load_schema()
-    legacy = load_schema(LEGACY_SCHEMA_VERSION)
 
     assert current["$id"] == SCHEMA_VERSION == VERSION == "tool-bundle-v2"
-    assert legacy["$id"] == LEGACY_SCHEMA_VERSION == "tool-bundle-v1"
     assert {"conversation_mode", "values_required"} <= current["properties"].keys()
-    assert {"delivery", "requires"} <= legacy["properties"].keys()
     assert {"delivery", "requires"}.isdisjoint(current["properties"])
     jsonschema.Draft202012Validator.check_schema(current)
-    jsonschema.Draft202012Validator.check_schema(legacy)
 
 
 @pytest.mark.parametrize("version", VERSIONS)
@@ -118,8 +104,6 @@ def test_a_garak_manifest_reads(version: str) -> None:
     manifest = garak_manifest(version)
 
     assert manifest_errors(enveloped(manifest)) == []
-    if version == LEGACY_SCHEMA_VERSION:
-        assert manifest_errors(manifest) == []
 
 
 def test_a_v2_manifest_without_the_envelope_is_refused() -> None:
@@ -133,7 +117,7 @@ def test_validate_manifest_checks_the_current_payload() -> None:
     validate_manifest(garak_manifest())
 
     with pytest.raises(jsonschema.ValidationError):
-        validate_manifest(garak_manifest(LEGACY_SCHEMA_VERSION))
+        validate_manifest(garak_manifest("tool-bundle-v9"))
 
 
 def test_a_concrete_manifest_with_a_values_digest_is_valid() -> None:
@@ -155,7 +139,7 @@ def test_every_required_key_is_required(key: str) -> None:
         with_change(package_digest="not-a-digest"),
         with_change(package_digest="AB" * 32),
         with_change(values_digest="short"),
-        with_change(schema_version="tool-bundle-v1"),
+        with_change(schema_version="tool-bundle-v9"),
         with_change(claim_level="tool_call"),
         with_change(conversation_mode="parallel"),
         with_change(entrypoint=[]),

@@ -5,13 +5,11 @@ its readers enforce, under ``contracts/tool-bundle/``, and ``tests/test_bundle_c
 refuses a copy that differs from the authority.
 
 Both tool adapters write ``bundle.json`` and read it back; this is the one reader they share,
-and ``write_bundle`` is the one writer they stamp it with. It selects one of its installed
-specs by the document's contract id and version. It never fetches or trusts a schema the
-document points to: ``spec.json`` names ``schema.json`` beside it. A v1 document without the
-envelope is a legacy document and is read by its ``schema_version``; a v2 document must carry
-one, must name an installed spec, and its ``spec_digest`` must be exactly the installed
-spec's. The current version (``VERSION``) requires the envelope, so ``write_bundle`` stamps
-every document this library writes.
+and ``write_bundle`` is the one writer they stamp it with. It selects its installed
+spec by the document's contract id and version. It never fetches or trusts a schema the
+document points to: ``spec.json`` names ``schema.json`` beside it. A document must carry
+an envelope naming the installed spec and its exact ``spec_digest``. ``write_bundle``
+stamps every document this library writes.
 """
 
 from __future__ import annotations
@@ -25,9 +23,7 @@ from asago_contracts_core import ContractSpec, SpecSet, load_specs, write_envelo
 
 CONTRACTS_DIR = Path(__file__).resolve().parent / "contracts"
 CONTRACT = "tool-bundle"
-LEGACY_VERSION = "tool-bundle-v1"
 VERSION = "tool-bundle-v2"
-VERSIONS = (LEGACY_VERSION, VERSION)
 
 
 @cache

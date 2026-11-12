@@ -1,5 +1,5 @@
 {
-  "schema_version": "frozen-execution-receipt-v1",
+  "schema_version": "execution-receipt-v9",
   "tool": {
     "id": "garak",
     "revision": "1c2918aedb737d1aed19300d26fe63a7f7acd83f",

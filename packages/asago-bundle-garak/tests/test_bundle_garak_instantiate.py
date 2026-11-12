@@ -133,30 +133,6 @@ def test_concrete_manifest_renders_the_entrypoint(command_template: Path, tmp_pa
     assert manifest_errors(manifest) == []
 
 
-def test_a_v1_template_still_fills(command_template: Path, tmp_path: Path) -> None:
-    path = command_template / "bundle.json"
-    manifest = json.loads(path.read_text("utf-8"))
-    renamed = {
-        key: value
-        for key, value in manifest.items()
-        if key not in {"contract", "schema_version", "conversation_mode", "values_required"}
-    }
-    renamed.update(
-        schema_version="tool-bundle-v1",
-        delivery=manifest["conversation_mode"],
-        requires=manifest["values_required"],
-    )
-    path.write_text(json.dumps(renamed), "utf-8")
-    out = tmp_path / "bundle"
-
-    concrete = instantiate_bundle(command_template, values(), out, target=MOCK_TARGET)
-
-    assert concrete["schema_version"] == "tool-bundle-v1"
-    assert concrete["delivery"] == "single"
-    assert "contract" not in concrete
-    assert read_bundle(out).messages == MESSAGES
-
-
 def test_reply_entry_carries_the_resolved_judge_facts(
     reply_template: Path, tmp_path: Path
 ) -> None:
@@ -249,7 +225,6 @@ def test_read_template_refuses_an_unsupported_version_before_the_shape_check(
     message = str(raised.value)
     assert "is not a tool-bundle template" in message
     assert "tool-bundle-v9" in message
-    assert "tool-bundle-v1" in message
     assert "tool-bundle-v2" in message
 
 

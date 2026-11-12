@@ -6,12 +6,10 @@ copy its reader enforces, under ``contracts/execution-receipt/``, and
 
 Both bundle adapters write ``execution-receipt.json`` and both read it back; this is the one
 reader they share, and ``write_receipt`` is the one writer they stamp it with. A reader
-selects one of its installed specs by the document's contract id and version. It never
+selects its installed spec by the document's contract id and version. It never
 fetches or trusts a schema the document points to: ``spec.json`` names ``schema.json`` beside
-it. A v1 document without the envelope is a legacy document and is read by its
-``schema_version``; a document with one must name an installed spec, and its ``spec_digest``
-must be exactly the installed spec's. The current version (``VERSION``) requires the
-envelope, so ``write_receipt`` stamps every document this library writes.
+it. A document must carry an envelope naming the installed spec and its exact
+``spec_digest``. ``write_receipt`` stamps every document this library writes.
 """
 
 from __future__ import annotations
@@ -26,7 +24,6 @@ from asago_contracts_core import ContractSpec, SpecSet, load_specs, write_envelo
 CONTRACTS_DIR = Path(__file__).resolve().parent / "contracts"
 CONTRACT = "execution-receipt"
 VERSION = "execution-receipt-v2"
-LEGACY_VERSION = "execution-receipt-v1"
 
 
 @cache

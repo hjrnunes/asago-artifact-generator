@@ -1,11 +1,8 @@
 """The installed ``tool-bundle`` contract: copy, identity, reader rules and cases.
 
-Both tool adapters write ``bundle.json`` and read it back; this library ships the versions
-their readers enforce. The tests compare that copy with the consumer's authority, recompute
-each spec digest, read the manifests the Garak compiler wrote, and assert the four refusals a
-reader owes against both versions. v2 renames the manifest's ``delivery`` to
-``conversation_mode`` and its top-level ``requires`` to ``values_required``; v1 documents keep
-reading.
+Both tool adapters write ``bundle.json`` and read it back. These tests compare the
+installed copy with the authority, recompute its spec digest, read Garak's manifests,
+and assert the reader's refusals.
 """
 
 from __future__ import annotations
@@ -33,7 +30,6 @@ from asago_contracts_core import (
 
 from asago_bundle_core.bundle_contract import (
     CONTRACT,
-    LEGACY_VERSION,
     VERSION,
     installed_specs,
     read_bundle,
@@ -44,7 +40,7 @@ _AUTHORITY_ROOT = REPO / "contracts" / "tool-bundle"
 _INSTALLED_ROOT = (
     Path(__file__).resolve().parents[1] / "src/asago_bundle_core/contracts/tool-bundle"
 )
-_VERSIONS = (LEGACY_VERSION, VERSION)
+_VERSIONS = (VERSION,)
 _DATA = Path(__file__).resolve().parent / "data"
 #: Manifests the Garak compiler wrote for a command-attempt and a reply package.
 _WRITTEN_BUNDLES = ("tool-bundle-v2-command.json", "tool-bundle-v2-reply.json")
@@ -105,7 +101,7 @@ def test_each_installed_spec_is_the_tool_bundle_version(version: str) -> None:
     body = _json(_INSTALLED_ROOT / version / "spec.json")
 
     assert (spec.contract, spec.version, spec.status) == (CONTRACT, version, "published")
-    assert spec.envelope == ("required" if version == VERSION else "optional")
+    assert spec.envelope == "required"
     assert spec.supports == ()
     assert spec.extensions == ()
     assert (spec.cases, spec.docs) == ("cases", "README.md")
@@ -129,11 +125,8 @@ def test_the_reader_accepts_every_valid_case(version: str, case: Path) -> None:
     )
 
     assert read_bundle(written).version == version
-    if spec.envelope == "optional":
-        assert read_bundle(document).version == version
-    else:
-        with pytest.raises(MissingEnvelopeError):
-            read_bundle(document)
+    with pytest.raises(MissingEnvelopeError):
+        read_bundle(document)
 
 
 @pytest.mark.parametrize("name", _WRITTEN_BUNDLES)
@@ -151,7 +144,6 @@ def test_an_unsupported_version_names_the_supported_versions(version: str) -> No
         _specs().read(_enveloped(_spec(version), case, version="tool-bundle-v9"))
 
     assert "tool-bundle-v9" in str(raised.value)
-    assert LEGACY_VERSION in str(raised.value)
     assert VERSION in str(raised.value)
 
 

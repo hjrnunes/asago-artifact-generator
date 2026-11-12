@@ -1,11 +1,7 @@
-"""The tool-bundle kit: both runtime specs, the lock, the cases and the reader rules.
+"""The tool-bundle kit: its runtime spec, lock, cases and reader rules.
 
-This repository owns ``contracts/tool-bundle/``: both tool adapters write ``bundle.json``
-documents that validate against it, and the orchestrator keeps a byte-identical copy.
-``tool-bundle-v1/`` and ``tool-bundle-v2/`` hold the runtime specs (``spec.json`` and
-``schema.json``), the cases under ``cases/`` and the docs; a spec digest covers its own
-runtime spec alone. v2 renames the manifest's ``delivery`` to ``conversation_mode`` and its
-top-level ``requires`` to ``values_required``; every reader accepts both versions.
+The adapters write ``bundle.json`` documents validated against the installed spec.
+The orchestrator keeps a byte-identical copy; a spec digest covers the runtime spec.
 """
 
 from __future__ import annotations
@@ -36,7 +32,7 @@ from asago_artifact_generator.contract_kit import verify_contract_lock
 
 _ROOT = Path(__file__).resolve().parents[1] / "contracts" / "tool-bundle"
 _CONTRACTS = _ROOT.parent
-_VERSIONS = ("tool-bundle-v1", "tool-bundle-v2")
+_VERSIONS = ("tool-bundle-v2",)
 _VERSION = "tool-bundle-v2"
 
 
@@ -102,7 +98,7 @@ def test_the_spec_identifies_the_runtime_spec_alone(version: str) -> None:
     body = _json(_ROOT / version / "spec.json")
 
     assert (spec.contract, spec.version, spec.status) == ("tool-bundle", version, "published")
-    assert spec.envelope == ("required" if version == _VERSION else "optional")
+    assert spec.envelope == "required"
     assert spec.supports == ()
     assert spec.extensions == ()
     assert (spec.schema, spec.cases, spec.docs) == (
@@ -115,13 +111,11 @@ def test_the_spec_identifies_the_runtime_spec_alone(version: str) -> None:
     assert spec.spec_digest == spec_digest(body, (_ROOT / version / "schema.json").read_bytes())
 
 
-def test_v2_renames_the_delivery_and_requires_fields() -> None:
-    v1 = _json(_ROOT / "tool-bundle-v1" / "schema.json")["properties"]
-    v2 = _json(_ROOT / "tool-bundle-v2" / "schema.json")["properties"]
+def test_the_installed_schema_uses_current_manifest_fields() -> None:
+    properties = _json(_ROOT / _VERSION / "schema.json")["properties"]
 
-    assert {"delivery", "requires"} <= v1.keys()
-    assert {"conversation_mode", "values_required"} <= v2.keys()
-    assert {"delivery", "requires"}.isdisjoint(v2)
+    assert {"conversation_mode", "values_required"} <= properties.keys()
+    assert {"delivery", "requires"}.isdisjoint(properties)
 
 
 @pytest.mark.parametrize(
@@ -144,24 +138,8 @@ def test_the_reader_accepts_every_valid_case_with_its_version(version: str, case
     written = write_envelope(document, spec, writer="tests.tool_bundle", writer_version="0.1.0")
 
     assert _specs().read(written).version == version
-    if spec.envelope == "optional":
-        assert _specs().read(document).version == version
-    else:
-        with pytest.raises(MissingEnvelopeError):
-            _specs().read(document)
-
-
-def test_the_reader_accepts_both_versions() -> None:
-    legacy = _spec("tool-bundle-v1")
-    current = _spec(_VERSION)
-    v1_case = _json(_cases("tool-bundle-v1", "valid")[0])
-    v2_case = _json(_cases(_VERSION, "valid")[0])
-
-    assert _specs().read(v1_case) == legacy
-    assert _specs().read(_enveloped(legacy, v1_case)) == legacy
-    assert _specs().read(_enveloped(current, v2_case)) == current
     with pytest.raises(MissingEnvelopeError):
-        _specs().read(v2_case)
+        _specs().read(document)
 
 
 @pytest.mark.parametrize("version", _VERSIONS)
@@ -200,7 +178,6 @@ def test_an_unsupported_version_names_the_supported_versions(version: str) -> No
         _specs().read(_enveloped(_spec(version), case, version="tool-bundle-v9"))
 
     assert "tool-bundle-v9" in str(raised.value)
-    assert "tool-bundle-v1" in str(raised.value)
     assert "tool-bundle-v2" in str(raised.value)
 
 

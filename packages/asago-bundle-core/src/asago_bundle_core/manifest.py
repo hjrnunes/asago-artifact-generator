@@ -1,9 +1,4 @@
-"""The two names ``tool-bundle`` versions give the same manifest facts.
-
-``tool-bundle-v2`` renamed ``delivery`` to ``conversation_mode`` and the top-level
-``requires`` to ``values_required``. Every reader accepts both versions, so it reads the new
-name first and falls back to the old one; every writer states the new name.
-"""
+"""Read the installed ``tool-bundle`` manifest's conversation and value keys."""
 
 from __future__ import annotations
 
@@ -11,31 +6,27 @@ from collections.abc import Mapping
 from typing import Any
 
 CONVERSATION_MODE = "conversation_mode"
-LEGACY_DELIVERY = "delivery"
 VALUES_REQUIRED = "values_required"
-LEGACY_REQUIRES = "requires"
 
 
 def conversation_mode(manifest: Mapping[str, Any] | Any) -> Any:
-    """Return the mode a v1 or v2 manifest states, or ``None`` when it states neither."""
+    """Return the manifest's conversation mode, or ``None`` when absent."""
 
     if not isinstance(manifest, Mapping):
         return None
-    return manifest.get(CONVERSATION_MODE, manifest.get(LEGACY_DELIVERY))
+    return manifest.get(CONVERSATION_MODE)
 
 
-def values_field(manifest: Mapping[str, Any] | Any) -> str:
-    """Return the field name a manifest states its value keys under."""
+def values_field() -> str:
+    """Return the field name for required value keys."""
 
-    if isinstance(manifest, Mapping) and VALUES_REQUIRED in manifest:
-        return VALUES_REQUIRED
-    return LEGACY_REQUIRES
+    return VALUES_REQUIRED
 
 
 def values_required(manifest: Mapping[str, Any] | Any) -> list[str]:
-    """Return the value keys a v1 or v2 manifest states, or an empty list."""
+    """Return the manifest's required value keys, or an empty list."""
 
     if not isinstance(manifest, Mapping):
         return []
-    keys = manifest.get(values_field(manifest), [])
+    keys = manifest.get(VALUES_REQUIRED, [])
     return list(keys) if isinstance(keys, list) else []

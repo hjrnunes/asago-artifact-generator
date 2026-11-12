@@ -62,7 +62,7 @@ name changed.
 
 Readers of recorded data stay indefinitely: `midojo-episode-v1` and `midojo-episode-v2`
 documents, the envelope's `episode` member, the filename `episode.json`,
-`execution-receipt-v1` documents, the `episode_trace` and `ipi_episode` notes in a sealed
+the `episode_trace` and `ipi_episode` notes in a sealed
 trace, and `seed.delivery` `start`.
 
 The recorded fixtures under `packages/asago-bundle-midojo/tests/fixtures/` are not
@@ -223,7 +223,5 @@ the range and the document ID back when they compare a new compile.
   `report_parse`; both check the copy's digests. Refresh the copy with MiDojo's
   `scripts/sync_inconclusive_vectors.py --write`, never by editing a fixture.
 
-- **Pre-rename Garak reports.** A report recorded before the M2 rename names
-  `ipi_episode.IPIEpisode`, its detectors `ipi_episode.EpisodeVerdict` and
-  `ipi_episode.EpisodeEffect`, and its `ipi_episode` and `episode_trace` notes.
-  `report_parse` reads both forms and gives the same outcome and verdict.
+- **Pre-rename Garak reports.** Earlier reports used different probe, detector
+  and note names. The current `report_parse` accepts only the current names.

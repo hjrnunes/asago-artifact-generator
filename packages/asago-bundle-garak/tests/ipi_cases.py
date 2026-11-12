@@ -6,8 +6,7 @@ same package for the same fixture target, and the entry Garak writes must carry 
 injection spec MiDojo compiled. The reports follow what ``garak/probes/midojo.py`` and
 ``garak/detectors/midojo.py`` write: each turn's attempt at status 1, the turn that
 ends the chain again at status 2 with the detectors' results, and the sealed trace on
-every attempt of a sealed chain. ``legacy_report`` turns one into the names a report
-recorded before the rename carries, which the parser still reads.
+every attempt of a sealed chain.
 """
 
 from __future__ import annotations
@@ -48,17 +47,6 @@ PROBE = "probes.midojo.InjectionSpecProbe"
 VERDICT = "midojo.EvaluationVerdict"
 EFFECT = "midojo.EvaluationEffect"
 CONDITION_DETECTOR = "toolcall.ToolCallCondition"
-# The plugin and note names a report recorded before the rename carries. The probe and
-# detectors still answer to them, so a pre-rename report must parse as the same run.
-LEGACY_NAMES = {
-    PROBE: "probes.ipi_episode.IPIEpisode",
-    VERDICT: "ipi_episode.EpisodeVerdict",
-    EFFECT: "ipi_episode.EpisodeEffect",
-    "injection_spec_chain": "ipi_episode",
-    "evaluation_trace": "episode_trace",
-    "evaluation_verdict_results": "episode_verdict_results",
-    "evaluation_effect_results": "episode_effect_results",
-}
 SCORES = {"detected": 1.0, "not_detected": 0.0, "inconclusive": None}
 # The exposure of an episode whose payload reached no recorded boundary.
 UNEXPOSED = {
@@ -536,27 +524,6 @@ def chain(
         finished["detector_results"] = results
     finished["notes"] = notes
     return [*lines, finished]
-
-
-def legacy_report(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return the report lines with the plugin and note names a pre-rename run wrote.
-
-    Each old name belongs to the same plugin or note the probe and detectors write now,
-    so a legacy report describes the same run in the recorded vocabulary. A test that
-    compares one with a current report proves the parser reads both forms.
-    """
-
-    legacy: list[dict[str, Any]] = []
-    for original in entries:
-        entry = copy.deepcopy(original)
-        if entry.get("probe_classname") in LEGACY_NAMES:
-            entry["probe_classname"] = LEGACY_NAMES[entry["probe_classname"]]
-        for member in ("notes", "detector_results"):
-            found = entry.get(member)
-            if isinstance(found, dict):
-                entry[member] = {LEGACY_NAMES.get(key, key): value for key, value in found.items()}
-        legacy.append(entry)
-    return legacy
 
 
 def write_report(path: Path, entries: list[dict[str, Any]]) -> Path:

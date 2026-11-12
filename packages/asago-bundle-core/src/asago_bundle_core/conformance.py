@@ -247,7 +247,7 @@ def _requires_failures(
     missing = (template_slots(documents) | set(entrypoint_keys)) - set(values_required(manifest))
     if not missing:
         return []
-    field = values_field(manifest)
+    field = values_field()
     return [f"{field} lacks {sorted(missing)}: the templates or the entrypoint use them"]
 
 

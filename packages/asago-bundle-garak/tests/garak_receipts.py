@@ -11,6 +11,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from asago_bundle_core.bundle_contract import write_bundle
 from asago_bundle_garak.report_parse import parse_report
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "ipi"
@@ -38,16 +39,23 @@ def garak_receipt(root: Path, case: str) -> dict[str, Any]:
     (bundle / "reports").mkdir(parents=True)
     (bundle / "ipi-episodes.json").write_text(canonical(source), encoding="utf-8")
     manifest = {
-        "schema_version": "tool-bundle-v1",
+        "schema_version": "tool-bundle-v2",
         "tool": "garak",
         "scenario_id": metadata["scenario_id"],
         "package_id": metadata["package_id"],
         "package_digest": metadata["package_digest"],
         "claim_level": metadata["claim_level"],
-        "delivery": metadata["delivery"],
+        "conversation_mode": metadata["delivery"],
         "template": "garak-ipi-episode",
+        "tool_revision_range": ">=968cc224",
+        "plugins": ["midojo.InjectionSpecProbe", "midojo.EvaluationVerdict", "midojo.EvaluationEffect"],
+        "values_required": [],
+        "environment": [],
+        "templates": {},
+        "entrypoint": ["true"],
         "native_outputs": [f"reports/{case}.report.jsonl"],
     }
+    manifest = write_bundle(manifest, writer="tests.garak_receipts", writer_version="0.1.0")
     (bundle / "bundle.json").write_text(canonical(manifest), encoding="utf-8")
     messages = [{"role": "user", "content": turn} for turn in entry["injection_spec"]["turns"]]
     (bundle / "conversations.jsonl").write_text(

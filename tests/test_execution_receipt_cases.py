@@ -1,11 +1,9 @@
 """The execution-receipt kit: its runtime specs, lock, cases and reader rules.
 
 This repository owns ``contracts/execution-receipt/``: the tool adapters write receipts that
-validate against it, and the orchestrator keeps a byte-identical copy. Both versions of the
-runtime spec live side by side: ``execution-receipt-v1/`` is the legacy shape and
-``execution-receipt-v2/`` names the evaluation, its driver and the slot key. Each version
-holds ``spec.json``, ``schema.json``, its ``cases/`` and its docs; a spec digest covers the
-runtime spec alone.
+validate against it, and the orchestrator keeps a byte-identical copy. The runtime spec
+names the evaluation, its driver and the slot key. Its spec digest covers the runtime
+spec alone.
 """
 
 from __future__ import annotations
@@ -36,7 +34,7 @@ from asago_artifact_generator.contract_kit import verify_contract_lock
 
 _ROOT = Path(__file__).resolve().parents[1] / "contracts" / "execution-receipt"
 _CONTRACTS = _ROOT.parent
-_VERSIONS = ("execution-receipt-v1", "execution-receipt-v2")
+_VERSIONS = ("execution-receipt-v2",)
 _LATEST = _VERSIONS[-1]
 
 
@@ -108,7 +106,7 @@ def test_the_lock_holds_every_file() -> None:
 def test_the_spec_identifies_the_runtime_spec_alone(version: str) -> None:
     spec = _spec(version)
     body = _json(_spec_root(version) / "spec.json")
-    expected = "optional" if version == _VERSIONS[0] else "required"
+    expected = "required"
 
     assert (spec.contract, spec.version, spec.status, spec.envelope) == (
         "execution-receipt",
@@ -220,13 +218,6 @@ def test_every_utility_member_is_written(member: str) -> None:
     assert first == (["evaluation", "utility"], "required")
 
 
-@pytest.mark.parametrize("case", _cases(_VERSIONS[0], "valid"), ids=lambda case: case.stem)
-def test_every_recorded_document_still_reads_as_a_legacy_document(case: Path) -> None:
-    """The v1 documents on disk were recorded before the spec existed; all still read."""
-
-    assert _specs().read(_json(case)).version == _VERSIONS[0]
-
-
 @pytest.mark.parametrize("version,case", _versioned_cases("valid"), ids=_ids)
 def test_the_reader_accepts_every_valid_case_with_the_envelope(version: str, case: Path) -> None:
     spec = _spec(version)
@@ -303,7 +294,7 @@ def test_an_unknown_requires_entry_is_rejected(version: str) -> None:
 
 @pytest.mark.parametrize("version", _VERSIONS)
 def test_an_unknown_field_outside_an_extension_is_rejected(version: str) -> None:
-    old_key = "episode" if version == _LATEST else "evaluation"
+    old_key = "episode"
     document = _enveloped(_spec(version), _case(version))
     document[old_key] = "a field this version does not declare"
 

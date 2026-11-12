@@ -1,5 +1,5 @@
 {
-  "schema_version": "tool-bundle-v1",
+  "schema_version": "tool-bundle-v9",
   "tool": "garak",
   "tool_revision_range": ">=968cc224",
   "package_id": "SCN-001-SCN-001",

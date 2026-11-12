@@ -591,20 +591,3 @@ def test_a_placed_digest_the_plan_does_not_hold_with_leaves_nothing_placed(
     receipt = parse(make_rejection(tmp_path, outcome=mutate))
 
     assert placed(receipt) == [(None, None)]
-
-
-def test_a_legacy_slot_key_in_the_delivery_document_still_reads(tmp_path: Path) -> None:
-    """A trace recorded before term.5a names the slot key ``probe_key``; the route reads it."""
-
-    def mutate(sealed: dict[str, Any]) -> None:
-        for fact in sealed["delivery"]:
-            fact["probe_key"] = fact.pop("slot_key")
-        for item in sealed["exposure"]["instructions"]:
-            item["probe_key"] = item.pop("slot_key")
-
-    with_legacy = parse(make_rejection(tmp_path / "legacy", mutate=mutate))
-    current = parse(make_rejection(tmp_path / "current"))
-
-    assert with_legacy["evaluation"]["delivery"] == current["evaluation"]["delivery"]
-    assert with_legacy["evaluation"]["exposure"] == current["evaluation"]["exposure"]
-    assert placed(with_legacy) == placed(current)

@@ -15,6 +15,7 @@ import pytest
 from asago_contracts_core import write_envelope
 
 from asago_bundle_core.bundle_contract import installed_specs
+from asago_bundle_core.receipt_contract import write_receipt
 from asago_bundle_core.conformance import (
     AdapterUnderTest,
     _marker_failures,
@@ -48,7 +49,7 @@ MANIFEST_FLAWS: dict[str, dict[str, Any]] = {
     "missing-template": {
         "templates": {"conversation": "absent.template.json", "run": "run.template.json"}
     },
-    "requires-lacks": {"requires": ["gateway_url", "messages", "model"]},
+    "requires-lacks": {"values_required": ["gateway_url", "messages", "model"]},
     "repeats-native": {"repeats": {"native": True}},
 }
 
@@ -67,20 +68,8 @@ def is_text(value: Any) -> bool:
 
 CHECKS = {"mcp_url": is_url, "gateway_url": is_url, "model": is_text}
 
-#: The lists execution-receipt-v1's attempt requires; v2 records none of them.
-_V1_RUNTIME_LISTS = (
-    "processes",
-    "network_calls_allowed",
-    "network_calls_blocked",
-    "files_created",
-    "files_modified",
-    "files_deleted",
-    "security_findings",
-)
-
-
 def attempt() -> dict[str, Any]:
-    """A v1 receipt's attempt, which still requires ``runtime_observations``."""
+    """A receipt attempt with a completed response."""
 
     return {
         "index": 0,
@@ -94,20 +83,15 @@ def attempt() -> dict[str, Any]:
         ],
         "result": {"outcome": "detected", "claim_level": "command_attempt", "reason": "r"},
         "observation": {"source": "tool_native", "assistant_messages": [], "tool_calls": []},
-        "runtime_observations": {
-            "source": None,
-            **{name: [] for name in _V1_RUNTIME_LISTS},
-        },
         "detections": [],
         "judge": None,
     }
 
 
 class FakeAdapter:
-    def __init__(self, *flaws: str, attempts: int = 1, version: str = "tool-bundle-v1") -> None:
+    def __init__(self, *flaws: str, attempts: int = 1) -> None:
         self.flaws = set(flaws)
         self.attempts = attempts
-        self.version = version
         self.compiles = 0
 
     def under_test(self) -> AdapterUnderTest:
@@ -135,16 +119,16 @@ class FakeAdapter:
             run["salt"] = self.compiles
         requires = ["gateway_url", "mcp_url", "messages", "model"]
         manifest = {
-            "schema_version": "tool-bundle-v1",
+            "schema_version": "tool-bundle-v2",
             "tool": "fake",
             "tool_revision_range": ">=1",
             "package_id": package.manifest.package_id,
             "scenario_id": package.manifest.scenario_id,
             "package_digest": package.manifest.manifest_digest,
             "claim_level": "command_attempt",
-            "delivery": "single",
+            "conversation_mode": "single",
             "plugins": ["fake.probe"],
-            "requires": [*requires, "repeats"] if "repeats-native" in self.flaws else requires,
+            "values_required": [*requires, "repeats"] if "repeats-native" in self.flaws else requires,
             "environment": ["FAKE_API_KEY"],
             "templates": {
                 "conversation": "conversation.template.json",
@@ -153,32 +137,17 @@ class FakeAdapter:
             "entrypoint": ["{tool_python}", "--config", "{bundle}/run.json", "--name", "{model}"],
             "native_outputs": ["reports/fake.report.jsonl"],
         }
+        spec = installed_specs().spec("tool-bundle", "tool-bundle-v2")
+        manifest = write_envelope(manifest, spec, writer="tests.conformance", writer_version="0.1.0")
         for flaw in self.flaws:
             manifest.update(MANIFEST_FLAWS.get(flaw, {}))
-        if self.version != "tool-bundle-v1":
-            manifest = self._v2(manifest)
+        if "missing-envelope" in self.flaws:
+            del manifest["contract"]
         out.mkdir(parents=True)
         (out / "conversation.template.json").write_text(canonical_text(conversation))
         (out / "run.template.json").write_text(canonical_text(run))
         (out / "bundle.json").write_text(canonical_text(manifest))
         return manifest
-
-    def _v2(self, manifest: dict[str, Any]) -> dict[str, Any]:
-        """Return ``manifest`` under v2 names, stamped as a v2 writer stamps it."""
-
-        renamed = {
-            {
-                "delivery": "conversation_mode",
-                "requires": "values_required",
-            }.get(key, key): value
-            for key, value in manifest.items()
-        }
-        renamed["schema_version"] = "tool-bundle-v2"
-        spec = installed_specs().spec("tool-bundle", "tool-bundle-v2")
-        written = write_envelope(renamed, spec, writer="tests.conformance", writer_version="0.1.0")
-        if "missing-envelope" in self.flaws:
-            del written["contract"]
-        return written
 
     def gap_record(self, package: Any) -> dict[str, Any]:
         record = capability_gap_record("fake", package, "sequential", "the fake cannot send it")
@@ -238,7 +207,7 @@ class FakeAdapter:
         failed = not report.is_file() and "native-missing-ok" not in self.flaws
         reason = None if "no-reason" in self.flaws else "report_missing"
         receipt = {
-            "schema_version": "execution-receipt-v1",
+            "schema_version": "execution-receipt-v2",
             "tool": {"id": "fake", "revision": None, "adapter_revision": None},
             "package": {
                 "id": manifest["scenario_id"],
@@ -260,6 +229,7 @@ class FakeAdapter:
                 }
             ],
         }
+        receipt = write_receipt(receipt, writer="tests.conformance", writer_version="0.1.0")
         if "bad-receipt" in self.flaws:
             del receipt["native"]
         out.write_text(canonical_text(receipt))
@@ -282,9 +252,8 @@ def round_trip(
     *flaws: str,
     values: dict[str, Any] = VALUES,
     attempts: int = 1,
-    version: str = "tool-bundle-v1",
 ) -> list[str]:
-    adapter = FakeAdapter(*flaws, attempts=attempts, version=version).under_test()
+    adapter = FakeAdapter(*flaws, attempts=attempts).under_test()
     return check_round_trip(adapter, package, values, tmp_path / "work")
 
 
@@ -292,20 +261,16 @@ def test_a_faithful_adapter_has_no_failures(tmp_path: Path, package: Path) -> No
     assert round_trip(tmp_path, package) == []
 
 
-def test_a_faithful_v2_adapter_has_no_failures(tmp_path: Path, package: Path) -> None:
-    assert round_trip(tmp_path, package, version="tool-bundle-v2") == []
-
-
-def test_v2_names_values_required_when_it_lacks_a_key(tmp_path: Path, package: Path) -> None:
-    failures = round_trip(tmp_path, package, "requires-lacks", version="tool-bundle-v2")
+def test_values_required_names_a_missing_key(tmp_path: Path, package: Path) -> None:
+    failures = round_trip(tmp_path, package, "requires-lacks")
 
     assert failures == [
         "values_required lacks ['mcp_url']: the templates or the entrypoint use them"
     ]
 
 
-def test_a_v2_manifest_without_its_envelope_is_named(tmp_path: Path, package: Path) -> None:
-    failures = round_trip(tmp_path, package, "missing-envelope", version="tool-bundle-v2")
+def test_a_manifest_without_its_envelope_is_named(tmp_path: Path, package: Path) -> None:
+    failures = round_trip(tmp_path, package, "missing-envelope")
 
     assert failures
     assert "envelope" in failures[0]
@@ -345,7 +310,7 @@ def test_each_check_runs_on_its_own(tmp_path: Path, package: Path) -> None:
             "template file absent.template.json",
             id="compile-missing-template",
         ),
-        pytest.param("requires-lacks", "requires lacks ['mcp_url']", id="compile-requires-lacks"),
+        pytest.param("requires-lacks", "values_required lacks ['mcp_url']", id="compile-requires-lacks"),
         pytest.param(
             "accepts-missing",
             "instantiate accepted values without gateway_url",

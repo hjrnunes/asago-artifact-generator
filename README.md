@@ -1077,9 +1077,7 @@ invalid or undelivered chain inconclusive. The episode's `delivery`, `exposure` 
 `call_injections` are the seal's, as on the MiDojo route; each outcome's `slot` is the
 seed slot the entry's `placements` name, and an entry compiled before it carried them
 falls back to the delivery document, whose facts name the planted target by its digest.
-A report recorded before the rename names
-the old plugin and note names; `parse` reads both forms and gives the same outcome
-and verdict. A reply episode's `judge.verdict` states
+A reply episode's `judge.verdict` states
 `supported` for a detection, `contradicted` for a decided resistance, and
 `unresolved` in every other case. A one-chain report also fills the receipt's
 `evaluation` block with the evaluation and snapshot the probe sealed and their verdict;
@@ -1450,8 +1448,7 @@ turns=len(snapshot.turns), evidence_status=snapshot.evidence_status).model_dump(
 and `parse` reads both straight from it. The delivery file contract is gone: no
 `delivery.json` is written beside the snapshot, and the receipt checks the raw facts
 alone (`sealed.delivery_shape`), with each fact and instruction item naming the
-instruction's slot key under either name it recorded (`slot_key`, or the `probe_key` a
-run recorded before term.5a).
+instruction's slot key.
 
 From `a19562e` each fact may also carry the outcome's `payload_digest`, `placed_digest`
 and `slot`, optional and null when not reported, as the snapshot does. The receipt's

@@ -163,13 +163,13 @@ the group the module skips and names what it needs.
   declared target's runtime contract from the shared base; orch runs it in this
   interpreter, and the producer holds no copy.
 - `packages/asago-bundle-core/`: the tool-neutral core every tool adapter builds on (the
-  `tool-bundle-v2` runtime spec, whose v1 still reads, slot markers, the capability-gap
+  `tool-bundle-v2` runtime spec, slot markers, the capability-gap
   record, `BundleError`, the `testing` package builders, the `mcp_records` readers of the
   orchestrator's boundary records, and the `conformance` helper that round-trips
   `compile`, `instantiate` and `parse` of an adapter and returns failure messages).
-  `receipt_contract` and `bundle_contract` ship the consumer's `execution-receipt-v1` and
-  `execution-receipt-v2` specs (and both `tool-bundle` versions) as package data and read
-  every receipt and bundle an adapter writes through `SpecSet.read`;
+  `receipt_contract` and `bundle_contract` ship the consumer's `execution-receipt-v2` and
+  `tool-bundle-v2` specs as package data and read every receipt and bundle an adapter writes
+  through `SpecSet.read`;
   `contracts/execution-receipt/` and `contracts/tool-bundle/` are the authorities, and a
   test refuses a copy that differs. `schema.manifest_errors` reads a manifest through
   `bundle_contract` before it applies the schema, and `check_round_trip` reads the receipt
@@ -223,8 +223,7 @@ the group the module skips and names what it needs.
   its verdict, which states `attempted`, `blocked` and `effect_observed` as sealed; a chain
   sealed short names its evaluation, and where the probe's interrupt sealed a snapshot
   first it names that snapshot and its verdict too, but no placements, and a report of several
-  chains leaves the block out. A report recorded before the rename names the old plugins and
-  notes; `parse` reads both forms. `parse` exits 1 and names the path on stderr
+  chains leaves the block out. `parse` exits 1 and names the path on stderr
   when the bundle directory or the report is not there: missing input is not a failed run.
   **Garak planted receipt.** The `evaluation` block is a planted-item receipt's evidence
   record, and every member comes from the trace the probe sealed, never from the run's
@@ -291,8 +290,7 @@ the group the module skips and names what it needs.
   (`asago_injection_spec`): the compiler from a `planted_item` package to one MiDojo
   injection spec, the consumer envelope, the placement and reachability checks, the
   sealed-result readers, and the judge-turn vocabulary compile and the judge service share.
-  `sealed.delivery_shape` checks the raw delivery facts and exposure a trace states, with
-  the instruction's slot key read under either name it recorded.
+  `sealed.delivery_shape` checks the raw delivery facts and exposure a trace states.
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-package/tests -q`.

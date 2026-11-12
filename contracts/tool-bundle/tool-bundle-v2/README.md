@@ -16,8 +16,8 @@ invalid documents with `expected-violations.json`, and `spec.json` names them.
 
 ## What v2 renames
 
-v2 states the same manifest as v1 under two names the workspace settled on. Every reader
-accepts both versions, so a bundle recorded before the rename still reads.
+v2 states the manifest under the names the workspace settled on. The first
+bundle version used the earlier names, but the installed reader accepts v2 only.
 
 | v1 | v2 | what it states |
 | --- | --- | --- |
@@ -26,8 +26,7 @@ accepts both versions, so a bundle recorded before the rename still reads.
 
 `values_required` moves off the name `requires` because the self-identifying envelope also
 has a `requires` list, naming contract features rather than value keys. The two lists sit in
-one document and must not be confused. v1 keeps its field names so every recorded manifest
-reads; `tool-bundle-v2` writes the new ones.
+one document and must not be confused. `tool-bundle-v2` writes the new names.
 
 ## The split
 
@@ -55,20 +54,18 @@ A document written from the self-identifying envelope carries one `contract` blo
 }
 ```
 
-`tool-bundle-v1` stays published with `"envelope": "optional"`, because its writers predate
-the envelope. `tool-bundle-v2` is published with `"envelope": "required"`, and its writers
-stamp it with `asago_contracts_core.write_envelope`. A reader accepts a v1 document with or
-without the envelope and a v2 document with it. A reader selects one of its installed specs
+`tool-bundle-v2` is published with `"envelope": "required"`, and its writers
+stamp it with `asago_contracts_core.write_envelope`. The reader selects the installed spec
 by the document's contract id and version, and rejects:
 
 - an unsupported version, with the error listing the supported versions;
-- a `requires` entry the selected spec does not support (neither version supports one);
+- a `requires` entry the selected spec does not support (the installed version supports none);
 - a top-level field outside the schema and the spec's declared extensions;
 - a `spec_digest` that is not exactly the installed spec's, for a draft as for a published
   version;
 - a v2 document without the envelope.
 
-The consumer's `asago_bundle_core.bundle_contract` ships both version directories as package
+The consumer's `asago_bundle_core.bundle_contract` ships the installed version as package
 data, and `tests/test_bundle_contract.py` refuses a copy that differs from this directory.
 `asago_bundle_core.schema` reads every manifest through it before it applies the schema, so
 `instantiate` and the conformance helper keep their existing error wording.
