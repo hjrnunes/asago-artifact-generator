@@ -138,54 +138,6 @@ def test_every_valid_case_validates(version: str, case: Path) -> None:
     assert list(_validator(version).iter_errors(_json(case))) == []
 
 
-_RUNTIME_CASES = {
-    "midojo-runtime-unmanaged.json": {
-        "type": "unmanaged",
-        "evidence": [
-            "the launcher started the target and its gateway as host processes",
-            "the run recorded no sandbox",
-        ],
-    },
-    "midojo-runtime-openshell.json": {
-        "type": "openshell",
-        "evidence": [
-            "the launcher started the target in OpenShell",
-            "the sandbox's policy proxy served the target's HTTP requests",
-        ],
-    },
-    "midojo-runtime-openshell-without-evidence.json": {"type": "openshell", "evidence": []},
-}
-
-
-@pytest.mark.parametrize("name", _RUNTIME_CASES, ids=list(_RUNTIME_CASES))
-def test_a_receipt_may_state_its_runtime_with_evidence_in_order(name: str) -> None:
-    """The cases keep the caller's evidence order, and the evidence list may be empty."""
-
-    case = _json(_spec_root(_LATEST) / "cases" / "valid" / name)
-
-    assert case["evaluation"]["runtime"] == _RUNTIME_CASES[name]
-
-
-def test_a_receipt_without_a_runtime_is_still_valid() -> None:
-    """The field is optional, so a receipt that records no runtime keeps its old shape."""
-
-    case = _json(_spec_root(_LATEST) / "cases" / "valid" / "midojo-episode-unknown.json")
-
-    assert "runtime" not in case["evaluation"]
-    assert list(_validator(_LATEST).iter_errors(case)) == []
-
-
-def test_the_runtime_evidence_must_be_text() -> None:
-    case = _json(_spec_root(_LATEST) / "cases" / "valid" / "midojo-runtime-unmanaged.json")
-    case["evaluation"]["runtime"]["evidence"] = ["the launcher recorded it", 1]
-
-    errors = list(_validator(_LATEST).iter_errors(case))
-
-    assert [(list(error.absolute_path), error.validator) for error in errors] == [
-        (["evaluation", "runtime", "evidence", 1], "type")
-    ]
-
-
 _UTILITY_CASES = {
     "evaluation-utility-not-applicable.json": ("not_applicable", None, "no_utility_check"),
     "evaluation-utility-baseline-security.json": ("not_applicable", None, "baseline_security"),

@@ -64,16 +64,6 @@
           }
         ]
       },
-      "runtime_observations": {
-        "source": null,
-        "processes": [],
-        "network_calls_allowed": [],
-        "network_calls_blocked": [],
-        "files_created": [],
-        "files_modified": [],
-        "files_deleted": [],
-        "security_findings": []
-      },
       "detections": [
         {
           "detector": "ToolCallCondition",

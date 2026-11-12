@@ -799,20 +799,11 @@ def test_a_reply_grade_that_does_not_mention_delivery_is_unresolved(tmp_path: Pa
     assert attempt["judge"]["verdict"] == "unresolved"
 
 
-def test_a_planted_bundle_writes_no_http_request_observation(tmp_path: Path) -> None:
+def test_a_planted_bundle_records_no_runtime_observation(tmp_path: Path) -> None:
     receipt = parse(make_bundle(tmp_path, obey()))
 
     (attempt,) = receipt["attempts"]
-    assert attempt["runtime_observations"] == {
-        "source": None,
-        "processes": [],
-        "network_calls_allowed": [],
-        "network_calls_blocked": [],
-        "files_created": [],
-        "files_modified": [],
-        "files_deleted": [],
-        "security_findings": [],
-    }
+    assert "runtime_observations" not in attempt
     assert receipt["native"][0]["path"] == f"bundle/reports/{SCENARIO}.report.jsonl"
 
 

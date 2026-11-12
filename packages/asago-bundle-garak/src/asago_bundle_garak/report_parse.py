@@ -152,17 +152,6 @@ UNFINISHED = "unfinished"
 PROXY_CALLS = Path("mcp_capture/calls.jsonl")
 GATEWAY_ACCOUNTING = Path("boundary/gateway-accounting.json")
 JUDGE_RECORD = Path("judge_service") / JUDGE_RECORD_NAME
-# Garak observes no runtime, so every list is empty and ``http_requests`` is left out: it
-# records no HTTP requests, which is not observed, never ``[]`` (none made).
-RUNTIME_LISTS = (
-    "processes",
-    "network_calls_allowed",
-    "network_calls_blocked",
-    "files_created",
-    "files_modified",
-    "files_deleted",
-    "security_findings",
-)
 CALL_FIELDS = ("name", "arguments", "result", "error", "status")
 MANIFEST_KEYS = frozenset({"scenario_id", "package_digest", "claim_level", "native_outputs"})
 
@@ -370,7 +359,6 @@ def build_attempt(attempt: dict[str, Any], bundle: Bundle, records: Records) -> 
         ],
         "result": result_of(detections, bundle.manifest["claim_level"]),
         "observation": {"source": source, "assistant_messages": replies, "tool_calls": calls},
-        "runtime_observations": {"source": None, **{name: [] for name in RUNTIME_LISTS}},
         "detections": detections,
         "judge": judge_of(attempt, records),
     }
@@ -408,7 +396,6 @@ def sequential_attempt(
             "assistant_messages": [replies[index] for index in sorted(replies)],
             "tool_calls": calls,
         },
-        "runtime_observations": {"source": None, **{name: [] for name in RUNTIME_LISTS}},
         "detections": detections,
         "judge": sequential_judge(turns, records) if graded else None,
     }
@@ -819,7 +806,6 @@ def ipi_attempt(
             "assistant_messages": [replies[position] for position in sorted(replies)],
             "tool_calls": calls,
         },
-        "runtime_observations": {"source": None, **{name: [] for name in RUNTIME_LISTS}},
         "detections": detections,
         "judge": ipi_judge(final, bundle, records) if reason is None else None,
     }

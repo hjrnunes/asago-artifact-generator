@@ -44,16 +44,6 @@
         "outcome": "detected",
         "reason": "the condition holds on the captured calls"
       },
-      "runtime_observations": {
-        "files_created": [],
-        "files_deleted": [],
-        "files_modified": [],
-        "network_calls_allowed": [],
-        "network_calls_blocked": [],
-        "processes": [],
-        "security_findings": [],
-        "source": null
-      },
       "turns": [
         {
           "index": 0,
@@ -86,7 +76,7 @@
       "writer_version": "0.1.0"
     },
     "requires": [],
-    "spec_digest": "sha256:1c49128f6562fd9011894f0e37ab8facf6ae41790a6402c44006169aac8b3609",
+    "spec_digest": "sha256:741fa0b6164f4ca5a974b25ef3e366f96c60b39e690f2f024bd91e00fb49de6b",
     "version": "execution-receipt-v2"
   },
   "execution_status": "completed",

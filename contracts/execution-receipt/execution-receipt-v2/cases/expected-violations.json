@@ -23,26 +23,6 @@
     "path": "/evaluation",
     "keyword": "required"
   },
-  "invalid/http-request-text-port.json": {
-    "path": "/attempts/0/runtime_observations/http_requests/1/port",
-    "keyword": "type"
-  },
-  "invalid/http-request-unknown-decision.json": {
-    "path": "/attempts/0/runtime_observations/http_requests/1/decision",
-    "keyword": "enum"
-  },
-  "invalid/http-request-unknown-field.json": {
-    "path": "/attempts/0/runtime_observations/http_requests/1",
-    "keyword": "additionalProperties"
-  },
-  "invalid/http-request-without-raw.json": {
-    "path": "/attempts/0/runtime_observations/http_requests/1",
-    "keyword": "required"
-  },
-  "invalid/http-requests-not-a-list.json": {
-    "path": "/attempts/0/runtime_observations/http_requests",
-    "keyword": "type"
-  },
   "invalid/matched-call-not-an-index.json": {
     "path": "/attempts/0/detections/0/matched_calls/0",
     "keyword": "type"
@@ -58,22 +38,6 @@
   "invalid/negative-request-count.json": {
     "path": "/attempts/0/generation/request_count",
     "keyword": "minimum"
-  },
-  "invalid/runtime-unknown-field.json": {
-    "path": "/evaluation/runtime",
-    "keyword": "additionalProperties"
-  },
-  "invalid/runtime-unknown-type.json": {
-    "path": "/evaluation/runtime/type",
-    "keyword": "enum"
-  },
-  "invalid/runtime-without-evidence.json": {
-    "path": "/evaluation/runtime",
-    "keyword": "required"
-  },
-  "invalid/runtime-without-source.json": {
-    "path": "/attempts/0/runtime_observations",
-    "keyword": "required"
   },
   "invalid/schema-version-v0.json": {
     "path": "/schema_version",

@@ -420,9 +420,9 @@ def resealed_with_http_requests(sealed: dict[str, Any], requests: Any) -> dict[s
     """The sealed trace with an OpenShell observation carrying ``http_requests``.
 
     The observation joins the snapshot before its ID is recomputed, so the seal holds and
-    the reader cannot refuse it as a tampered one. The route no longer copies the records:
-    a snapshot that carries them verifies by digest and the receipt reads as one whose
-    runtime nothing observed.
+    the reader cannot refuse it as a tampered one. The receipt records no runtime
+    observation: a snapshot that carries the records verifies by digest and the receipt
+    reads as one whose runtime nothing observed.
     """
 
     snapshot = dict(sealed["snapshot"])
@@ -474,10 +474,9 @@ def test_a_snapshot_sealed_with_http_requests_verifies_and_the_route_ignores_the
     """A snapshot that carries ``http_requests`` verifies by its own digest.
 
     The observation is part of the content the snapshot ID digests, so a resealed snapshot
-    that carries it verifies as any other does and the receipt completes. The route no
-    longer reads the records: the attempt's runtime observations name no source and no
-    ``http_requests`` member, whatever the observation holds, because Garak observes no
-    runtime.
+    that carries it verifies as any other does and the receipt completes. The receipt
+    records no runtime observation: the contract's attempt carries no such member, so
+    whatever the snapshot holds, nothing of it reaches the receipt.
     """
 
     sealed = resealed_with_http_requests(sealed_trace(), requests)
@@ -486,8 +485,7 @@ def test_a_snapshot_sealed_with_http_requests_verifies_and_the_route_ignores_the
 
     assert (receipt["execution_status"], receipt["incomplete_reason"]) == ("completed", None)
     (attempt,) = receipt["attempts"]
-    assert attempt["runtime_observations"]["source"] is None
-    assert "http_requests" not in attempt["runtime_observations"]
+    assert "runtime_observations" not in attempt
 
 
 def test_http_requests_edited_after_the_seal_fail_it_as_a_tampered_snapshot(

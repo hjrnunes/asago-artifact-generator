@@ -1,10 +1,10 @@
 # execution-receipt
 
 The tool-neutral record of one artifact package's execution by one testing
-tool. The Garak adapter and the MiDojo adapter write it as
-`execution-receipt.json` beside the launcher's `receipt.json`, and every reader
-of execution evidence reads it: the orchestrator projects and composes it, and
-the consumer's conformance runner validates what each adapter wrote.
+tool. The Garak adapter writes it as `execution-receipt.json` beside the
+launcher's `receipt.json`, and every reader of execution evidence reads it: the
+orchestrator projects and composes it, and the consumer's conformance runner
+validates what the adapter wrote.
 
 The consumer owns this contract and `asago-bundle-core` ships the copy its
 reader enforces; that package's test refuses a copy which differs from this
@@ -18,21 +18,6 @@ attempt per repeat, the native files the tool wrote, and, for a planted-item
 run, the `evaluation` block. `schema.json` is the runtime schema, `cases/`
 holds the valid and invalid documents with `expected-violations.json`, and
 `spec.json` names them.
-
-## The recorded runtime
-
-`evaluation.runtime` is optional. A receipt whose caller recorded no runtime
-leaves the key out, so it reads as one written before the field existed. When
-the key is there, it holds exactly two members:
-
-| member | value |
-| --- | --- |
-| `type` | `openshell` when the caller started the target in OpenShell, `unmanaged` when it started the target without a sandbox |
-| `evidence` | the facts behind the type, in the caller's order; the list may be empty |
-
-`asago-bundle-midojo parse` records the type from `--runtime` and each fact
-from a repeatable `--runtime-evidence`; without the flags it records neither.
-The Garak adapter records no runtime.
 
 ## The reserved utility record
 
@@ -83,7 +68,7 @@ changes no other rule:
 
 A reader of this contract accepts `execution-receipt-v1` and
 `execution-receipt-v2`, so a receipt recorded before the rename still reads.
-`midojo-delivery` carries the same two fields under the same new names.
+`midojo-delivery` carried the same two fields under the same new names.
 
 ## The split
 

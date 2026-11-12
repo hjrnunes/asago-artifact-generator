@@ -67,8 +67,21 @@ def is_text(value: Any) -> bool:
 
 CHECKS = {"mcp_url": is_url, "gateway_url": is_url, "model": is_text}
 
+#: The lists execution-receipt-v1's attempt requires; v2 records none of them.
+_V1_RUNTIME_LISTS = (
+    "processes",
+    "network_calls_allowed",
+    "network_calls_blocked",
+    "files_created",
+    "files_modified",
+    "files_deleted",
+    "security_findings",
+)
+
 
 def attempt() -> dict[str, Any]:
+    """A v1 receipt's attempt, which still requires ``runtime_observations``."""
+
     return {
         "index": 0,
         "generation": {"request_count": None, "response_status": "completed", "error_type": None},
@@ -81,21 +94,9 @@ def attempt() -> dict[str, Any]:
         ],
         "result": {"outcome": "detected", "claim_level": "command_attempt", "reason": "r"},
         "observation": {"source": "tool_native", "assistant_messages": [], "tool_calls": []},
-        # No runtime observed: empty lists, and no ``http_requests`` (not observed, never ``[]``).
         "runtime_observations": {
             "source": None,
-            **{
-                name: []
-                for name in (
-                    "processes",
-                    "network_calls_allowed",
-                    "network_calls_blocked",
-                    "files_created",
-                    "files_modified",
-                    "files_deleted",
-                    "security_findings",
-                )
-            },
+            **{name: [] for name in _V1_RUNTIME_LISTS},
         },
         "detections": [],
         "judge": None,

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://asago.local/contracts/execution-receipt/execution-receipt-v2.schema.json",
   "title": "execution-receipt-v2",
-  "description": "What one tool observed when it executed one authored package against one target. The orchestrator writes it beside the tool's native receipt and score reads it. One attempt per repeat; each attempt records its turns (requests and responses), its observation and where that evidence came from, its runtime observations, its detections, and its judge.",
+  "description": "What one tool observed when it executed one authored package against one target. The orchestrator writes it beside the tool's native receipt and score reads it. One attempt per repeat; each attempt records its turns (requests and responses), its observation and where that evidence came from, its detections, and its judge.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -68,7 +68,7 @@
       "required": ["driver", "evaluation_id", "snapshot_id", "evidence_status", "verdict"],
       "properties": {
         "driver": {
-          "description": "The client that drove this run of the evaluation, chosen per run, such as midojo (MiDojo's own attacker loop).",
+          "description": "The client that drove this run of the evaluation, chosen per run.",
           "$ref": "#/$defs/name"
         },
         "evaluation_id": {"$ref": "#/$defs/optional_text"},
@@ -171,12 +171,12 @@
           }
         },
         "delivery": {
-          "description": "Optional; the delivery facts of the snapshot's calls as the runner's delivery document gave them (MiDojo's DeliveryFact list), in call then instruction order. null when no delivery document was read: unknown, not undelivered.",
+          "description": "Optional; the delivery facts of the snapshot's calls (MiDojo's DeliveryFact list), in call then instruction order. null when no delivery was read: unknown, not undelivered.",
           "type": ["array", "null"],
           "items": {"$ref": "#/$defs/delivery_fact"}
         },
         "exposure": {
-          "description": "Optional; the exposure the delivery facts derive, at each boundary (emitted, agent_tool_result, model_input) and per instruction of the evaluation's plan, as the runner's delivery document gave it. null when no delivery document was read: unknown, not unexposed.",
+          "description": "Optional; the exposure the delivery facts derive, at each boundary (emitted, agent_tool_result, model_input) and per instruction of the evaluation's plan. null when no delivery was read: unknown, not unexposed.",
           "type": ["object", "null"],
           "additionalProperties": false,
           "required": ["emitted", "agent_tool_result", "model_input", "instructions"],
@@ -185,20 +185,6 @@
             "agent_tool_result": {"$ref": "#/$defs/exposure_status"},
             "model_input": {"$ref": "#/$defs/exposure_status"},
             "instructions": {"type": "array", "items": {"$ref": "#/$defs/instruction_exposure"}}
-          }
-        },
-        "runtime": {
-          "description": "Optional; how the run's target was hosted, as the caller that started it recorded: unmanaged when it started the target without a sandbox, openshell when it started the target in OpenShell. Absent when the receipt records no runtime, which says nothing about how the target ran.",
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "evidence"],
-          "properties": {
-            "type": {"enum": ["openshell", "unmanaged"]},
-            "evidence": {
-              "description": "The facts behind the type, in the caller's order; empty when it recorded none.",
-              "type": "array",
-              "items": {"type": "string"}
-            }
           }
         },
         "utility": {
@@ -255,22 +241,6 @@
       "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[^\\\\]+$"
     },
     "outcome": {"enum": ["detected", "not_detected", "inconclusive", null]},
-    "http_request": {
-      "description": "One HTTP request, field for field as MiDojo's OpenShell HttpRequestRecord: method upper-case, url as logged (query included), the proxy's decision, host (lower-case), port (when the URL names one), path (\"/\" for a URL with no path) and query (without the \"?\") split from the URL, each null where the URL has no such part or could not be split, and raw the log message it was parsed from.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["method", "url", "decision", "raw"],
-      "properties": {
-        "method": {"type": "string"},
-        "url": {"type": "string"},
-        "decision": {"enum": ["allowed", "denied"]},
-        "host": {"type": ["string", "null"]},
-        "port": {"type": ["integer", "null"]},
-        "path": {"type": ["string", "null"]},
-        "query": {"type": ["string", "null"]},
-        "raw": {"type": "string"}
-      }
-    },
     "message": {
       "type": "object",
       "additionalProperties": false,
@@ -289,7 +259,6 @@
         "turns",
         "result",
         "observation",
-        "runtime_observations",
         "detections",
         "judge"
       ],
@@ -329,7 +298,7 @@
           "required": ["source", "assistant_messages", "tool_calls"],
           "properties": {
             "source": {
-              "enum": ["mcp_recording_proxy", "tool_native", "openshell_events"]
+              "enum": ["mcp_recording_proxy", "tool_native"]
             },
             "assistant_messages": {
               "type": "array",
@@ -339,35 +308,6 @@
               "description": "Captured target tool calls in call order; detections name them by index.",
               "type": "array",
               "items": {"$ref": "#/$defs/tool_call"}
-            }
-          }
-        },
-        "runtime_observations": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "source",
-            "processes",
-            "network_calls_allowed",
-            "network_calls_blocked",
-            "files_created",
-            "files_modified",
-            "files_deleted",
-            "security_findings"
-          ],
-          "properties": {
-            "source": {"enum": ["openshell", null]},
-            "processes": {"type": "array"},
-            "network_calls_allowed": {"type": "array"},
-            "network_calls_blocked": {"type": "array"},
-            "files_created": {"type": "array"},
-            "files_modified": {"type": "array"},
-            "files_deleted": {"type": "array"},
-            "security_findings": {"type": "array"},
-            "http_requests": {
-              "description": "The HTTP requests the sandbox's policy proxy inspected, allowed and denied, in log order, each as the tool recorded it. Absent or null: not observed (the tool records no HTTP requests, or did not read them). []: observed, and no request was made. Where the evaluation's evidence_status says the log read was not complete, a list holds the requests read.",
-              "type": ["array", "null"],
-              "items": {"$ref": "#/$defs/http_request"}
             }
           }
         },

@@ -69,26 +69,6 @@
           }
         ]
       },
-      "runtime_observations": {
-        "source": "openshell",
-        "processes": [
-          {
-            "pid": 10,
-            "command": "python"
-          }
-        ],
-        "network_calls_allowed": [],
-        "network_calls_blocked": [
-          {
-            "host": "example.invalid",
-            "port": 443
-          }
-        ],
-        "files_created": [],
-        "files_modified": [],
-        "files_deleted": [],
-        "security_findings": []
-      },
       "detections": [
         {
           "detector": "ToolCallCondition",
@@ -155,26 +135,6 @@
             "turn_index": 0
           }
         ]
-      },
-      "runtime_observations": {
-        "source": "openshell",
-        "processes": [
-          {
-            "pid": 10,
-            "command": "python"
-          }
-        ],
-        "network_calls_allowed": [],
-        "network_calls_blocked": [
-          {
-            "host": "example.invalid",
-            "port": 443
-          }
-        ],
-        "files_created": [],
-        "files_modified": [],
-        "files_deleted": [],
-        "security_findings": []
       },
       "detections": [
         {
