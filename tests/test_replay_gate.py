@@ -40,7 +40,6 @@ from replay_gate import (
     ReplayRecordError,
     _summary,
     compare_item_outputs,
-    current_layout,
     load_recorded_calls,
     replay_environment,
     run_gate,
@@ -677,51 +676,11 @@ def test_missing_and_extra_files_are_differences(tmp_path: Path) -> None:
     ]
 
 
-def _age_package(output: Path, item_id: str) -> None:
-    """Rewrite a current package in the layout a recording made before the copies were dropped."""
-
-    from asago_package.package_io import _manifest_digest, _member_record
-
-    package = output / item_id
-    copies = {
-        "authoring/01-call1.json": b"{}\n",
-        "authoring/01-call1.prompt": b"the prompt",
-        "authoring/01-call1.raw": b"the reply",
-        "authoring/ledger.json": b"[]\n",
-        "authoring/reviews.json": b"{}\n",
-        "authoring/transformations.json": b"[]\n",
-        "source-hashes.json": b"{}\n",
-    }
-    inputs = json.loads((package / "inputs.json").read_bytes())
-    inputs.update(model_facing_input={"narrative": "n"}, source_input={"payload": {}})
-    copies["inputs.json"] = (canonical_json(inputs) + "\n").encode("utf-8")
-    for name, content in copies.items():
-        (package / name).parent.mkdir(exist_ok=True)
-        (package / name).write_bytes(content)
-    manifest = json.loads((package / "manifest.json").read_bytes())
-    members = {record["path"]: record for record in manifest["members"]}
-    members.update({name: _member_record(name, content) for name, content in copies.items()})
-    manifest["members"] = [members[path] for path in sorted(members)]
-    manifest["authoring"].update(
-        ledger=[{"stage": "call1"}],
-        usage=[],
-        policy={},
-        review_status={"plan": "accepted"},
-    )
-    manifest["creation_model"] = {"model": "configured-private-authoring"}
-    manifest["schema_version"] = "artifact-package-v4"
-    manifest["manifest_digest"] = _manifest_digest(manifest)
-    (package / "manifest.json").write_text(canonical_json(manifest) + "\n", encoding="utf-8")
-    (output / f"{item_id}.authoring").mkdir()
-    (output / f"{item_id}.authoring" / "01-call1.prompt").write_bytes(b"the prompt")
-
-
 def _package_trees(tmp_path: Path) -> tuple[Path, Path]:
     recorded, replayed = tmp_path / "recorded", tmp_path / "replayed"
     for root in (recorded, replayed):
         _write_tree(root, f"{root / 'output'}/{TASK_ID}", status="accepted")
         build_neutral_artifact_package(root / "output" / TASK_ID)
-    _age_package(recorded / "output", TASK_ID)
     return recorded, replayed
 
 
@@ -745,34 +704,6 @@ def _layout_declared(recorded: Path, replayed: Path) -> bool:
         replayed_log=replayed / "items" / f"{TASK_ID}.log",
     )
     return layout_declared
-
-
-def test_a_recording_with_the_retired_request_copies_compares_equal(tmp_path: Path) -> None:
-    recorded, replayed = _package_trees(tmp_path)
-
-    compared, differences = _differences(recorded, replayed)
-
-    assert differences == []
-    # The 12 package files, the evidence, and the log.
-    assert compared == 14
-
-
-def test_a_current_recording_is_compared_unchanged(tmp_path: Path) -> None:
-    output = tmp_path / "output"
-    build_neutral_artifact_package(output / TASK_ID)
-    files = {path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()}
-
-    assert current_layout(output, TASK_ID, files) == (files, {})
-
-
-def test_a_retired_layout_still_shows_a_difference_in_a_kept_member(tmp_path: Path) -> None:
-    recorded, replayed = _package_trees(tmp_path)
-    inputs = replayed / "output" / TASK_ID / "inputs.json"
-    inputs.write_text('{"neutral":false}\n', encoding="utf-8")
-
-    _, differences = _differences(recorded, replayed)
-
-    assert [item.path for item in differences] == [f"{TASK_ID}/inputs.json"]
 
 
 def _add_findings(output: Path, item_id: str, findings: list[dict]) -> None:
@@ -1068,39 +999,6 @@ def _declare(monkeypatch: pytest.MonkeyPatch) -> replay_gate.ExpectedPromptDiffe
 
     monkeypatch.setattr(replay_gate, "EXPECTED_PROMPT_DIFFERENCES", (OLDER_CALL1_ENTRY,))
     return OLDER_CALL1_ENTRY
-
-
-def test_no_declared_prompt_difference_remains() -> None:
-    """The shipped declarations name the 7bt8.6 prompt changes the corpus predates.
-
-    The re-recorded corpus carried every pre-7bt8.6 version (call1 v29, plan
-    review v28, call2 v31, artifact review v27, correction v47/v48), so the
-    six 7bt8.6 entries declare its move to the versions the code renders now
-    (call1 v30, plan review v29, call2 v34, artifact review v30, correction
-    v49/v52); 7bt8.7 advanced call2, artifact review and artifact correction
-    over the same text and added its adoption line, and the structured-analysis
-    note then dropped its forged-history clause, so every entry names the
-    current versions (call1 v31, plan review v30, call2 v35, artifact review
-    v31, correction v50/v53) directly.  The term.2-era entries are gone: bead
-    asago-sy73 lists them.
-    """
-
-    assert [
-        (entry.stage, entry.from_prompt_version, entry.to_prompt_version, entry.bead)
-        for entry in replay_gate.EXPECTED_PROMPT_DIFFERENCES
-    ] == [
-        ("call1", "authoring-call1-v29", "authoring-call1-v31", "asago-7bt8.6"),
-        ("plan_review", "authoring-plan-review-v28", "authoring-plan-review-v30", "asago-7bt8.6"),
-        ("call2", "authoring-call2-v31", "authoring-call2-v35", "asago-7bt8.6"),
-        (
-            "artifact_review",
-            "authoring-artifact-review-v27",
-            "authoring-artifact-review-v31",
-            "asago-7bt8.6",
-        ),
-        ("correction", "authoring-correction-v47", "authoring-correction-v50", "asago-7bt8.6"),
-        ("correction", "authoring-correction-v48", "authoring-correction-v53", "asago-7bt8.6"),
-    ]
 
 
 @pytest.mark.parametrize(
@@ -1520,7 +1418,7 @@ def _superseded(
     bead: str = "asago-t971",
     reason: str = "t971 re-authors the recorded item",
 ) -> replay_gate.SupersededItem:
-    """Return one item-level superseded declaration, as the checked-in tuple holds."""
+    """Return a synthetic item-level superseded declaration."""
 
     return replay_gate.SupersededItem(
         recording=recording,
@@ -1548,185 +1446,6 @@ def _superseded_mismatch(dispatch_index: int = 1, stage: str = "call1") -> dict[
         "prompt_version": CALL1_PROMPT_VERSION_V31,
         "detail": "user message differs from the recording",
     }
-
-
-def test_the_shipped_superseded_declarations_name_the_stale_recorded_dispatches() -> None:
-    assert [
-        (
-            entry.recording,
-            entry.item,
-            entry.dispatch_index,
-            entry.stage,
-            entry.prompt_version,
-            entry.prompt_sha256,
-            entry.bead,
-        )
-        for entry in replay_gate.SUPERSEDED_ITEMS
-    ] == [
-        (
-            "gsx7-author-klarna",
-            "SCN-008",
-            4,
-            "call2",
-            "authoring-call2-v31",
-            "a38d39001b4166d5cff274ce3c881ab62da01e09cabd073bcc9557962a462a09",
-            "asago-7bt8.7",
-        ),
-        (
-            "m3-rerecord-b-klarna",
-            "SCN-003",
-            7,
-            "artifact_review",
-            "authoring-artifact-review-v27",
-            "ac58517d4ebe04d4342aef10463491987991e2caf4c17fba599534f21a00cbe3",
-            "asago-t971",
-        ),
-        (
-            "m3-rerecord-b-klarna",
-            "SCN-011",
-            5,
-            "call2",
-            "authoring-call2-v31",
-            "172053fe59f39755e96114721bb9be6814604f9e64237e504310189c926b6799",
-            "asago-7bt8.7",
-        ),
-        (
-            "m6-transport-retry-klarna",
-            "SCN-008",
-            3,
-            "call2",
-            "authoring-call2-v31",
-            "53eb7e9bebd35c75a7a6c913b8a21a3e37880ce9e05fe2b0a3c117f6f189edda",
-            "asago-7bt8.7",
-        ),
-        (
-            "gsx7-author-klarna",
-            "SCN-011",
-            3,
-            "call2",
-            "authoring-call2-v31",
-            "5e7cd54fb71165118504ece13c1f812257e348e0453fe00d54ab61861e6f8505",
-            "asago-7bt8.7",
-        ),
-        (
-            "gsx7-author-klarna",
-            "SCN-008",
-            5,
-            "correction",
-            "authoring-correction-v48",
-            "7cc506ba61d32ff62e51a26f4672fc12b52615f56586521bfcee269e41da9923",
-            "asago-7bt8.6",
-        ),
-        (
-            "gsx7-author-klarna",
-            "SCN-010",
-            2,
-            "plan_review",
-            "authoring-plan-review-v28",
-            "958cfb0e07f7b2f5bc5c21def424df2bcad21e280c49337e919a89480a48602e",
-            "asago-7bt8.6",
-        ),
-        (
-            "gsx7-author-klarna",
-            "SCN-025",
-            2,
-            "plan_review",
-            "authoring-plan-review-v28",
-            "b2d2714e16b5809c99990cb978d58f7b1b76140d4cbd8e228a98dded61482667",
-            "asago-7bt8.6",
-        ),
-        (
-            "gsx7-author-klarna",
-            "SCN-028",
-            2,
-            "plan_review",
-            "authoring-plan-review-v28",
-            "bfdd00960ed3bf6eec1c7d18dc923ee36a89681e4a1a8c7f7d6916f4e9954ffb",
-            "asago-7bt8.6",
-        ),
-        (
-            "gsx7-author-klarna",
-            "SCN-011",
-            4,
-            "artifact_review",
-            "authoring-artifact-review-v27",
-            "80310fbf890d0cf9ed509c9e01bd86b3a399a95d0216bc88626c3ddf27e5aaa1",
-            "asago-7bt8.7",
-        ),
-        (
-            "m3-rerecord-b-klarna",
-            "SCN-010",
-            2,
-            "correction",
-            "authoring-correction-v47",
-            "01f461ab19349d76db7328ded33b0ae50c134fe2bae72f177e5a80e576c8ecbd",
-            "asago-7bt8.6",
-        ),
-        (
-            "m3-rerecord-b-klarna",
-            "SCN-025",
-            2,
-            "plan_review",
-            "authoring-plan-review-v28",
-            "6f725e7835e7f65118a352778a14ee300916a9bb011bfdc5049ba98f419ae84f",
-            "asago-7bt8.6",
-        ),
-        (
-            "m3-rerecord-b-klarna",
-            "SCN-028",
-            2,
-            "correction",
-            "authoring-correction-v47",
-            "6d096155c3db008d2ed1e74c0353fe5359b86d837a0e858a2d659c273bcecde9",
-            "asago-7bt8.6",
-        ),
-        (
-            "m3-rerecord-b-klarna",
-            "SCN-011",
-            6,
-            "artifact_review",
-            "authoring-artifact-review-v27",
-            "f4e40394a52dac5dc9fa0573d35be99789acb7ffe42428b8c1c03aaed50c4fbf",
-            "asago-7bt8.7",
-        ),
-        (
-            "m6-transport-retry-klarna",
-            "SCN-008",
-            4,
-            "artifact_review",
-            "authoring-artifact-review-v27",
-            "be2f13eff07aa8df4a0783522d52327bf6a65ac9bbe527e948a225f8ea31e6a8",
-            "asago-7bt8.7",
-        ),
-        (
-            "m6-transport-retry-klarna",
-            "SCN-010",
-            2,
-            "correction",
-            "authoring-correction-v47",
-            "019a7a55830250e3de0ceb70c8b622c8a8856a50f5fe8d6eaa3f36aec3983e43",
-            "asago-7bt8.6",
-        ),
-        (
-            "m6-transport-retry-klarna",
-            "SCN-025",
-            2,
-            "plan_review",
-            "authoring-plan-review-v28",
-            "b2d2714e16b5809c99990cb978d58f7b1b76140d4cbd8e228a98dded61482667",
-            "asago-7bt8.6",
-        ),
-        (
-            "m6-transport-retry-klarna",
-            "SCN-028",
-            2,
-            "plan_review",
-            "authoring-plan-review-v28",
-            "bfdd00960ed3bf6eec1c7d18dc923ee36a89681e4a1a8c7f7d6916f4e9954ffb",
-            "asago-7bt8.6",
-        ),
-    ]
-    assert all(entry.reason for entry in replay_gate.SUPERSEDED_ITEMS)
 
 
 def test_gate_declares_a_superseded_item_and_passes(

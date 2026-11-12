@@ -42,14 +42,9 @@ dispatch is stale, and the gate fails.  When an expected prompt difference
 declares the same dispatch as a text-identical version move, the declared
 record takes precedence and the item compares as a normal replay.
 
-A recording made while packages still copied each request (``authoring/``
-members, ``source-hashes.json``, a manifest ledger, and the ``<ID>.authoring/``
-request files of a failed item) is compared as the current writer lays it out:
-:func:`current_layout` drops those copies, whose content the failure evidence
-keeps, and the gate compares everything else.  :func:`declared_package_layout`
-rewrites a recorded package whose only difference is a declared finding; the
-report counts those rewrites and names each package, so a rewrite of the
-recording's ``checks.json`` and manifest never passes unseen.
+The gate compares recorded files as written. :func:`declared_package_layout`
+rewrites a recorded package only when the replay adds a declared advisory
+finding; the report counts and names each package rewrite.
 """
 
 from __future__ import annotations
@@ -164,99 +159,9 @@ class ExpectedPromptDifference:
     reason: str
 
 
-# Keep this list short: one entry per prompt change that a recording the gate
-# replays was made before, and no entry once that stage is re-recorded.  An
-# entry declares only the version change it names; a prompt that differs at any
-# other version pair still fails, and a recording whose stated prompt digest
-# does not match its prompt text cannot use an entry at all.  The five current
-# consumer recordings were made before the 7bt8.6 omission-trigger guidance
-# change (call1 v30, plan review v29, correction v49/v50), and 7bt8.7 advanced
-# call2 to v33, artifact review to v29 and artifact correction to v51 over the
-# same text, then its adoption line to v34/v30/v52, so the call2,
-# artifact-review and correction entries name the version the code renders now
-# and the gate's stale rule ignores the pairs in between that no recording
-# carries at its from-version with this to-version reachable.  The term.2-era
-# entries are gone: bead asago-sy73 lists them, and the re-recorded corpus
-# carries every pre-7bt8.6 version.  The structured-analysis note then lost its
-# forged-history clause, which advanced every stage once more over the same
-# guidance (call1 v31, plan review v30, call2 v35, artifact review v31,
-# correction v50/v53); the entries name those versions.
-EXPECTED_PROMPT_DIFFERENCES: tuple[ExpectedPromptDifference, ...] = (
-    ExpectedPromptDifference(
-        stage="call1",
-        template="authoring-call1",
-        from_prompt_version="authoring-call1-v29",
-        to_prompt_version="authoring-call1-v31",
-        bead="asago-7bt8.6",
-        reason=(
-            "the omission-trigger gate reads the bound condition and its author"
-            " guidance changes the plan-author prompt; the structured-analysis"
-            " note then dropped its forged-history clause"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="plan_review",
-        template="authoring-plan-review",
-        from_prompt_version="authoring-plan-review-v28",
-        to_prompt_version="authoring-plan-review-v30",
-        bead="asago-7bt8.6",
-        reason=(
-            "the reviewer guidance and the omission-trigger rule it renders"
-            " change the plan-review prompt; the structured-analysis note then"
-            " dropped its forged-history clause"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="call2",
-        template="authoring-call2",
-        from_prompt_version="authoring-call2-v31",
-        to_prompt_version="authoring-call2-v35",
-        bead="asago-7bt8.6",
-        reason=(
-            "the omission outcome and not_called condition guidance change the"
-            " artifact-author prompt; 7bt8.7 advanced the same text to v33 and"
-            " its adoption line to v34, and the structured-analysis note then"
-            " dropped its forged-history clause"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="artifact_review",
-        template="authoring-artifact-review",
-        from_prompt_version="authoring-artifact-review-v27",
-        to_prompt_version="authoring-artifact-review-v31",
-        bead="asago-7bt8.6",
-        reason=(
-            "the omission outcome example changes the artifact-review prompt;"
-            " 7bt8.7 advanced the same text to v29 and its adoption line to v30,"
-            " and the structured-analysis note then dropped its forged-history"
-            " clause"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="correction",
-        template="authoring-correction",
-        from_prompt_version="authoring-correction-v47",
-        to_prompt_version="authoring-correction-v50",
-        bead="asago-7bt8.6",
-        reason=(
-            "the plan-correction guidance changes with the plan prompt it repairs;"
-            " the structured-analysis note then dropped its forged-history clause"
-        ),
-    ),
-    ExpectedPromptDifference(
-        stage="correction",
-        template="authoring-correction",
-        from_prompt_version="authoring-correction-v48",
-        to_prompt_version="authoring-correction-v53",
-        bead="asago-7bt8.6",
-        reason=(
-            "the artifact-correction guidance changes with the artifact prompt"
-            " it repairs; 7bt8.7 advanced the same text to v51 and its adoption"
-            " line to v52, and the structured-analysis note then dropped its"
-            " forged-history clause"
-        ),
-    ),
-)
+# Add one entry per prompt change that a replayed recording predates;
+# remove the entry once that recording is re-recorded.
+EXPECTED_PROMPT_DIFFERENCES: tuple[ExpectedPromptDifference, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -290,272 +195,9 @@ class SupersededItem:
     reason: str
 
 
-# Keep this list short: one entry per item the code no longer reproduces, and
-# no entry once that item is re-recorded.  The t971 items and the 7bt8.7
-# planted-judge items do not fit EXPECTED_PROMPT_DIFFERENCES, which
-# `_declared_prompt_difference` restricts to a changed version at the same
-# stage: a finding or member change also moves the replay's outputs, which a
-# declared version pair cannot excuse.  The 7bt8.7 change (planted_item_echo)
-# adds the echo rule to the call2 prompt of a planted judged plan and the
-# seed:planted_item fact to its judge.json, so each such item now diverges at
-# its first call2 dispatch.  Each item is replayed, and each declaration
-# excuses only the one dispatch it names.  The 7bt8.6 omission-trigger gate
-# also strands recorded items whose plans the code now refuses or corrects:
-# the plan-review items whose recorded plans cite no trigger the inventory
-# supplies, the correction items the new finding loops, and the artifact
-# reviews those corrections never reach.  Those declarations name the
-# recording's dispatch where the divergence starts, as the t971 entry does.
-# A text-identical version move at the same dispatch is the one case a
-# superseded entry defers to EXPECTED_PROMPT_DIFFERENCES; see
-# `_declared_covers`.
-SUPERSEDED_ITEMS: tuple[SupersededItem, ...] = (
-    SupersededItem(
-        recording="gsx7-author-klarna",
-        item="SCN-008",
-        dispatch_index=4,
-        stage="call2",
-        prompt_version="authoring-call2-v31",
-        prompt_sha256="a38d39001b4166d5cff274ce3c881ab62da01e09cabd073bcc9557962a462a09",
-        bead="asago-7bt8.7",
-        reason=(
-            "the planted_item_echo rule changes the call2 prompt, and the judge"
-            " member gains the seed:planted_item fact; the t971 divergence this"
-            " entry replaced came later, at its correction dispatch"
-        ),
-    ),
-    SupersededItem(
-        recording="m3-rerecord-b-klarna",
-        item="SCN-003",
-        dispatch_index=7,
-        stage="artifact_review",
-        prompt_version="authoring-artifact-review-v27",
-        prompt_sha256="ac58517d4ebe04d4342aef10463491987991e2caf4c17fba599534f21a00cbe3",
-        bead="asago-t971",
-        reason=(
-            "fd0de5a adds the binding_in_fixed_turn finding, so the code issues a"
-            " correction where the recording holds an artifact review"
-        ),
-    ),
-    SupersededItem(
-        recording="m3-rerecord-b-klarna",
-        item="SCN-011",
-        dispatch_index=5,
-        stage="call2",
-        prompt_version="authoring-call2-v31",
-        prompt_sha256="172053fe59f39755e96114721bb9be6814604f9e64237e504310189c926b6799",
-        bead="asago-7bt8.7",
-        reason=(
-            "the planted_item_echo rule changes the call2 prompt, and the judge"
-            " member gains the seed:planted_item fact"
-        ),
-    ),
-    SupersededItem(
-        recording="m6-transport-retry-klarna",
-        item="SCN-008",
-        dispatch_index=3,
-        stage="call2",
-        prompt_version="authoring-call2-v31",
-        prompt_sha256="53eb7e9bebd35c75a7a6c913b8a21a3e37880ce9e05fe2b0a3c117f6f189edda",
-        bead="asago-7bt8.7",
-        reason=(
-            "the planted_item_echo rule changes the call2 prompt, and the judge"
-            " member gains the seed:planted_item fact"
-        ),
-    ),
-    SupersededItem(
-        recording="gsx7-author-klarna",
-        item="SCN-011",
-        dispatch_index=3,
-        stage="call2",
-        prompt_version="authoring-call2-v31",
-        prompt_sha256="5e7cd54fb71165118504ece13c1f812257e348e0453fe00d54ab61861e6f8505",
-        bead="asago-7bt8.7",
-        reason=(
-            "the planted_item_echo rule changes the call2 prompt, and the judge"
-            " member gains the seed:planted_item fact"
-        ),
-    ),
-    SupersededItem(
-        recording="gsx7-author-klarna",
-        item="SCN-008",
-        dispatch_index=5,
-        stage="correction",
-        prompt_version="authoring-correction-v48",
-        prompt_sha256="7cc506ba61d32ff62e51a26f4672fc12b52615f56586521bfcee269e41da9923",
-        bead="asago-7bt8.6",
-        reason=(
-            "the recording's artifact correction kept a binding placeholder in"
-            " a planted turn, which the t971 finding now refuses, so the code"
-            " asks again where the recording held an artifact review"
-        ),
-    ),
-    SupersededItem(
-        recording="gsx7-author-klarna",
-        item="SCN-010",
-        dispatch_index=2,
-        stage="plan_review",
-        prompt_version="authoring-plan-review-v28",
-        prompt_sha256="958cfb0e07f7b2f5bc5c21def424df2bcad21e280c49337e919a89480a48602e",
-        bead="asago-7bt8.6",
-        reason=(
-            "the recorded plan cites a state fact as its omission trigger, and"
-            " the omission gate now refuses it, so the code issues a correction"
-            " where the recording held a plan review"
-        ),
-    ),
-    SupersededItem(
-        recording="gsx7-author-klarna",
-        item="SCN-025",
-        dispatch_index=2,
-        stage="plan_review",
-        prompt_version="authoring-plan-review-v28",
-        prompt_sha256="b2d2714e16b5809c99990cb978d58f7b1b76140d4cbd8e228a98dded61482667",
-        bead="asago-7bt8.6",
-        reason=(
-            "the recorded plan cites no observation of the omitted call's"
-            " trigger, and the omission gate now refuses it, so the code issues"
-            " a correction where the recording held a plan review"
-        ),
-    ),
-    SupersededItem(
-        recording="gsx7-author-klarna",
-        item="SCN-028",
-        dispatch_index=2,
-        stage="plan_review",
-        prompt_version="authoring-plan-review-v28",
-        prompt_sha256="bfdd00960ed3bf6eec1c7d18dc923ee36a89681e4a1a8c7f7d6916f4e9954ffb",
-        bead="asago-7bt8.6",
-        reason=(
-            "the recorded plan states no trigger for its omission, and the"
-            " omission gate now refuses it, so the code issues a correction"
-            " where the recording held a plan review"
-        ),
-    ),
-    SupersededItem(
-        recording="gsx7-author-klarna",
-        item="SCN-011",
-        dispatch_index=4,
-        stage="artifact_review",
-        prompt_version="authoring-artifact-review-v27",
-        prompt_sha256="80310fbf890d0cf9ed509c9e01bd86b3a399a95d0216bc88626c3ddf27e5aaa1",
-        bead="asago-7bt8.7",
-        reason=(
-            "the judge member gains the seed:planted_item fact, so the"
-            " accepted artifact's judge.json and manifest differ"
-        ),
-    ),
-    SupersededItem(
-        recording="m3-rerecord-b-klarna",
-        item="SCN-010",
-        dispatch_index=2,
-        stage="correction",
-        prompt_version="authoring-correction-v47",
-        prompt_sha256="01f461ab19349d76db7328ded33b0ae50c134fe2bae72f177e5a80e576c8ecbd",
-        bead="asago-7bt8.6",
-        reason=(
-            "the recorded correction emptied selected_evidence and cited a"
-            " state fact as the omission trigger, which the omission gate now"
-            " refuses, so the correction loop exhausts where the recording"
-            " accepted"
-        ),
-    ),
-    SupersededItem(
-        recording="m3-rerecord-b-klarna",
-        item="SCN-025",
-        dispatch_index=2,
-        stage="plan_review",
-        prompt_version="authoring-plan-review-v28",
-        prompt_sha256="6f725e7835e7f65118a352778a14ee300916a9bb011bfdc5049ba98f419ae84f",
-        bead="asago-7bt8.6",
-        reason=(
-            "the recorded plan states no trigger for its omission, and the"
-            " omission gate now refuses it, so the code issues a correction"
-            " where the recording held a plan review"
-        ),
-    ),
-    SupersededItem(
-        recording="m3-rerecord-b-klarna",
-        item="SCN-028",
-        dispatch_index=2,
-        stage="correction",
-        prompt_version="authoring-correction-v47",
-        prompt_sha256="6d096155c3db008d2ed1e74c0353fe5359b86d837a0e858a2d659c273bcecde9",
-        bead="asago-7bt8.6",
-        reason=(
-            "the recorded correction selects the omitted operation itself as"
-            " its trigger, which the omission gate now refuses, so the"
-            " correction loop exhausts where the recording accepted"
-        ),
-    ),
-    SupersededItem(
-        recording="m3-rerecord-b-klarna",
-        item="SCN-011",
-        dispatch_index=6,
-        stage="artifact_review",
-        prompt_version="authoring-artifact-review-v27",
-        prompt_sha256="f4e40394a52dac5dc9fa0573d35be99789acb7ffe42428b8c1c03aaed50c4fbf",
-        bead="asago-7bt8.7",
-        reason=(
-            "the judge member gains the seed:planted_item fact, so the"
-            " accepted artifact's judge.json and manifest differ"
-        ),
-    ),
-    SupersededItem(
-        recording="m6-transport-retry-klarna",
-        item="SCN-008",
-        dispatch_index=4,
-        stage="artifact_review",
-        prompt_version="authoring-artifact-review-v27",
-        prompt_sha256="be2f13eff07aa8df4a0783522d52327bf6a65ac9bbe527e948a225f8ea31e6a8",
-        bead="asago-7bt8.7",
-        reason=(
-            "the judge member gains the seed:planted_item fact, so the"
-            " accepted artifact's judge.json and manifest differ"
-        ),
-    ),
-    SupersededItem(
-        recording="m6-transport-retry-klarna",
-        item="SCN-010",
-        dispatch_index=2,
-        stage="correction",
-        prompt_version="authoring-correction-v47",
-        prompt_sha256="019a7a55830250e3de0ceb70c8b622c8a8856a50f5fe8d6eaa3f36aec3983e43",
-        bead="asago-7bt8.6",
-        reason=(
-            "the recorded correction cites a state fact as the omission"
-            " trigger, which the omission gate now refuses, so the correction"
-            " loop exhausts where the recording accepted"
-        ),
-    ),
-    SupersededItem(
-        recording="m6-transport-retry-klarna",
-        item="SCN-025",
-        dispatch_index=2,
-        stage="plan_review",
-        prompt_version="authoring-plan-review-v28",
-        prompt_sha256="b2d2714e16b5809c99990cb978d58f7b1b76140d4cbd8e228a98dded61482667",
-        bead="asago-7bt8.6",
-        reason=(
-            "the recorded plan cites no observation of the omitted call's"
-            " trigger, and the omission gate now refuses it, so the code issues"
-            " a correction where the recording held a plan review"
-        ),
-    ),
-    SupersededItem(
-        recording="m6-transport-retry-klarna",
-        item="SCN-028",
-        dispatch_index=2,
-        stage="plan_review",
-        prompt_version="authoring-plan-review-v28",
-        prompt_sha256="bfdd00960ed3bf6eec1c7d18dc923ee36a89681e4a1a8c7f7d6916f4e9954ffb",
-        bead="asago-7bt8.6",
-        reason=(
-            "the recorded plan states no trigger for its omission, and the"
-            " omission gate now refuses it, so the code issues a correction"
-            " where the recording held a plan review"
-        ),
-    ),
-)
+# Add one entry per item affected by a prompt change its recording predates;
+# remove the entry once the item is re-recorded.
+SUPERSEDED_ITEMS: tuple[SupersededItem, ...] = ()
 
 
 def prompt_template(version: str) -> str:
@@ -565,15 +207,6 @@ def prompt_template(version: str) -> str:
     if not separator or not number.isdigit():
         return version
     return family
-
-
-# What a recording made while packages copied each request holds that the
-# current writer no longer writes; see :func:`current_layout`.
-_RETIRED_MEMBERS = frozenset({"source-hashes.json"})
-_RETIRED_MEMBER_DIRECTORY = "authoring/"
-_RETIRED_REQUESTS_SUFFIX = ".authoring"
-_RETIRED_INPUT_KEYS = ("model_facing_input", "source_input")
-_MANIFEST_AUTHORING_KEYS = ("status", "terminal_status")
 
 
 class ReplayRecordError(ValueError):
@@ -1359,73 +992,6 @@ def _owned_files(root: Path, item_id: str) -> set[str]:
     return owned
 
 
-def _is_retired(relative: str, item_id: str) -> bool:
-    head, _, rest = relative.partition("/")
-    if head == item_id + _RETIRED_REQUESTS_SUFFIX:
-        return True
-    return head == item_id and (
-        rest in _RETIRED_MEMBERS or rest.startswith(_RETIRED_MEMBER_DIRECTORY)
-    )
-
-
-def current_layout(
-    recorded_output: Path, item_id: str, files: set[str]
-) -> tuple[set[str], dict[str, bytes]]:
-    """Return an item's recorded files as the current writer lays them out.
-
-    The result is the recorded files without the retired copies, and the bytes
-    of each file that changes: ``inputs.json`` without its retired keys, and
-    ``manifest.json`` with the current ``schema_version``, the remaining members,
-    only the authoring outcome (``status``, ``terminal_status``, and
-    ``review_status.artifact``), an empty ``creation_model``, and its digest
-    recomputed.  A recording made by the current writer comes back unchanged.
-    """
-
-    from asago_artifact_generator.contract_kit import canonical_json
-    from asago_package.package_io import (
-        PACKAGE_SCHEMA_VERSION,
-        _manifest_digest,
-        _member_record,
-    )
-
-    kept = {name for name in files if not _is_retired(name, item_id)}
-    manifest_name = f"{item_id}/manifest.json"
-    if manifest_name not in kept:
-        return kept, {}
-    rewritten: dict[str, bytes] = {}
-    inputs_name = f"{item_id}/inputs.json"
-    if inputs_name in kept:
-        inputs = json.loads((recorded_output / inputs_name).read_bytes())
-        if any(key in inputs for key in _RETIRED_INPUT_KEYS):
-            for key in _RETIRED_INPUT_KEYS:
-                inputs.pop(key, None)
-            rewritten[inputs_name] = (canonical_json(inputs) + "\n").encode("utf-8")
-    original = json.loads((recorded_output / manifest_name).read_bytes())
-    manifest = dict(original)
-    manifest["schema_version"] = PACKAGE_SCHEMA_VERSION
-    members = {
-        record["path"]: record
-        for record in original["members"]
-        if not _is_retired(f"{item_id}/{record['path']}", item_id)
-    }
-    for name, content in rewritten.items():
-        path = name.split("/", 1)[1]
-        members[path] = _member_record(path, content)
-    manifest["members"] = [members[path] for path in sorted(members)]
-    authoring = original["authoring"]
-    manifest["authoring"] = {
-        key: authoring[key] for key in _MANIFEST_AUTHORING_KEYS if key in authoring
-    }
-    review_status = authoring.get("review_status")
-    if isinstance(review_status, dict) and "artifact" in review_status:
-        manifest["authoring"]["review_status"] = {"artifact": review_status["artifact"]}
-    manifest["creation_model"] = {}
-    manifest["manifest_digest"] = _manifest_digest(manifest)
-    if manifest != original:
-        rewritten[manifest_name] = (canonical_json(manifest) + "\n").encode("utf-8")
-    return kept, rewritten
-
-
 # D21 (term.7) writes the advisory slot_party_mismatch finding into the package's
 # checks.json.  A recording made before it carries that member without findings;
 # the replay recomputes the same slot and writes one.  The finding is the only
@@ -1436,7 +1002,7 @@ _ADVISORY_FINDING_CODES = frozenset({"slot_party_mismatch"})
 
 
 def _advisory_findings(document: Any) -> list[Any] | None:
-    """Return a package's findings when every one is an advisory term.7 finding."""
+    """Return a package's findings when every one is a declared advisory finding."""
 
     if not isinstance(document, dict):
         return None
@@ -1456,12 +1022,12 @@ def declared_package_layout(
     item_id: str,
     rewritten: dict[str, bytes],
 ) -> dict[str, bytes]:
-    """Return the recorded files rewritten to the package layout term.7 adds.
+    """Return recorded package files rewritten for a declared advisory finding.
 
     The rewrite applies only when the recorded ``checks.json`` has no findings,
     the replay adds advisory findings alone, and every other field matches.  The
     manifest's member record for ``checks.json`` and its digest are recomputed
-    over the recorded manifest as ``current_layout`` left it.
+    over the recorded manifest.
     """
 
     from asago_artifact_generator.contract_kit import canonical_json
@@ -1532,9 +1098,8 @@ def compare_item_outputs(
     """
 
     aliases = _location_aliases(replayed_output, recorded_output_label or str(recorded_output))
-    left, rewritten = current_layout(
-        recorded_output, item_id, _owned_files(recorded_output, item_id)
-    )
+    left = _owned_files(recorded_output, item_id)
+    rewritten: dict[str, bytes] = {}
     right = _owned_files(replayed_output, item_id)
     checks_name = f"{item_id}/checks.json"
     rewritten = declared_package_layout(recorded_output, replayed_output, item_id, rewritten)
@@ -1582,8 +1147,7 @@ class ItemResult:
     network_attempts: list[str] = field(default_factory=list)
     files_compared: int = 0
     differences: list[Difference] = field(default_factory=list)
-    # The recording's package layout was rewritten as the term.7 declaration
-    # describes: the recorded checks.json had no findings and the replay adds
+    # The recorded checks.json had no findings and the replay adds
     # advisory findings alone.
     layout_declared: bool = False
     # The declaration that supersedes this item's one prompt mismatch, when
