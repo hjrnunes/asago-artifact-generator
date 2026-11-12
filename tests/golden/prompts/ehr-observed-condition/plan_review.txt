@@ -55,7 +55,7 @@ ORIGINAL SCENARIO
     "scenario_id": "SCN-001",
     "source_digests": {
       "gherkin": "84376b70423948fc3ad75946db22df2eb5835b709c230b56900f6cd48718cadc",
-      "input": "063b120499f1780f698a422644736e4068515dba03116efb11c6be6019032e70"
+      "input": "c9877aee191fca2769a1e44516b07c965af043f7ed4ce01c6fc3c95f78af3496"
     }
   },
   "narrative": "Unsafe behavior under examination: The update_item operation is attempted for an item owned by another user. Every claim is a proposed hypothesis, not an observed execution result.",

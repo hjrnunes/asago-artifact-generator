@@ -96,7 +96,6 @@
     "downgrade_reason": null,
     "indirect": null,
     "source": "code_default",
-    "threat_label": null,
     "turn_count": 1,
     "turn_plan": [
       {
@@ -113,7 +112,7 @@
       "source_id": "PM-1-1"
     }
   ],
-  "content_digest": "8f1aa56cb59a99af7a8b9fb828fccba8265dc34ed870f276f5f2222adf67a0b5",
+  "content_digest": "be1d9b070d1775b3dace9d00b7471342dbf80281d5cdb71ca18448435f8cf9cd",
   "contract": {
     "id": "scenario-handoff",
     "provenance": {

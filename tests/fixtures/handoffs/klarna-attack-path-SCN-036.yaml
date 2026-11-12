@@ -198,7 +198,7 @@ observation:
     supported_criteria: []
     unsupported_criteria:
     - PII_disclosure
-content_digest: 408a3e047fc56be4d20759283c21f3b16491bb640b29123cd6a7d776cfbb019c
+content_digest: 9fa28ffa3e9722b838e6d95b674d281a3033a7221c2eeeca4ae5bf15840b9a2a
 condition_omitted_reason: The scenario is analytical-only, so the returned discriminating
   condition was discarded.
 tool_call_condition_status:
@@ -224,7 +224,6 @@ attack_shape:
     party_relation:
       controlling_party: third_party
       benign_user_actor_ref: null
-  threat_label: null
   source: stage5_validated
   downgrade_reason: null
 uca:

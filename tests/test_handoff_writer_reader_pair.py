@@ -193,7 +193,6 @@ def _hand_built_payload() -> dict[str, Any]:
                 {"position": 1, "speaker": "attacker_user", "purpose": "request_action"}
             ],
             "indirect": None,
-            "threat_label": None,
             "source": "code_default",
             "downgrade_reason": None,
         },

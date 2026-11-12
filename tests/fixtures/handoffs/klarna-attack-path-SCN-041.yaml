@@ -165,7 +165,7 @@ observation:
     supported_criteria:
     - refund_omission
     unsupported_criteria: []
-content_digest: 3726a0dbccb5f6f9532ceb4792fd81f0e54dba9d0fb037a8be5ed9a5fcaab0a9
+content_digest: 18d515968dc0c1d280ab7992b75b1b0a584ac3981d44a3db563d2ac22928417b
 discriminating_condition:
   statement: The required process_refund operation is not called.
   comparisons:

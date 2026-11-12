@@ -31,7 +31,6 @@ def sequential_shape(turns: int) -> dict[str, Any]:
             for index, purpose in enumerate(PURPOSES[turns], start=1)
         ],
         "indirect": None,
-        "threat_label": None,
         "source": "stage5_validated",
         "downgrade_reason": None,
     }
@@ -119,7 +118,6 @@ def indirect_shape(
             "data_item": {"content_kind": "order_content", "record_ref": record_ref},
             "party_relation": {"controlling_party": party, "benign_user_actor_ref": "CUST001"},
         },
-        "threat_label": None,
         "source": "stage5_validated",
         "downgrade_reason": None,
     }
