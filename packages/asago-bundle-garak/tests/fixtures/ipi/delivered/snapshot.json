@@ -8,7 +8,7 @@
     {
       "args": {},
       "blocked": false,
-      "call_id": "10000000-0000-4000-8000-000000000000",
+      "call_id": "10000000-0000-4000-8000-000000000005",
       "complete": true,
       "disposition": "forwarded",
       "error": null,
@@ -75,7 +75,7 @@
         "amount": 120
       },
       "blocked": false,
-      "call_id": "10000000-0000-4000-8000-000000000002",
+      "call_id": "10000000-0000-4000-8000-000000000007",
       "complete": true,
       "disposition": "forwarded",
       "error": null,
@@ -97,8 +97,8 @@
   "observations": {},
   "pre_environment": {},
   "run_id": null,
-  "sealed_at": "2026-01-01T00:00:00.009000+00:00",
-  "snapshot_id": "sha256:14beba15cc24ed117710f605548db88f915bc7df69ce14f7728835c5f862dcca",
+  "sealed_at": "2026-01-01T00:00:00.008000+00:00",
+  "snapshot_id": "sha256:c28f839364affbacc9710255dccd8ac56683d53d7264a73710b8b02246c17b66",
   "turns": [
     {
       "ended_at": "2026-01-01T00:00:00.005000+00:00",

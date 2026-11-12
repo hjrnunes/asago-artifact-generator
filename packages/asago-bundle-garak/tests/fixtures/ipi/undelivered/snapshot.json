@@ -2,13 +2,13 @@
   "agent_output": "Your balance is 120.00.",
   "capture_failures": [],
   "environment": {},
-  "evaluation_id": "0000000005",
+  "evaluation_id": "0000000001",
   "evidence_status": {},
   "function_calls": [
     {
       "args": {},
       "blocked": false,
-      "call_id": "10000000-0000-4000-8000-000000000004",
+      "call_id": "10000000-0000-4000-8000-000000000005",
       "complete": true,
       "disposition": "forwarded",
       "error": "no account None",
@@ -19,7 +19,7 @@
       "provenance": "interceptor",
       "result": "no account None",
       "structured_content": null,
-      "timestamp": "2026-01-01T00:00:00.012000+00:00",
+      "timestamp": "2026-01-01T00:00:00.001000+00:00",
       "turn": 0
     }
   ],
@@ -27,15 +27,15 @@
   "observations": {},
   "pre_environment": {},
   "run_id": null,
-  "sealed_at": "2026-01-01T00:00:00.018000+00:00",
-  "snapshot_id": "sha256:8eb6ed2b9864cd6d0041a2b7e3651df6864e9c21667ef633bbdb9b2e8a430213",
+  "sealed_at": "2026-01-01T00:00:00.006000+00:00",
+  "snapshot_id": "sha256:9871a08880816e136351fd1e0079494e6124cb35f2b6c2854da2a4136a38278c",
   "turns": [
     {
-      "ended_at": "2026-01-01T00:00:00.014000+00:00",
+      "ended_at": "2026-01-01T00:00:00.003000+00:00",
       "index": 0,
       "message": "Can you read me my notes?",
       "reply": "Your balance is 120.00.",
-      "started_at": "2026-01-01T00:00:00.011000+00:00"
+      "started_at": "2026-01-01T00:00:00+00:00"
     }
   ],
   "user_task_id": null

@@ -46,38 +46,43 @@ the attempt would have decided from.
 | File | What it holds |
 | --- | --- |
 | `report.jsonl` | the probe's attempt lines: one per turn at status 1, then the sealed turn at status 2 with `notes.evaluation_trace` and the detectors' records |
-| `snapshot.json` | the snapshot MiDojo served, as `GET /runs/{id}/snapshot` returns it (`tampered` edits it after the seal) |
-| `verdict.json` | `midojo.grade`'s verdict of that snapshot, with the evaluation and snapshot IDs |
+| `snapshot.json` | the snapshot the final attempt's trace carries, as MiDojo's `GET /runs/{id}/snapshot` returns it (`tampered` edits it after the seal) |
+| `verdict.json` | MiDojo's verdict of that snapshot, with the evaluation and snapshot IDs |
 | `delivery.json` | MiDojo's delivery facts and the exposure it derives, as the trace states them |
 | `ipi-episodes.json` | the compiled probe source entry: the injection spec, its placements and its metadata |
 | `expected.json` | what the receipt must say about the case |
 
 ## Regenerating
 
-The generator runs with the MiDojo interpreter the consumer pins, and reseals every
-case in about ten seconds:
+The generator runs in the consumer's environment and starts the probe with a Python
+that has the Garak fork and MiDojo installed (with `fastmcp` and `pyyaml`). Name it
+with `--garak-python` or `ASAGO_GARAK_PYTHON`; the option wins. A run takes about a
+minute:
 
 ```bash
 cd asago-artifact-generator
-../midojo/.venv/bin/python tools/fixture-generators/garak_ipi.py        # write
-../midojo/.venv/bin/python tools/fixture-generators/garak_ipi.py --check # verify
+export ASAGO_GARAK_PYTHON=/path/to/python
+uv run python tools/fixture-generators/garak_ipi.py          # write
+uv run python tools/fixture-generators/garak_ipi.py --check  # verify
 ```
 
-`--check` exits 1 and names each differing file when the tree is stale. A regenerated
-tree is a deliberate commit: a MiDojo change that alters a seal alters these documents.
+`--check` exits 1 and names each differing file when the tree is stale, and exits 2
+when no interpreter is named or the one named cannot run the probe. A regenerated
+tree is a deliberate commit: a change to the probe, its detectors or MiDojo's seal
+alters these documents.
 
-## What is real and what is composed
+## What is real and what is pinned
 
-The snapshot, verdict and delivery documents are MiDojo's own for a run of the case's
-scripted target: a real MCP server, MiDojo's interceptor placing the payload and
-recording each call, and `midojo.grade` over the seal. The report is composed to the
-rules `garak/probes/midojo.py` and `garak/detectors/{midojo,toolcall}.py` apply,
-because
-Garak's environment cannot import MiDojo and MiDojo's cannot import Garak. Two live
-facts are pinned instead of recorded: the attempt UUID, which a run draws at random,
-and the interceptor's endpoint and bearer token in the prompt's tool block, which name
-a listen address that never reproduces. The reply-judged case's judge is a local
-service that answers `supported`, and its URL is scrubbed from the verdict's judgement
-records before they are written. The suite's fixture test pins every case's outcome and
-detector record, so a rule that moves in the fork fails there rather than passing
+Every line of `report.jsonl` is written by Garak's own probe and detectors: the
+generator composes none of it. The probe runs against the case's scripted target, a
+real MCP server behind MiDojo's interceptor; a loopback Responses endpoint plays the
+agent and makes the case's calls through the interceptor URL and bearer token it finds
+in the request's tool block. The snapshot, verdict and delivery documents are the
+trace's own. Three kinds of value are pinned: MiDojo's clock, evaluation IDs and call
+IDs, and the attempt UUID, inside the probe's process; and the interceptor's port and
+bearer token and the judge's port, which the generator rewrites to fixed stand-ins.
+The reply-judged case's judge is a local service that answers `supported`. The
+tampered case edits one reply in the sealed snapshot before the detectors read it, the
+only change to the probe's output. The suite's fixture test pins every case's outcome
+and detector record, so a change in the probe fails there rather than passing
 silently.

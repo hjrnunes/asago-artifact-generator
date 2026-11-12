@@ -1,5 +1,5 @@
 {
-  "evaluation_id": "000000001b",
+  "evaluation_id": "0000000001",
   "grade": {
     "attempted": true,
     "blocked": false,
@@ -22,5 +22,5 @@
     "utility_reason": null
   },
   "schema_version": "midojo-verdict-v1",
-  "snapshot_id": "sha256:398adb90a7c3db751b39e8e3558b84d926e0cf8b68e50d9c0a47521022537e32"
+  "snapshot_id": "sha256:c28f839364affbacc9710255dccd8ac56683d53d7264a73710b8b02246c17b66"
 }

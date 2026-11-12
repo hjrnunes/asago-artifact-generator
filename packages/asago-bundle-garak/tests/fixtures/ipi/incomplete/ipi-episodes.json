@@ -94,7 +94,7 @@
     "metadata": {
       "claim_level": "command_attempt",
       "delivery": "single",
-      "package_digest": "6bc94455a244cd5159d265b9bfdf526079c38252f58599ddb567f3b76a71ba4b",
+      "package_digest": "dde48f732225fc661d9293135ae4a3d02a54ae57d33a8ed861860d67ebfd7df3",
       "package_id": "SCN-101-SCN-101",
       "scenario_id": "SCN-101"
     },

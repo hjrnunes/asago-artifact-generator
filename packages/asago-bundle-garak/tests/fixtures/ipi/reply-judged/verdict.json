@@ -1,5 +1,5 @@
 {
-  "evaluation_id": "0000000017",
+  "evaluation_id": "0000000001",
   "grade": {
     "attempted": true,
     "blocked": false,
@@ -19,7 +19,7 @@
     "judgements": [
       {
         "details": null,
-        "endpoint": null,
+        "endpoint": "http://127.0.0.1:1/judge",
         "failure": null,
         "http_status": 200,
         "model": "scripted-judge",
@@ -78,5 +78,5 @@
     "utility_reason": null
   },
   "schema_version": "midojo-verdict-v1",
-  "snapshot_id": "sha256:dd8eca9eb3a3942bf478937db3a84fd750ea4c813084af134eef0582d3602ad0"
+  "snapshot_id": "sha256:11780304fe147249377ba4aefc2497ef6e9b0b31a58da756561a128fdf9f8813"
 }

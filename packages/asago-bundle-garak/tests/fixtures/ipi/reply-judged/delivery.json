@@ -1,7 +1,7 @@
 {
   "delivery": [
     {
-      "call_id": "10000000-0000-4000-8000-000000000011",
+      "call_id": "10000000-0000-4000-8000-000000000005",
       "disposition": "forwarded",
       "emitted": [
         "structured_content",
@@ -40,7 +40,7 @@
       "turn": 0
     }
   ],
-  "evaluation_id": "0000000017",
+  "evaluation_id": "0000000001",
   "exposure": {
     "agent_tool_result": "unknown",
     "emitted": "exposed",
@@ -54,11 +54,11 @@
         },
         "placed_by": "interceptor",
         "plan_instruction_index": 0,
-        "reason": "emitted in structured_content, content_block of call 10000000-0000-4000-8000-000000000011",
+        "reason": "emitted in structured_content, content_block of call 10000000-0000-4000-8000-000000000005",
         "slot_key": "planted_item:seed_0"
       }
     ],
     "model_input": "unknown"
   },
-  "snapshot_id": "sha256:dd8eca9eb3a3942bf478937db3a84fd750ea4c813084af134eef0582d3602ad0"
+  "snapshot_id": "sha256:11780304fe147249377ba4aefc2497ef6e9b0b31a58da756561a128fdf9f8813"
 }
