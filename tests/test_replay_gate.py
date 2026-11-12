@@ -1044,14 +1044,14 @@ def test_replay_client_refuses_a_prompt_difference_no_entry_lists(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     entry = _declare(monkeypatch)
-    client = ReplayChatClient([_call(prompt_version="authoring-call1-v3")])
+    client = ReplayChatClient([_call(prompt_version="authoring-call1-v9")])
     client.prompt = replay_gate.PromptIdentity(entry.stage, entry.to_prompt_version)
 
     with pytest.raises(ConnectionError, match="prompt mismatch"):
         client.chat.completions.create(**_request(user="an older prompt no entry names"))
 
     assert client.declared == [] and client.served == 0
-    assert client.mismatches[0]["prompt_version"] == "authoring-call1-v3"
+    assert client.mismatches[0]["prompt_version"] == "authoring-call1-v9"
     assert client.mismatches[0]["detail"] == "user message differs from the recording"
 
 
@@ -1073,7 +1073,7 @@ def test_replay_client_refuses_a_difference_after_the_version_its_entry_names(
 ) -> None:
     entry = _declare(monkeypatch)
     client = ReplayChatClient([_call(prompt_version=entry.from_prompt_version)])
-    client.prompt = replay_gate.PromptIdentity(entry.stage, "authoring-call1-v2")
+    client.prompt = replay_gate.PromptIdentity(entry.stage, "authoring-call1-v9")
 
     with pytest.raises(ConnectionError, match="prompt mismatch"):
         client.chat.completions.create(**_request(user="a later prompt"))
@@ -1135,7 +1135,7 @@ def test_replay_client_leaves_an_undeclared_version_move_unmatched(
     """
 
     _declare(monkeypatch)
-    client = ReplayChatClient([_call(prompt_version="authoring-call1-v4")])
+    client = ReplayChatClient([_call(prompt_version="authoring-call1-v9")])
     client.prompt = replay_gate.PromptIdentity("call1", CALL1_PROMPT_VERSION)
 
     client.chat.completions.create(**_request())
@@ -1287,7 +1287,7 @@ def test_a_declared_version_pair_masks_the_review_digest_of_the_prompt(tmp_path:
 
 def test_a_dispatch_outside_a_declared_version_pair_is_reported(tmp_path: Path) -> None:
     entry = _older_call1_entry()
-    recorded = {"attempts": [_digest_attempt("authoring-call1-v3", "a" * 64)]}
+    recorded = {"attempts": [_digest_attempt("authoring-call1-v9", "a" * 64)]}
     replayed = {"attempts": [_digest_attempt(entry.to_prompt_version, "b" * 64)]}
     declared = [
         {
@@ -1324,7 +1324,7 @@ def test_an_entry_the_recording_does_not_carry_is_not_stale(
 ) -> None:
     _declare(monkeypatch)
 
-    assert replay_gate._stale_entries({("call1", "authoring-call1-v3")}, []) == []
+    assert replay_gate._stale_entries({("call1", "authoring-call1-v9")}, []) == []
 
 
 def test_gate_declares_a_listed_prompt_difference_and_passes(
@@ -1362,7 +1362,7 @@ def test_gate_fails_a_prompt_difference_no_entry_lists(
     unresolved_stage: Path, tmp_path: Path
 ) -> None:
     _rewrite_prompt(
-        unresolved_stage, 1, user="a prompt no entry names", version="authoring-call1-v3"
+        unresolved_stage, 1, user="a prompt no entry names", version="authoring-call1-v9"
     )
 
     result = run_gate(unresolved_stage, work=tmp_path / "work")
@@ -1388,7 +1388,7 @@ def test_gate_fails_an_entry_the_recording_carries_but_matches_nothing(
         stage="call1",
         template="authoring-call1",
         from_prompt_version="authoring-call1-v0",
-        to_prompt_version="authoring-call1-v2",
+        to_prompt_version="authoring-call1-v9",
         bead="item-a",
         reason="an entry whose to-version the code does not render",
     )
@@ -1490,7 +1490,7 @@ def test_gate_matches_a_superseded_item_a_declared_difference_covered(
     mismatch, and every recorded dispatch before the pinned one served.
     """
 
-    from_version = "authoring-call1-v4"
+    from_version = "authoring-call1-v9"
     _rewrite_prompt(
         unresolved_stage, 1, user="the prompt the older build recorded", version=from_version
     )
