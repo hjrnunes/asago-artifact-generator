@@ -983,8 +983,7 @@ def plan_of(plan: Any, placements: Iterable[Any]) -> Plan:
     that cannot be read is ``UNREAD``.
 
     An instruction is None when it cannot be read; its payload digest None when it has no text.
-    ``placements`` is the runner's placement entries (``placements_of`` reads them off a
-    delivery document).
+    ``placements`` is the runner's placement entries, as the compiled envelope states them.
     """
 
     if not isinstance(plan, dict) or not isinstance(plan.get("instructions"), list):
@@ -1026,31 +1025,6 @@ def plan_of(plan: Any, placements: Iterable[Any]) -> Plan:
             )
         )
     return Plan(tuple(found), static)
-
-
-def placements_of(delivery: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return the runner's placement entries of a delivery document's facts.
-
-    A fact names the instruction it was placed for (``plan_instruction_index``), the seed slot
-    (``slot.id``, with its target and mode) and the call; a placement names the instruction,
-    the seed slot and the record the target selects, once per distinct triple. ``plan_of``
-    maps that back to the receipt's slot, so a delivery document the route kept is enough to
-    read the plan the seal was made for.
-    """
-
-    found: list[dict[str, Any]] = []
-    for fact in delivery["delivery"]:
-        slot = fact.get("slot")
-        if not isinstance(slot, dict):
-            continue
-        entry = {
-            "instruction": fact["plan_instruction_index"],
-            "slot": slot.get("id"),
-            "record": _target_record(slot.get("target") or {}),
-        }
-        if entry not in found:
-            found.append(entry)
-    return found
 
 
 def _payload_sha256(payload: Any) -> str | None:
