@@ -1,7 +1,7 @@
 """A fake model and the judge service on 127.0.0.1, and judge requests as MiDojo builds them.
 
 ``midojo_request`` builds the ``midojo.judge.v1`` body MiDojo's ``reply_judge`` check
-(``midojo.verifiers.judge.ReplyJudge.request``, asago/main 4e5176a) sends for a recorded
+(``midojo.verifiers.judge.ReplyJudge.request``, MiDojo 4e5176a) sends for a recorded
 conversation and its calls, with ``prior_turns`` and ``tool_calls`` on, as compile sets
 them. No test reaches a model: the model is a stub that answers canned replies.
 """

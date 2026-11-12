@@ -18,7 +18,7 @@ driver that drove the run, the evaluation and the snapshot graded, the
 snapshot's evidence status and the verdict as MiDojo gave it, and, as delivery evidence,
 each sealed call's injection outcomes as MiDojo sealed them (``call_injections``).
 
-From asago/main 3824922 every sealed call record also carries ``structured_content`` (the
+From MiDojo 3824922 every sealed call record also carries ``structured_content`` (the
 structured content the agent got, or None) and ``injection_outcomes`` (each matching
 instruction's ``CallInjectionOutcome``, an empty list when none matched, or None when the
 interception layer reported the call's text only, as for a blocked or unfinished call);

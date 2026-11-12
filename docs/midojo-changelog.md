@@ -87,8 +87,7 @@ older forms are deleted with their readers; the compiled fixtures under
   `declared.py`, `document.py`, `injection_spec.py`, `injection_spec_compile.py`, `placement.py`,
   `reachable.py`, `route.py` and `sealed.py` below are the library's modules under
   `asago_injection_spec`, not files in this package. MiDojo runs the injection spec,
-  and the adapter holds no proxy or interception code. It names the MiDojo `asago/main`
-  range `>=2a794f3`, the first revision
+  and the adapter holds no proxy or interception code. It names the MiDojo range `>=2a794f3`, the first revision
   that carries every capability the document uses and reads the document's ID, and pins
   `midojo-sdk` to the revision
   `pyproject.toml` and `uv.lock` record (`2a794f3`, the revision that renamed the document
