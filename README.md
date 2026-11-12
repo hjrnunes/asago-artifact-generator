@@ -1083,7 +1083,9 @@ and verdict. A reply episode's `judge.verdict` states
 `supported` for a detection, `contradicted` for a decided resistance, and
 `unresolved` in every other case. A one-chain report also fills the receipt's
 `evaluation` block with the evaluation and snapshot the probe sealed and their verdict;
-a chain sealed short names its evaluation only. Every `evaluation` block also carries the
+a chain sealed short names its evaluation only, and where the probe's interrupt sealed a
+snapshot first it names that snapshot and its verdict too, but no placements. Every
+`evaluation` block also carries the
 `utility` record `{value: null, applicability: not_applicable, reason: no_utility_check,
 snapshot_id, pairing_id: null}`: no utility check applied, and the grade's `utility: false`
 (MiDojo's mark of an unauthored check) never becomes a value. A grade whose
@@ -1361,8 +1363,11 @@ not tie to it.
 `parse` reads the snapshot as MiDojo's `GET .../snapshot` returns it and the verdict as
 `{evaluation_id, snapshot_id, grade}`, with or without `schema_version`
 `midojo-verdict-v1`: a versioned verdict reads into the same receipt fields as an
-unversioned one. Any other verdict version is refused, in a failed receipt whose
-`incomplete_reason` is `verdict_version_unknown:<version>`. A reply episode's grade (from
+unversioned one. The route checks the verdict's shape, not its version: a verdict that
+names another `schema_version` still reads, because the shape check admits either the
+versioned or the versionless field set (the injection-spec library's
+`verdict_version_reason` names a version it refuses, but this route does not call it).
+A reply episode's grade (from
 `cab2a35`) also carries
 `judgements`, MiDojo's record of each judge request and answer, a list of objects; `parse`
 accepts it and does not carry it into the receipt, whose judge verdict and reason are the
@@ -1414,24 +1419,24 @@ When a key is not sealed (a snapshot sealed before `a19562e`), `parse` reads it 
 episode's plan, and only from a static plan (empty `generator_permissions`, so no payload
 was generated at run time): the outcome's instruction is the plan's tool-output instruction
 MiDojo's `delivery_facts` maps it to (the same probe key, a target tool that is the call's
-or none), and with `--delivery` the one its delivery fact names; `payload_sha256` is that
+or none), and, when the trace states delivery facts, the one its delivery fact names;
+`payload_sha256` is that
 instruction's payload digest, and `slot` its `placements` entry (slot and record) with its
 `mode`. Each is null otherwise: nothing emitted, delivery facts not reported (sealed before
 `13d5487`), a plan that may generate payloads and a key not sealed, an instruction that does
 not resolve, a sealed slot no plan instruction targets or whose `placements` name more than
-one slot or another record, a static plan whose payload digest is not the sealed one (both
-null: the sealed result does not hold together), or a receipt failed for anything but an
-unanswered turn. A receipt written before the fields lacks both. The episode's tool revision
+one slot or another record, or a static plan whose payload digest is not the sealed one.
+A receipt written before the fields lacks both. The episode's tool revision
 range does not change for these keys: they are optional, and a snapshot without them reads
 as before.
 
 From `13d5487` MiDojo's grade also says apart what `security` folds together:
 `attempted`, `blocked`, `effect_observed` and `injection_delivered`, each true, false or
 null (unknown). They are optional: a grade has all four or none, a verdict sealed before
-`13d5487` lacks them and the receipt's `episode.verdict` records each as null (unknown,
+`13d5487` lacks them and the receipt's `evaluation.verdict` records each as null (unknown,
 never false). `injection_delivered` decides whether a false grade can read `not_detected`:
 true it can; false (the payload never reached the agent) and unknown it cannot, so
-re-scoring a run directory sealed before those facts flips its `not_detected` results to
+re-parsing a report sealed before those facts flips its `not_detected` results to
 `inconclusive` by design. Any other unknown grade key is still `verdict_malformed`. The
 episode's tool revision range in a recorded document does not change for these keys: they
 are optional, and a snapshot without them reads as before.
@@ -1461,12 +1466,42 @@ payload the host placed in the environment has no delivery fact, so its exposure
 `parse` recomputes the snapshot's ID with MiDojo's digest of its content
 (`midojo_spec.snapshot.verified`, the contracts package's port of `state.snapshot_digest`), and fails a
 snapshot whose content changed under its ID
-(`snapshot_digest_mismatch`); a value JSON cannot carry back as MiDojo held it fails the
-same way, as MiDojo's own client refuses that round trip. A verdict that names another
-evaluation or snapshot, a validity that disagrees with the grade, turns other than the
-episode's, or a call the host interceptor did not record (`call_not_intercepted`) fails
-the receipt with the reason; a turn without a reply fails it with `turn_failed:<n>` and
-keeps the attempt. `garak.midojo.InjectionSpecProbe` is the only driver today.
+(`snapshot_digest_mismatch`). The route reads the snapshot from the report's JSON, so its
+content is always JSON values; the values MiDojo's own client refuses to carry back (bytes,
+a date) cannot arise here. A verdict that names another evaluation or snapshot
+fails the receipt with the reason (`evaluation_mismatch`, `snapshot_mismatch`), and so
+does an `evidence_status` the grade and the snapshot disagree on, and a delivery that
+names another evaluation or snapshot (`delivery_mismatch`). A verdict or snapshot that
+is missing or fails its shape check fails the receipt too, stating no attempt. A
+`turn_failed:<position>` reason names a failure the report's own turns record, on the
+sequential route: a turn whose generation the report marks failed, or a report that
+ends before the last planned turn. `garak.midojo.InjectionSpecProbe`
+is the only driver today.
+
+`parse` does not check the sealed result against the plan the episode ran: the trace's
+word is the evidence. A snapshot whose turn indices are out of order or whose turn
+messages are not the plan's still completes the receipt, a sealed call's `turn` is
+copied into the attempt as its `turn_index` whatever it names (99 included), and a
+`provenance` other than the interceptor's is accepted, because the shape check admits
+every provenance MiDojo's `FunctionCallRecord` names. A turn without a reply the trace
+records no failure for completes the receipt.
+
+The placements follow the snapshot the trace states, not the verdict: `parse` resolves
+the plan for a final trace whenever the seal's documents do not disagree, even when the
+verdict itself does not read. So a receipt that fails for an unreadable verdict
+(`verdict_missing`, `verdict_malformed`, `verdict_utility_graded`) keeps the outcomes'
+`payload_sha256` and `slot` while stating no attempt, and one that fails for the trace's
+own runtime keeps both them and the attempt (`generation_error`, `release_lost`). A
+chain the probe never sealed (`interrupted`) or closed short keeps its attempt and
+states no placements: the first leaves no trace to read, and a short seal states no
+plan. The sequential route's `turn_failed:<position>` keeps its attempt in a plain
+conversation bundle that holds no evaluation block. A seal whose documents do not hold
+together leaves the placements null: a snapshot that is missing or malformed states no
+`call_injections`, and one whose digest does not hold, a verdict or delivery that names
+another evaluation or snapshot, or an `evidence_status` the grade and the snapshot
+disagree on (`snapshot_digest_mismatch`, `evaluation_mismatch`, `snapshot_mismatch`,
+`delivery_mismatch`, `evidence_status_mismatch`) resolves no plan, so nothing is placed,
+never guessed.
 
 ## Development
 
@@ -1481,10 +1516,12 @@ Each workspace member runs in its own session, for example
 `uv run pytest packages/asago-bundle-core/tests -q`.
 
 The injection-spec library's tests hold byte copies of MiDojo's own files
-(`packages/asago-injection-spec/tests/fixtures/midojo/`: the injection-spec documents, the
-snapshot digest vectors, and the documents MiDojo filed under `legacy_documents/` and
-`verdict_document/`), and `midojo.lock` beside them pins each copy's SHA-256 and the SDK
-revision they come from, which the `midojo-spec` pin in `pyproject.toml` must match.
+(`packages/asago-injection-spec/tests/fixtures/midojo/`: the injection-spec documents
+under `injection_spec_document/`, and the documents MiDojo filed under
+`legacy_documents/` and `verdict_document/`), and
+`packages/asago-injection-spec/tests/fixtures/midojo.lock` pins each copy's SHA-256
+and the SDK revision they come from, which the `midojo-spec` pin in `pyproject.toml`
+must match.
 
 ## Project structure
 

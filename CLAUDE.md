@@ -221,7 +221,8 @@ the group the module skips and names what it needs.
   `garak.midojo.InjectionSpecProbe`,
   the evaluation and snapshot the probe sealed, the evidence status of that snapshot, and
   its verdict, which states `attempted`, `blocked` and `effect_observed` as sealed; a chain
-  sealed short names its evaluation but no snapshot or verdict, and a report of several
+  sealed short names its evaluation, and where the probe's interrupt sealed a snapshot
+  first it names that snapshot and its verdict too, but no placements, and a report of several
   chains leaves the block out. A report recorded before the rename names the old plugins and
   notes; `parse` reads both forms. `parse` exits 1 and names the path on stderr
   when the bundle directory or the report is not there: missing input is not a failed run.
@@ -239,20 +240,30 @@ the group the module skips and names what it needs.
   unknown; and `call_injections` copies each sealed call with its `injection_outcomes`, each
   carrying `payload_sha256` (the digest of the payload text before its transformation) and
   `slot` (`id`, `record`, `mode`: the seed slot the payload was placed in). A chain sealed
-  short names its evaluation but no snapshot or verdict, and a report of several chains
+  short names its evaluation, and where the probe's interrupt sealed a snapshot first it
+  names that snapshot and its verdict too, but no placements; a report of several chains
   leaves the block out. The delivery guard decides the outcome before the grade does: a
   security grade of false whose payload never reached the agent, and a false grade whose
   delivery nothing recorded, are `inconclusive` and their reason names the delivery, never
   `not_detected`. So a report that records no delivery fact cannot read as resisted,
   whatever the target did. A seal the reader cannot verify fails the receipt with MiDojo's
-  own reason and states no attempt. That covers a snapshot or verdict that is missing or
-  malformed (`snapshot_missing`, `snapshot_malformed`, `verdict_missing`,
-  `verdict_malformed`), a tampered seal whose digest does not hold
-  (`snapshot_digest_mismatch`), and one that names another evaluation
-  (`delivery_mismatch`): a verdict read from a seal nothing verified would decide an attack
-  on unverified evidence. A verdict whose grade ran a utility check
-  (`grade_validity.utility.status` is not `not_applicable`) fails the same way under its
-  own reason, `verdict_utility_graded`: the receipt records no utility check. The grade's
+  own reason and states no attempt: a snapshot or verdict that is missing or malformed
+  (`snapshot_missing`, `snapshot_malformed`, `verdict_missing`, `verdict_malformed`), a
+  tampered seal whose digest does not hold (`snapshot_digest_mismatch`), a verdict or
+  delivery that names another evaluation or snapshot (`evaluation_mismatch`,
+  `snapshot_mismatch`, `delivery_mismatch`), an `evidence_status` the grade and the
+  snapshot disagree on (`evidence_status_mismatch`), and a grade that ran a utility check
+  under its own reason `verdict_utility_graded`, because the receipt records no utility
+  check — a verdict read from a seal nothing
+  verified would decide an attack on unverified evidence. The route checks the seal, not
+  the episode against its plan: it does not check a sealed call's `turn`, its interceptor
+  `provenance`, the snapshot's turn messages against the plan, or a turn without a reply
+  the trace records no failure for — each of those completes the receipt, with the call's
+  `turn` copied as its `turn_index`. The placements follow the snapshot the trace states,
+  so a receipt that fails for a missing, malformed or utility-graded verdict keeps them,
+  while the mismatch reasons above leave them null; `snapshot_missing` and
+  `snapshot_malformed` state no `call_injections` at all.
+  The grade's
   `utility: false` beside `not_applicable` is MiDojo's mark of an unauthored check, so it
   reads, and the block's `utility` record (`value: null`, `not_applicable`,
   `no_utility_check`) never copies it; `injection_spec_document` refuses a non-null
@@ -261,7 +272,9 @@ the group the module skips and names what it needs.
   keeps its attempt and fails as `interrupted` or `generation_error`. A sealed chain whose
   release MiDojo's service never acknowledged keeps its attempt and its verdict too, and
   fails as `release_lost`: the probe records the loss on its trace, so the receipt never
-  reports a clean completion. Together the fixture
+  reports a clean completion. A sequential conversation's turn the report marks failed, or
+  a report that ends before the last planned turn, fails as `turn_failed:<position>` with
+  its attempt kept. Together the fixture
   README is the executable spec of that receipt:
   `packages/asago-bundle-garak/tests/fixtures/ipi/README.md` names each case's expected
   outcome and what each sealed file holds.

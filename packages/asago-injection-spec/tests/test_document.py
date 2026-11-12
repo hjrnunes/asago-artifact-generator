@@ -2,17 +2,19 @@
 
 ``fixtures/midojo/`` holds byte copies of MiDojo's own files: ``injection_spec_document/``
 the documents its reader accepts and refuses
-(``tests/fixtures/injection_spec_document/``), ``snapshot_digest/vectors.json`` its digest
-vectors (``packages/midojo-spec/vectors/snapshot/vectors.json`` at the pinned revision),
-and the two documents it moved
+(``tests/fixtures/injection_spec_document/``), and the two documents it moved
 out of the goldens: the cm.58 ``episode.json`` (``legacy_documents/``) and its verdict
-(``verdict_document/``). ``test_the_copies_are_midojo_s_own`` pins each copy's sha256 in
+(``verdict_document/``). The snapshot digest vectors MiDojo ships beside them
+(``packages/midojo-spec/vectors/snapshot/vectors.json`` at the pinned revision) are not
+kept as a copy: the route recomputes the digest through ``midojo_spec.snapshot`` itself,
+so there is nothing to pin.
+``test_the_copies_are_midojo_s_own`` pins each copy's sha256 in
 ``midojo.lock``, so a copy that changes without the lock fails here; it does not compare a
-copy with MiDojo's file at the pinned revision. Four copies are older than that revision's
+copy with MiDojo's file at the pinned revision. Three copies are older than that revision's
 files and are kept as they were recorded, because the owner decided not to re-sync them (a
 later change deletes this adapter): ``injection_spec_document/README.md``,
-``legacy_documents/v0_cm58_episode.json``, ``verdict_document/v0_cm58_verdict.json`` and
-``snapshot_digest/vectors.json``. The v0 copy is the cm.58 ``episode.json`` verbatim, the
+``legacy_documents/v0_cm58_episode.json`` and ``verdict_document/v0_cm58_verdict.json``.
+The v0 copy is the cm.58 ``episode.json`` verbatim, the
 file this library wrote before the envelope and the version MiDojo read as v0.
 """
 
