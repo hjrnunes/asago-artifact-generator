@@ -1,10 +1,7 @@
 """The installed runtime-contract specs: identity, cases, and the reader refusals.
 
 ``asago_package`` carries the authority copy of ``runtime-contract`` as package data, so the
-reader here is also the installed copy: every version directory ships byte-identically to the
-repository's kit. The tests recompute each spec digest, read every case, read the contracts
-the declared-target builder wrote, and assert the four refusals a reader owes for both
-versions.
+reader tests the installed spec, its cases, and its envelope.
 """
 
 from __future__ import annotations
@@ -20,7 +17,6 @@ from asago_contracts_core import (
     ENVELOPE_FIELD,
     ContractEnvelopeError,
     ContractSpec,
-    InvalidDocumentError,
     MissingEnvelopeError,
     SpecDigestMismatchError,
     SpecSet,
@@ -35,19 +31,14 @@ from asago_package.contract_kit import contract_dir
 from asago_package.runtime_contract_spec import (
     CONTRACT,
     CONTRACTS_DIR,
-    LEGACY_VERSION,
     VERSION,
-    VERSIONS,
     installed_specs,
     read_runtime_contract,
     write_runtime_contract,
 )
 
 _ROOT = contract_dir(CONTRACT)
-_STATUS = {
-    LEGACY_VERSION: ("published", "optional"),
-    VERSION: ("published", "required"),
-}
+_STATUS = ("published", "required")
 _DATA = Path(__file__).resolve().parent / "data"
 #: Contracts the declared-target builder wrote for a target with no seed slot and with one.
 _WRITTEN_CONTRACTS = (
@@ -90,40 +81,29 @@ def _enveloped(spec: ContractSpec, document: dict[str, Any], **overrides: Any) -
     return {**document, ENVELOPE_FIELD: envelope}
 
 
-_VALID_CASES = [
-    pytest.param(version, case, id=f"{version.rsplit('-', 1)[-1]}-{case.stem}")
-    for version in VERSIONS
-    for case in _valid_cases(version)
-]
-_INVALID_CASES = [
-    pytest.param(version, case, id=f"{version.rsplit('-', 1)[-1]}-{case.stem}")
-    for version in VERSIONS
-    for case in _invalid_cases(version)
-]
+_VALID_CASES = _valid_cases()
+_INVALID_CASES = _invalid_cases()
 
 
-@pytest.mark.parametrize("version", VERSIONS, ids=lambda value: value.rsplit("-", 1)[-1])
-def test_the_version_directory_holds_the_spec_the_cases_and_the_docs(version: str) -> None:
-    root = _ROOT / version
+def test_the_version_directory_holds_the_spec_the_cases_and_the_docs() -> None:
+    root = _ROOT / VERSION
     assert CONTRACTS_DIR / CONTRACT == _ROOT
-    assert VERSIONS == (LEGACY_VERSION, VERSION)
     assert (CONTRACT, VERSION) == ("runtime-contract", "artifact-runtime-contract-v3")
     for relative in ("spec.json", "schema.json", "README.md", "cases/expected-violations.json"):
         assert (root / relative).is_file(), relative
-    assert _valid_cases(version)
-    assert _invalid_cases(version)
+    assert _valid_cases()
+    assert _invalid_cases()
 
 
-@pytest.mark.parametrize("version", VERSIONS, ids=lambda value: value.rsplit("-", 1)[-1])
-def test_the_installed_spec_is_the_runtime_contract_version(version: str) -> None:
-    spec = _spec(version)
-    root = _ROOT / version
+def test_the_installed_spec_is_the_runtime_contract_version() -> None:
+    spec = _spec()
+    root = _ROOT / VERSION
     body = _json(root / "spec.json")
 
     assert (spec.contract, spec.version, spec.status, spec.envelope) == (
         CONTRACT,
-        version,
-        *_STATUS[version],
+        VERSION,
+        *_STATUS,
     )
     assert spec.supports == ()
     assert spec.extensions == ()
@@ -132,23 +112,18 @@ def test_the_installed_spec_is_the_runtime_contract_version(version: str) -> Non
     assert spec.spec_digest == spec_digest(body, (root / "schema.json").read_bytes())
 
 
-@pytest.mark.parametrize("case", _valid_cases(LEGACY_VERSION), ids=lambda case: case.stem)
-def test_the_reader_accepts_every_v2_case_as_a_legacy_document(case: Path) -> None:
-    assert read_runtime_contract(_json(case)).version == LEGACY_VERSION
-
-
 def test_the_reader_refuses_a_v3_document_without_the_envelope() -> None:
     with pytest.raises(MissingEnvelopeError, match="requires the self-identifying envelope"):
         read_runtime_contract(_json(_valid_cases()[0]))
 
 
-@pytest.mark.parametrize(("version", "case"), _VALID_CASES)
-def test_the_reader_accepts_every_valid_case_with_the_envelope(case: Path, version: str) -> None:
+@pytest.mark.parametrize("case", _VALID_CASES, ids=lambda case: case.stem)
+def test_the_reader_accepts_every_valid_case_with_the_envelope(case: Path) -> None:
     written = write_envelope(
-        _json(case), _spec(version), writer="tests.runtime_contract_spec", writer_version="0.1.0"
+        _json(case), _spec(), writer="tests.runtime_contract_spec", writer_version="0.1.0"
     )
 
-    assert read_runtime_contract(written).version == version
+    assert read_runtime_contract(written).version == VERSION
 
 
 def test_the_writer_stamps_the_installed_v3_envelope() -> None:
@@ -173,30 +148,10 @@ def test_the_writer_stamps_the_installed_v3_envelope() -> None:
     assert read_runtime_contract(written).version == VERSION
 
 
-def test_the_reader_accepts_both_versions() -> None:
-    v2 = _json(_valid_cases(LEGACY_VERSION)[0])
-    v3 = write_runtime_contract(
-        _json(_valid_cases()[0]),
-        writer="tests.runtime_contract_spec",
-        writer_version="0.1.0",
-    )
-
-    assert read_runtime_contract(v2).version == LEGACY_VERSION
-    assert read_runtime_contract(v3).version == VERSION
-
-
-def test_the_writer_refuses_a_document_that_still_names_v2() -> None:
-    case = _json(_valid_cases(LEGACY_VERSION)[0])
-
-    with pytest.raises(InvalidDocumentError, match="schema_version"):
-        write_runtime_contract(case, writer="tests.runtime_contract_spec", writer_version="0.1.0")
-
-
-@pytest.mark.parametrize(("version", "case"), _INVALID_CASES)
-def test_the_reader_refuses_every_invalid_case(case: Path, version: str) -> None:
+@pytest.mark.parametrize("case", _INVALID_CASES, ids=lambda case: case.stem)
+def test_the_reader_refuses_every_invalid_case(case: Path) -> None:
     document = _json(case)
-    if _spec(version).envelope == "required":
-        document = _enveloped(_spec(version), document)
+    document = _enveloped(_spec(), document)
 
     with pytest.raises(ContractEnvelopeError):
         read_runtime_contract(document)
@@ -209,8 +164,8 @@ def test_the_reader_accepts_a_contract_the_builder_wrote(name: str) -> None:
     assert read_runtime_contract(_json(_DATA / name)).version == VERSION
 
 
-def test_the_lock_names_every_file_of_both_version_directories() -> None:
-    """The installed copy is every version directory, so the lock names all of it."""
+def test_the_lock_names_every_file_of_the_version_directory() -> None:
+    """The lock names all installed files."""
 
     lock = _json(_ROOT / "CONTRACT.lock")
     files = {
@@ -225,33 +180,28 @@ def test_the_lock_names_every_file_of_both_version_directories() -> None:
     assert lock["files"] == files
 
 
-@pytest.mark.parametrize("version", VERSIONS, ids=lambda value: value.rsplit("-", 1)[-1])
-def test_an_unsupported_version_names_the_supported_versions(version: str) -> None:
-    case = _json(_valid_cases(version)[0])
+def test_an_unsupported_version_names_the_supported_versions() -> None:
+    case = _json(_valid_cases()[0])
 
     with pytest.raises(UnsupportedVersionError) as raised:
-        installed_specs().read(
-            _enveloped(_spec(version), case, version="artifact-runtime-contract-v9")
-        )
+        installed_specs().read(_enveloped(_spec(), case, version="artifact-runtime-contract-v9"))
 
     assert "artifact-runtime-contract-v9" in str(raised.value)
     assert VERSION in str(raised.value)
 
 
-@pytest.mark.parametrize("version", VERSIONS, ids=lambda value: value.rsplit("-", 1)[-1])
-def test_an_unknown_requires_entry_is_rejected(version: str) -> None:
-    case = _json(_valid_cases(version)[0])
+def test_an_unknown_requires_entry_is_rejected() -> None:
+    case = _json(_valid_cases()[0])
 
     with pytest.raises(UnknownRequirementError) as raised:
-        installed_specs().read(_enveloped(_spec(version), case, requires=["runtime-contract-v3"]))
+        installed_specs().read(_enveloped(_spec(), case, requires=["runtime-contract-v3"]))
 
     assert "runtime-contract-v3" in str(raised.value)
 
 
-@pytest.mark.parametrize("version", VERSIONS, ids=lambda value: value.rsplit("-", 1)[-1])
-def test_an_unknown_field_outside_an_extension_is_rejected(version: str) -> None:
-    case = _json(_valid_cases(version)[0])
-    document = _enveloped(_spec(version), case)
+def test_an_unknown_field_outside_an_extension_is_rejected() -> None:
+    case = _json(_valid_cases()[0])
+    document = _enveloped(_spec(), case)
     document["probe_key"] = "a field the contract never declared"
 
     with pytest.raises(UnknownFieldError) as raised:
@@ -261,10 +211,9 @@ def test_an_unknown_field_outside_an_extension_is_rejected(version: str) -> None
     assert "declared extensions: none" in str(raised.value)
 
 
-@pytest.mark.parametrize("version", VERSIONS, ids=lambda value: value.rsplit("-", 1)[-1])
-def test_a_draft_with_a_mismatched_spec_digest_is_rejected(version: str) -> None:
-    case = _json(_valid_cases(version)[0])
-    draft = replace(_spec(version), status="draft")
+def test_a_draft_with_a_mismatched_spec_digest_is_rejected() -> None:
+    case = _json(_valid_cases()[0])
+    draft = replace(_spec(), status="draft")
     other = "sha256:" + "0" * 64
 
     with pytest.raises(SpecDigestMismatchError) as raised:

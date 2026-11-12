@@ -87,10 +87,10 @@ def seed_document(*items: dict[str, Any], carrier: str = "list_notes") -> dict[s
 
 
 def runtime_contract(slots: list[dict[str, Any]]) -> dict[str, Any]:
-    """The part of an ``artifact-runtime-contract-v2`` contract a seed is placed from."""
+    """The part of an ``artifact-runtime-contract-v3`` contract a seed is placed from."""
 
     return {
-        "schema_version": "artifact-runtime-contract-v2",
+        "schema_version": "artifact-runtime-contract-v3",
         "delivery": ["direct_user_message", "sequential_user_turns", "planted_item"],
         "seed_slots": slots,
     }

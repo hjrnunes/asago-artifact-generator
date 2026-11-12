@@ -5,12 +5,8 @@ directory this module loads is also the installed reader copy. The orchestrator 
 contract per target, :mod:`asago_package.declared_runtime_contract` builds a declared
 target's contract, and ``generate --runtime-contract`` reads one; all three read it here.
 
-``artifact-runtime-contract-v2`` is published with ``"envelope": "optional"``, because every
-writer predates the envelope; a document without one is selected by its ``schema_version``.
-``artifact-runtime-contract-v3`` is published with ``"envelope": "required"``, and every
-writer stamps one through :func:`write_runtime_contract`. A reader accepts both versions,
-and a document with an envelope must name an installed spec whose ``spec_digest`` is exactly
-the installed spec's.
+The installed runtime contract requires a self-identifying envelope. Writers stamp one
+through :func:`write_runtime_contract`; the reader checks its installed spec digest.
 """
 
 from __future__ import annotations
@@ -24,9 +20,7 @@ from asago_contracts_core import ContractSpec, SpecSet, load_specs, write_envelo
 
 CONTRACTS_DIR = Path(__file__).resolve().parent / "contracts"
 CONTRACT = "runtime-contract"
-LEGACY_VERSION = "artifact-runtime-contract-v2"
 VERSION = "artifact-runtime-contract-v3"
-VERSIONS = (LEGACY_VERSION, VERSION)
 
 
 @cache
@@ -55,7 +49,7 @@ def write_runtime_contract(
     writer_version: str,
     requires: Iterable[str] = (),
 ) -> dict[str, Any]:
-    """Return ``document`` with the v3 self-identifying envelope around it."""
+    """Return ``document`` with the self-identifying envelope around it."""
 
     return write_envelope(
         document,

@@ -27,10 +27,10 @@ from asago_artifact_generator.input_adapter import load_input
 
 from .prompt_support import STAGES, render_prior_round_packets, render_stage_packets
 from .support import (
+    CURRENT_HANDOFF,
     NO_CONDITION_HANDOFF,
     NOT_CALLED_HANDOFF,
     OBSERVED_HANDOFF,
-    V5_HANDOFF,
     signed_omission_view,
 )
 
@@ -50,7 +50,7 @@ CASES: dict[str, Callable[[Path], Any]] = {
     "not-called": _from_handoff(NOT_CALLED_HANDOFF),
     "no-condition": _from_handoff(NO_CONDITION_HANDOFF),
     "omission": signed_omission_view,
-    "v5": _from_handoff(V5_HANDOFF),
+    "v5": _from_handoff(CURRENT_HANDOFF),
     "prior-round": lambda _scratch: None,
 }
 # Cases whose plan review follows a revision (``render_prior_round_packets``); their other

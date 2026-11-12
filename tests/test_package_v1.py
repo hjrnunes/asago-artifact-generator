@@ -98,7 +98,7 @@ def test_a_v6_input_builds_a_v5_package() -> None:
     assert _build("scenario-handoff-v6").manifest.schema_version == "artifact-package-v5"
 
 
-@pytest.mark.parametrize("input_kind", ["scenario-handoff-v5", "scenario-handoff-v9"])
+@pytest.mark.parametrize("input_kind", ["scenario-handoff-v9"])
 def test_an_unknown_input_kind_is_refused(input_kind: str) -> None:
     with pytest.raises(PackageIntegrityError, match="unsupported package input kind"):
         _build(input_kind)
@@ -110,25 +110,11 @@ def test_a_v5_package_round_trips_and_a_version_swap_is_caught(tmp_path: Path) -
 
     assert load_package(destination).manifest.to_dict() == package.manifest.to_dict()
     manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
-    manifest["schema_version"] = "artifact-package-v3"
+    manifest["schema_version"] = "artifact-package-v9"
     manifest["manifest_digest"] = _manifest_digest(manifest)
     (destination / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(
         PackageIntegrityError,
-        match="^unsupported artifact package schema version: artifact-package-v3$",
-    ):
-        load_package(destination)
-
-
-def test_a_v4_package_is_refused_naming_the_unsupported_version(tmp_path: Path) -> None:
-    destination = write_package(tmp_path / "out", _build("scenario-handoff-v6"))
-    manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
-    manifest["schema_version"] = "artifact-package-v4"
-    manifest["manifest_digest"] = _manifest_digest(manifest)
-    (destination / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-
-    with pytest.raises(
-        PackageIntegrityError,
-        match="^unsupported artifact package schema version: artifact-package-v4$",
+        match="^unsupported artifact package schema version: artifact-package-v9$",
     ):
         load_package(destination)

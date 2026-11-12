@@ -249,7 +249,7 @@ def load_package(path: str | Path) -> ArtifactPackage:
     The loader reads only ``artifact-package-v5``. It resolves the root (``~``,
     relative segments and symlinks) so every member path is checked against the
     directory it actually read. A package that declares a retired or unknown
-    version, ``artifact-package-v4`` included, fails with an error that names
+    other version fails with an error that names
     the version it found.
     """
 

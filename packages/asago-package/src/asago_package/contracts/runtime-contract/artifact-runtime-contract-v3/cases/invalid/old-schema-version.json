@@ -1,5 +1,5 @@
 {
-  "schema_version": "artifact-runtime-contract-v2",
+  "schema_version": "artifact-runtime-contract-v9",
   "authoring_transports": {
     "discovery": "unavailable",
     "judge": "unavailable",

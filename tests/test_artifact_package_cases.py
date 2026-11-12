@@ -3,9 +3,7 @@
 The cases live in the ``asago-package`` member's ``contracts/artifact-package/`` and the
 orchestrator reads the same files through that library. Each invalid case names a stable code;
 ``_MESSAGES`` maps the code to this reader's error wording, and
-``_VERSION_MESSAGES`` names the wording a version's schema gives first. The
-artifact-package-v4 cases stay for the frozen schema checks; the reader refuses
-any v4 package with an error that names the unsupported version.
+``_VERSION_MESSAGES`` names the wording the schema gives first.
 """
 
 from __future__ import annotations
@@ -35,7 +33,7 @@ from asago_package.contract_kit import contract_dir
 
 _REPO = Path(__file__).resolve().parents[1]
 _ROOT = contract_dir("artifact-package")
-_VERSIONS = ("artifact-package-v4", "artifact-package-v5")
+_VERSIONS = ("artifact-package-v5",)
 _READABLE_VERSIONS = ("artifact-package-v5",)
 _SEED = "artifact-seed-v1"
 _MESSAGES = {
@@ -168,19 +166,6 @@ def test_the_reader_rejects_every_invalid_case_with_its_code(tmp_path: Path, cas
 
     message = _message(case.parents[1].name, code)
     assert re.search(message, str(raised.value)), (code, str(raised.value))
-
-
-@pytest.mark.parametrize(
-    "case",
-    _cases("artifact-package-v4", "valid"),
-    ids=lambda case: case.stem,
-)
-def test_the_reader_refuses_every_v4_case_naming_the_version(tmp_path: Path, case: Path) -> None:
-    with pytest.raises(
-        PackageIntegrityError,
-        match="^unsupported artifact package schema version: artifact-package-v4$",
-    ):
-        load_package(_materialize(case, tmp_path / "package"))
 
 
 def _first_seed_error(document: Any) -> ValidationError | None:

@@ -1,5 +1,5 @@
 {
-  "description": "The package carries source-hashes.json, which only a v4 package held.",
+  "description": "The package carries source-hashes.json, which is not a package member.",
   "files": {
     "bindings.json": "[]\n",
     "inputs.json": "{\"runtime_contract\":{},\"inventory\":{}}\n",

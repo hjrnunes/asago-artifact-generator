@@ -54,7 +54,7 @@ def _json(value: Any) -> bytes:
 
 def _runtime_contract() -> dict[str, Any]:
     return {
-        "schema_version": "artifact-runtime-contract-v2",
+        "schema_version": "artifact-runtime-contract-v3",
         "delivery": ["direct_user_message", "sequential_user_turns", "planted_item"],
         "seed_slots": [SLOT],
     }

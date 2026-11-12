@@ -154,7 +154,7 @@ def test_build_package_seals_the_same_manifest_the_hand_built_case_states() -> N
     ("overrides", "message"),
     [
         ({"manifest_digest": "c" * 64}, "manifest digest mismatch"),
-        ({"schema_version": "artifact-package-v4"}, "the writer writes only"),
+        ({"schema_version": "artifact-package-v9"}, "the writer writes only"),
     ],
 )
 def test_the_writer_refuses_a_hand_built_manifest_it_would_not_load(
@@ -232,10 +232,10 @@ def test_the_reader_refuses_a_manifest_digest_that_does_not_cover_its_fields(
     [
         ({"package_id": ""}, "manifest field is blank: package_id"),
         ({"input_kind": "scenario-handoff-v4"}, "unsupported package input kind"),
-        ({"input_kind": "scenario-handoff-v5"}, "unsupported package input kind"),
+        ({"input_kind": "scenario-handoff-v9"}, "unsupported package input kind"),
         (
-            {"schema_version": "artifact-package-v4"},
-            "unsupported artifact package schema version: artifact-package-v4",
+            {"schema_version": "artifact-package-v9"},
+            "unsupported artifact package schema version: artifact-package-v9",
         ),
         (
             {"runtime_capabilities": {"api_key": "not persisted"}},

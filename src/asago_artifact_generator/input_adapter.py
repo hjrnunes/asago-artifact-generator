@@ -47,25 +47,19 @@ _HANDOFF_ROOT = CONTRACT_DIR
 class InputKind(StrEnum):
     """The supported design-time input representations, recorded in package manifests."""
 
-    SCENARIO_HANDOFF_V5 = "scenario-handoff-v5"
     SCENARIO_HANDOFF_V6 = "scenario-handoff-v6"
 
 
-#: The versions the installed kit publishes, by the name a document states.
-_HANDOFF_VERSIONS = {kind.value: kind for kind in InputKind}
-
-
-# The structured-analysis fields of scenario-handoff-v5, in the producer's order.
-V5_FIELDS = ("uca", "actor", "causal_factors", "preconditions", "procedure", "worst_case_threat")
-
-
-@dataclass(frozen=True)
-class _HandoffVersion:
-    """One handoff version the mirrored lock declares: its kit directory and digest domain."""
-
-    kind: InputKind
-    kit: str
-    digest_domain: str
+# The structured-analysis fields of the current handoff, in the producer's order.
+V5_FIELDS = (
+    "uca",
+    "actor",
+    "causal_factors",
+    "preconditions",
+    "procedure",
+    "worst_case_threat",
+)
+_HANDOFF_VERSION = InputKind.SCENARIO_HANDOFF_V6.value
 
 
 class InputSourceError(ValueError):
@@ -73,7 +67,7 @@ class InputSourceError(ValueError):
 
 
 class HandoffSchemaInvalid(InputSourceError):
-    """Raised when a handoff breaks the producer's contract for its version.
+    """Raised when a handoff breaks the producer's contract.
 
     ``codes`` holds the producer's violation codes in the order of the kit's
     ``expected-violations.json``: ownership codes, then ``schema_violation:<field>``.
@@ -157,12 +151,9 @@ class InputView:
 def load_input(source_path: str | Path) -> InputView:
     """Load one producer scenario handoff and produce a source-pinned view.
 
-    The producer writes v6, which names the controlling party ``controlling_party``
-    and requires the envelope. The mirrored kit still publishes v5, and the reader
-    still accepts it. The shared ``asago_handoff`` validator owns the version rule,
-    as it owns the rest: a document that states another version, or none, is
-    refused with the producer's codes from the v6 kit; a v6 document without the
-    envelope is refused.
+    The current handoff names the controlling party ``controlling_party`` and
+    requires the envelope. The shared validator owns the version rule; a
+    document that states another version, or none, is refused before authoring.
     """
 
     path = Path(source_path)
@@ -219,34 +210,21 @@ def _parse_document(path: Path, source_bytes: bytes) -> Any:
         raise InputSourceError(f"cannot parse input source {path}: {exc}") from exc
 
 
-def _handoff_kind(payload: Any) -> InputKind:
-    """Return the version a document states, or v6 when it states an unpublished one.
-
-    A document that names no published version takes the v6 kit's schema and
-    refusals, so the shared validator reports the producer's codes for it; the
-    version it states is named in the code.
-    """
-
-    version = payload.get("schema_version") if isinstance(payload, dict) else None
-    return _HANDOFF_VERSIONS.get(version, InputKind.SCENARIO_HANDOFF_V6)
-
-
 def _handoff_view(
     path: Path,
     payload: Any,
     source_bytes: bytes,
     source: SourceSnapshot,
 ) -> InputView:
-    kind = _handoff_kind(payload)
-    version = _validate_handoff_kit(kind)
-    _validate_handoff_payload(payload, version.kit)
+    _validate_handoff_kit()
+    _validate_handoff_payload(payload)
     expected_digest = payload.get("content_digest", "")
     digest_payload = {
         key: value
         for key, value in payload.items()
         if key not in ("content_digest", ENVELOPE_FIELD)
     }
-    if expected_digest != _framed_digest(version.digest_domain, digest_payload):
+    if expected_digest != _framed_digest(_HANDOFF_VERSION, digest_payload):
         raise InputSourceError("scenario handoff content_digest does not match source")
     gherkin = payload["gherkin"]
     gherkin_bytes = canonical_json(gherkin, nfc=True).encode("utf-8")
@@ -266,7 +244,7 @@ def _handoff_view(
     else:
         gherkin_text = _render_handoff_gherkin(gherkin)
     return InputView(
-        kind=kind,
+        kind=InputKind.SCENARIO_HANDOFF_V6,
         scenario_id=payload["scenario_id"],
         payload=payload,
         source=source,
@@ -283,21 +261,15 @@ def _handoff_view(
     )
 
 
-def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V6) -> _HandoffVersion:
-    """Verify the installed lock and return the version entry it declares for ``kind``.
-
-    The lock names the newest published version at its top level, and its rows
-    cover every published version's directory; the digest domain is the
-    version's own name. A lock that names no published version, or that holds no
-    file of the version a document states, declares nothing this reader can use.
-    """
+def _validate_handoff_kit() -> None:
+    """Verify the installed lock declares and pins the current handoff kit."""
 
     lock = load_json_file(
         _HANDOFF_ROOT / "CONTRACT.lock", InputSourceError, "cannot read vendored handoff lock"
     )
     locked = {relative.split("/", 1)[0] for relative in lock.get("files", {})}
-    if lock.get("schema_version") not in _HANDOFF_VERSIONS or kind.value not in locked:
-        raise InputSourceError(f"vendored handoff lock does not declare {kind.value}")
+    if lock.get("schema_version") != _HANDOFF_VERSION or _HANDOFF_VERSION not in locked:
+        raise InputSourceError(f"vendored handoff lock does not declare {_HANDOFF_VERSION}")
     verify_contract_lock(
         _HANDOFF_ROOT,
         InputSourceError,
@@ -306,12 +278,13 @@ def _validate_handoff_kit(kind: InputKind = InputKind.SCENARIO_HANDOFF_V6) -> _H
         metadata={"authority": "asago-scenario-generator"},
         metadata_message="vendored handoff kit authority mismatch",
     )
-    return _HandoffVersion(kind, kind.value, kind.value)
 
 
-def _handoff_schema(kit: str = "scenario-handoff-v6") -> dict[str, Any]:
+def _handoff_schema() -> dict[str, Any]:
     return load_json_file(
-        _HANDOFF_ROOT / kit / "schema.json", InputSourceError, f"cannot read vendored {kit} schema"
+        _HANDOFF_ROOT / _HANDOFF_VERSION / "schema.json",
+        InputSourceError,
+        f"cannot read vendored {_HANDOFF_VERSION} schema",
     )
 
 
@@ -329,9 +302,7 @@ def _read_ownership_rules(
 def _handoff_contract() -> Contract:
     """Read the installed contract documents the shared validator walks.
 
-    The shared core's package data publishes both versions, so the contract carries each
-    version's schema and the shared validator selects by the document's own
-    ``schema_version``; ``schema`` is the newest, which a reader with no version uses.
+    The shared core's package data publishes the one supported schema.
     """
 
     try:
@@ -340,7 +311,7 @@ def _handoff_contract() -> Contract:
         raise InputSourceError(f"cannot read vendored handoff contract: {exc}") from exc
 
 
-def _validate_handoff_payload(payload: Any, kit: str) -> None:
+def _validate_handoff_payload(payload: Any) -> None:
     """Report the shared validator's codes for every rule the handoff breaks.
 
     ``asago_handoff.validate_handoff`` reads the document through the mirrored
@@ -351,9 +322,26 @@ def _validate_handoff_payload(payload: Any, kit: str) -> None:
     a JSON object, as :class:`HandoffSchemaInvalid`. A body the version's schema
     rejects still reports the producer's codes: the envelope states who wrote
     the document, not that its content holds. A document the reader alone can
-    refuse, such as v6 without the envelope, names that refusal instead.
+    refuse, such as a missing envelope, names that refusal instead.
     """
 
+    stated = payload.get("schema_version") if isinstance(payload, dict) else None
+    if stated is not None and stated != _HANDOFF_VERSION:
+        # The kit's own codes for a document of another version, with the stated version named.
+        raise HandoffSchemaInvalid(
+            [
+                Violation(
+                    "schema_violation:schema_version",
+                    "schema_version",
+                    f"the handoff states {stated!r}; this reader reads {_HANDOFF_VERSION}",
+                ),
+                Violation(
+                    "schema_violation:attack_shape",
+                    "schema_version",
+                    "another schema version states another attack shape",
+                ),
+            ]
+        )
     contract = _handoff_contract()
     try:
         violations = validate_handoff(payload, contract=contract)
@@ -365,15 +353,15 @@ def _validate_handoff_payload(payload: Any, kit: str) -> None:
         return
     breaks = [item for item in violations if item.code.startswith("schema_violation:")]
     if breaks and len(breaks) == len(violations) and isinstance(payload, dict):
-        _raise_shape_refusal(payload, breaks, kit)
+        _raise_shape_refusal(payload, breaks)
     raise HandoffSchemaInvalid(list(violations))
 
 
-def _raise_shape_refusal(payload: dict[str, Any], breaks: list[Violation], kit: str) -> None:
+def _raise_shape_refusal(payload: dict[str, Any], breaks: list[Violation]) -> None:
     """Raise the typed attack-shape refusal when every break concerns the shape."""
 
     if breaks and {item.code for item in breaks} <= _SHAPE_CODES:
-        refusal = _attack_shape_refusal(payload, kit)
+        refusal = _attack_shape_refusal(payload)
         if refusal is not None:
             raise refusal
 
@@ -381,7 +369,7 @@ def _raise_shape_refusal(payload: dict[str, Any], breaks: list[Violation], kit: 
 _SHAPE_CODES = frozenset({"schema_violation:attack_shape", "schema_violation:<root>"})
 
 
-def _attack_shape_refusal(payload: dict[str, Any], kit: str) -> ShapeVersionMalformed | None:
+def _attack_shape_refusal(payload: dict[str, Any]) -> ShapeVersionMalformed | None:
     if "attack_shape" not in payload:
         return ShapeVersionMalformed("attack_shape", "the required property is missing")
     shape = payload["attack_shape"]
@@ -395,7 +383,7 @@ def _attack_shape_refusal(payload: dict[str, Any], kit: str) -> ShapeVersionMalf
         )
     if shape is None:
         return None
-    violation = attack_shape_violation(shape, _handoff_schema(kit))
+    violation = attack_shape_violation(shape, _handoff_schema())
     return ShapeVersionMalformed(*violation) if violation is not None else None
 
 

@@ -60,11 +60,10 @@ published with `"envelope": "required"`, so a reader refuses a v3 document witho
 }
 ```
 
-A reader selects one of its installed specs by the document's contract id and version, so it
-reads both `artifact-runtime-contract-v2` (whose `envelope` is `optional`) and v3. It rejects:
+The reader selects its installed spec by contract id and version. It rejects:
 
 - an unsupported version, with the error listing the supported versions;
-- a `requires` entry the selected spec does not support (neither version supports any);
+- a `requires` entry the selected spec does not support (the spec supports none);
 - a top-level field outside the schema and the spec's declared extensions;
 - a `spec_digest` that is not exactly the installed spec's, for a draft as for a published
   version;

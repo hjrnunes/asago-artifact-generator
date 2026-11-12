@@ -1,5 +1,5 @@
 {
-  "description": "authoring carries the ledger a v4 manifest held.",
+  "description": "authoring carries an unsupported ledger.",
   "files": {
     "bindings.json": "[]\n",
     "inputs.json": "{\"runtime_contract\":{},\"inventory\":{}}\n",

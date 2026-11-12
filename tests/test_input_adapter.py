@@ -481,7 +481,7 @@ def test_unbound_view_has_no_tool_call_condition() -> None:
 
 @pytest.mark.parametrize(
     "version",
-    ["scenario-handoff-v1", "scenario-handoff-v2", "scenario-handoff-v3", "scenario-handoff-v4"],
+    ["scenario-handoff-v9"],
 )
 def test_retired_handoff_versions_are_rejected_with_the_shared_codes(
     tmp_path: Path, version: str

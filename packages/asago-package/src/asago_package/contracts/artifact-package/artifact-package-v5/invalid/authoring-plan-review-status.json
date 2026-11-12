@@ -1,5 +1,5 @@
 {
-  "description": "authoring.review_status carries the plan review a v4 manifest held.",
+  "description": "authoring.review_status carries an unsupported plan review.",
   "files": {
     "bindings.json": "[]\n",
     "inputs.json": "{\"runtime_contract\":{},\"inventory\":{}}\n",

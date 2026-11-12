@@ -1,5 +1,5 @@
 {
-  "description": "The package carries authoring/01-call1.json, which only a v4 package held.",
+  "description": "The package carries authoring/01-call1.json, which is not a package member.",
   "files": {
     "authoring/01-call1.json": "{\"stage\":\"call1\"}\n",
     "bindings.json": "[]\n",

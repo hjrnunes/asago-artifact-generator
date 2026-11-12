@@ -23,7 +23,7 @@ from asago_contracts_core import (
 )
 
 from asago_package.contract_kit import contract_dir, first_schema_error, load_json_file
-from asago_package.runtime_contract_spec import VERSION, VERSIONS, read_runtime_contract
+from asago_package.runtime_contract_spec import VERSION, read_runtime_contract
 
 from .contract_kit import parse_document, verify_contract_lock
 
@@ -50,7 +50,7 @@ def load_runtime_contract(path: Path) -> dict[str, Any]:
         # unknown top-level field is a schema fault here, but the reader names the
         # declared extensions instead, so both faults take this path.
         payload = _payload(document)
-        fault = first_schema_error(_schema(_version(payload)), payload)
+        fault = first_schema_error(_schema(), payload)
         if fault is None:
             raise
         raise RuntimeContractError(f"runtime contract schema invalid {fault}") from None
@@ -86,16 +86,9 @@ def _verify_lock() -> None:
     )
 
 
-def _version(payload: Any) -> Any:
-    """Return the version a payload names, so the fault is worded by its own schema."""
-
-    return payload.get("schema_version") if isinstance(payload, Mapping) else None
-
-
-def _schema(version: Any = None) -> dict[str, Any]:
-    name = version if isinstance(version, str) and version in VERSIONS else VERSION
+def _schema() -> dict[str, Any]:
     return load_json_file(
-        _CONTRACT_ROOT / name / "schema.json",
+        _CONTRACT_ROOT / VERSION / "schema.json",
         RuntimeContractError,
         "cannot validate runtime contract",
     )

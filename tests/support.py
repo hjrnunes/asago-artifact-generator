@@ -50,6 +50,7 @@ from asago_artifact_generator.package_io import (
     write_package,
 )
 from asago_package.contract_kit import contract_dir
+from asago_package.runtime_contract_spec import write_runtime_contract
 
 # A neutral producer tool-call condition: the record command exceeds its bound.
 NEUTRAL_TOOL_CALL_CONDITION = {
@@ -197,7 +198,7 @@ KIT_VALID = KIT / "valid"
 NO_CONDITION_HANDOFF = KIT_VALID / "adversarial-condition-omitted.json"
 OBSERVED_HANDOFF = KIT_VALID / "adversarial-observed-record.json"
 NOT_CALLED_HANDOFF = KIT_VALID / "functional-not-called.json"
-V5_HANDOFF = KIT_VALID / "adversarial-direct-single.json"
+CURRENT_HANDOFF = KIT_VALID / "adversarial-direct-single.json"
 # One attacker message sent directly: the shape every adversarial test handoff above carries.
 DIRECT_SINGLE_SHAPE: dict[str, Any] = json.loads(
     (KIT_VALID / "adversarial-direct-single.json").read_text(encoding="utf-8")
@@ -259,7 +260,7 @@ MINIMAL_TARGET_PROFILE = (
 )
 MINIMAL_RUNTIME_CONTRACT = (
     contract_dir("runtime-contract")
-    / "artifact-runtime-contract-v2"
+    / "artifact-runtime-contract-v3"
     / "cases"
     / "valid"
     / "minimal.json"
@@ -270,7 +271,13 @@ def target_inputs(tmp_path: Path) -> tuple[Path, Path]:
     profile = tmp_path / "execution-target-profile.json"
     shutil.copyfile(MINIMAL_TARGET_PROFILE, profile)
     runtime_contract = tmp_path / "runtime-contract.json"
-    shutil.copyfile(MINIMAL_RUNTIME_CONTRACT, runtime_contract)
+    document = json.loads(MINIMAL_RUNTIME_CONTRACT.read_text(encoding="utf-8"))
+    runtime_contract.write_text(
+        json.dumps(
+            write_runtime_contract(document, writer="tests.support", writer_version="0.1.0")
+        ),
+        encoding="utf-8",
+    )
     return profile, runtime_contract
 
 

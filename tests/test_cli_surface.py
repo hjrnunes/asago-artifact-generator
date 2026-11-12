@@ -58,6 +58,38 @@ def test_generate_rejects_a_source_that_is_not_a_file(
     assert "input source is not a file" in result.output
 
 
+def test_generate_refuses_a_different_handoff_version_before_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    document = json.loads(_HANDOFF.read_text(encoding="utf-8"))
+    document["schema_version"] = "scenario-handoff-v9"
+    source = tmp_path / "unsupported-handoff.json"
+    source.write_text(json.dumps(document), encoding="utf-8")
+    constructions: list[object] = []
+
+    result = PlainCliRunner().invoke(
+        cli.app,
+        [
+            "generate",
+            str(source),
+            "--target-profile",
+            "unused-profile.json",
+            "--runtime-contract",
+            "unused-runtime.json",
+            "--profile",
+            "unused",
+        ],
+        obj=lambda **options: constructions.append(options),
+    )
+
+    assert result.exit_code == 2
+    assert "schema_version" in result.output
+    assert "scenario-handoff-v9" in result.output
+    assert constructions == []
+    assert not Path("runs").exists()
+
+
 def test_generate_rejects_a_target_profile_it_cannot_load(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

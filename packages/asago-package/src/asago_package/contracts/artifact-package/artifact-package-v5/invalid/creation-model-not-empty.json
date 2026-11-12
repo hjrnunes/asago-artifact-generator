@@ -1,5 +1,5 @@
 {
-  "description": "creation_model names the authoring model, as a v4 manifest could.",
+  "description": "creation_model names the authoring model, which is not allowed.",
   "files": {
     "bindings.json": "[]\n",
     "inputs.json": "{\"runtime_contract\":{},\"inventory\":{}}\n",

@@ -1,5 +1,5 @@
 {
-  "description": "The package carries authoring/transformations.json, which only a v4 package held.",
+  "description": "The package carries authoring/transformations.json, which is not a package member.",
   "files": {
     "authoring/transformations.json": "[]\n",
     "bindings.json": "[]\n",

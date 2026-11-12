@@ -416,7 +416,7 @@ remain distinct, and reasoning is never parsed as the final answer.
 
 The producer owns scenario meaning. From the producer repository root, run the
 normal producer command and then hand the resulting scenario handoff
-(`scenario-handoff-v6`; the adapter still reads `scenario-handoff-v5`) to
+(`scenario-handoff-v6`) to
 `generate`:
 
 ```bash
@@ -483,36 +483,28 @@ handoff:
 
 - `scenario-handoff-v6` JSON or YAML for scenario meaning. The producer's `generate`
   writes v6, which names the party `party_relation.controlling_party` and carries the
-  contract envelope. The adapter still reads `scenario-handoff-v5`, which names the
-  party `controller` and carries no envelope. A package records the version it came
-  from as `input_kind`, and the writer accepts only `scenario-handoff-v6`.
+  contract envelope. A package records `scenario-handoff-v6` as `input_kind`.
 - `execution-target-profile-v1` JSON for the observed target inventory.
 - Optional `runtime-context.json` (`runtime-context-v1`, written by the orchestrator's discover stage) for state and read observations.
-- A target-free runtime contract (`artifact-runtime-contract-v3`, and
-  `artifact-runtime-contract-v2` still reads). `generate` reads it through the
+- A target-free runtime contract (`artifact-runtime-contract-v3`). `generate` reads it through the
   installed spec set in the `asago-package` member
   (`contracts/runtime-contract/`) and its lock before any model request, and
   stops at the first fault in path order:
   `runtime contract schema invalid at <path>: <reason>`. A v3 contract requires
-  the `contract` envelope; a v2 contract's envelope stays optional.
+  the `contract` envelope.
 
 Use `asago_artifact_generator.input_adapter.load_input` to validate the
 installed handoff kit, preserve authoritative narrative and Gherkin bytes, and
 record SHA-256 source pins. The shared core ships the kit as package data and
 `input_adapter` reads it there; its `CONTRACT.lock` declares
-the newest version, `scenario-handoff-v6`, and lists the files of both the v5 and v6 kit
-directories; each version's digest domain is its own name. The adapter verifies
-`content_digest` in the domain of the version the document states, and packages record
-that version as `input_kind`. The shared `asago_handoff`
-validator owns the schema-version rule: a document that states a version other than v5 or
-v6, including `scenario-handoff-v1` to `v4`, or none, is refused with the kit's
-`schema_violation:schema_version` and `schema_violation:attack_shape` codes; a
+the current version, `scenario-handoff-v6`. The adapter checks the digest in this domain.
+A handoff that states another version, such as `scenario-handoff-v9`, is refused
+with `schema_violation:schema_version`. The shared validator checks missing versions; a
 document that is not a JSON object gets `schema_violation:<root>`.
 
 Before the digest check, the adapter runs the producer's
 `asago_handoff.validate_handoff` over the installed
-`schema.json` and `ownership-rules.json` of the document's version kit
-(`scenario-handoff-v5/` or `scenario-handoff-v6/`): the schema's rules, the ownership boundary, and the
+`schema.json` and `ownership-rules.json` of the current kit: the schema's rules, the ownership boundary, and the
 hand rules the schema cannot state (non-blank text, the observation-contract
 format, cross-field pairings, and the procedure chain). The
 schema states the rules it can express, so a break it reports comes first. A
@@ -772,12 +764,8 @@ The v5 schema lists the member names (`plan.json`, `stimulus.json`,
 `review_status.artifact`), and requires an empty `creation_model`. The loader
 refuses a v5 package with any other member or manifest field.
 
-The loader reads only `artifact-package-v5`. It refuses a package that declares
-`artifact-package-v4`, or any other version, with an error that names the
-unsupported version it found. The v4 schema and its cases stay in
-`packages/asago-package/src/asago_package/contracts/artifact-package/artifact-package-v4/`
-as frozen contract material
-that the orchestrator mirrors, but no reader loads a v4 package.
+The loader reads only `artifact-package-v5`. It refuses any other version,
+such as `artifact-package-v9`, naming the unsupported value.
 
 The writer writes only `artifact-package-v5`. The lock's
 `package_schema_version` and `digest_domain` name v5. The manifest digest is

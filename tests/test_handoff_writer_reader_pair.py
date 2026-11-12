@@ -346,7 +346,7 @@ def test_the_reader_rejects_a_writer_file_rewritten_to_a_foreign_schema_version(
     text = handoff_path.read_text(encoding="utf-8")
     handoff_path.write_text(
         text.replace(
-            "schema_version: scenario-handoff-v6", "schema_version: scenario-handoff-v4", 1
+            "schema_version: scenario-handoff-v6", "schema_version: scenario-handoff-v9", 1
         ),
         encoding="utf-8",
     )

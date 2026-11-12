@@ -2,7 +2,7 @@
   "allowed": [
     {
       "metadata": {
-        "interface": "artifact-authoring-v1",
+        "interface": "artifact-authoring-v2",
         "usage": [
           {
             "availability": "available",
@@ -68,13 +68,6 @@
         }
       },
       "name": "unavailable-usage-direct"
-    },
-    {
-      "metadata": {
-        "interface": "artifact-authoring-v1",
-        "max_retries": 0
-      },
-      "name": "plain-authoring-controls"
     },
     {
       "metadata": {

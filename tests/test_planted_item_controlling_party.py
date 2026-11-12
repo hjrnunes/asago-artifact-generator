@@ -1,0 +1,50 @@
+"""A shape exposes its controlling party to authoring."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import Any
+
+from asago_artifact_generator.authoring.checks import slot_party_findings
+from asago_artifact_generator.authoring.planted_item import (
+    controlling_party,
+    controlling_party_path,
+    indirect_block,
+)
+
+from .turn_support import CARRIER_SLOT, indirect_shape
+
+_RUNTIME: dict[str, Any] = {
+    "delivery": ["direct_user_message", "planted_item"],
+    "setup_permissions": [],
+    "observation": {"tool_calls": {"availability": "captured_or_unavailable"}},
+    "limits": {"max_turns": 4},
+    "seed_slots": [CARRIER_SLOT],
+}
+
+
+def test_the_accessor_reads_the_current_field_name() -> None:
+    shape = indirect_shape()
+
+    assert controlling_party(shape) == "third_party"
+    assert (
+        controlling_party_path(shape) == "attack_shape.indirect.party_relation.controlling_party"
+    )
+
+
+def test_the_advisory_finding_names_the_current_field() -> None:
+    slot = {**CARRIER_SLOT, "controller": "counterparty"}
+
+    [finding] = slot_party_findings(indirect_shape(), {**_RUNTIME, "seed_slots": [slot]})
+
+    assert finding.code == "slot_party_mismatch"
+    assert finding.path == "attack_shape.indirect.party_relation.controlling_party"
+    assert finding.details["controlling_party"] == "third_party"
+
+
+def test_the_planted_block_states_the_current_party() -> None:
+    view = SimpleNamespace(attack_shape=indirect_shape())
+
+    block = indirect_block(view, _RUNTIME, None)
+
+    assert block["shape_controlling_party"]["party"] == "third_party"

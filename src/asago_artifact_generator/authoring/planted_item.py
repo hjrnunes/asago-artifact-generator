@@ -39,10 +39,6 @@ VERBATIM_RUN = 40
 # A shape that states no assumption about who wrote the item puts no party preference on
 # the slot choice and records no mismatch.
 CONTROLLING_PARTY_UNKNOWN = "unknown"
-# scenario-handoff-v6 states the party as controlling_party; the v5 reader the adapter
-# keeps states it as controller. A shape states it under one of these names; the newest
-# comes first.
-CONTROLLING_PARTY_FIELDS = ("controlling_party", "controller")
 
 # The two planted-item party names are different concepts: the shape's controlling party
 # is the scenario's assumption about who wrote the item, and a slot's writable-by party is
@@ -140,28 +136,16 @@ def _states_limit_and_mode(slot: dict[str, Any]) -> bool:
     )
 
 
-def controlling_party_field(shape: dict[str, Any]) -> str:
-    """Return the ``party_relation`` field the shape states the party under."""
-
-    relation = shape["indirect"]["party_relation"]
-    for field in CONTROLLING_PARTY_FIELDS:
-        if field in relation:
-            return field
-    raise KeyError("party_relation states no controlling party")
-
-
 def controlling_party_path(shape: dict[str, Any]) -> str:
     """Return the shape path a finding about the controlling party names."""
 
-    field = controlling_party_field(shape)
-    return f"attack_shape.indirect.party_relation.{field}"
+    return "attack_shape.indirect.party_relation.controlling_party"
 
 
 def controlling_party(shape: dict[str, Any]) -> str:
     """Return the scenario's assumption about who wrote the planted item."""
 
-    relation = shape["indirect"]["party_relation"]
-    return relation[controlling_party_field(shape)]
+    return shape["indirect"]["party_relation"]["controlling_party"]
 
 
 def _slot_parties(slot: dict[str, Any]) -> tuple[str, ...]:
