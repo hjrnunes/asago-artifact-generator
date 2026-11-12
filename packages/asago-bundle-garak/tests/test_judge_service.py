@@ -375,7 +375,7 @@ def _request(**changes: Any) -> dict[str, Any]:
     [
         b"not json",
         b"[]",
-        _request(schema="midojo.judge.v2"),
+        _request(schema="midojo.judge.v9"),
         _request(extra=1),
         _request(id=...),
         _request(id=1),
