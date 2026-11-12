@@ -75,9 +75,6 @@ from asago_bundle_core.mcp_records import (
 from asago_bundle_core.receipt_contract import read_receipt, write_receipt
 from asago_bundle_core.text import canonical_text, jsonl_lines
 from asago_injection_spec.sealed import (
-    DELIVERY_SCHEMA_VERSION,
-    LEGACY_DELIVERY_SCHEMA_VERSION,
-    LEGACY_SLOT_KEY,
     delivery_shape,
     evaluation_block,
     grade_result,
@@ -680,42 +677,24 @@ def sealed_verdict(trace: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def sealed_delivery(trace: dict[str, Any]) -> dict[str, Any] | None:
-    """Return the delivery document the trace states, or None when it states none.
+    """Return the delivery facts and exposure the trace states, or None when it states none.
 
-    The probe computes ``delivery`` and ``exposure`` from the plan and the sealed calls, as
-    the runner's ``delivery.json`` holds them; a document ``delivery_shape`` does not accept
-    is no delivery evidence at all, so the guard reads it as unknown.
+    The probe computes ``delivery`` and ``exposure`` from the plan and the sealed calls,
+    which is what the retired runner's ``delivery.json`` held. The delivery file contract is
+    gone, so the reader checks the raw facts alone (``delivery_shape``): a document that
+    shape refuses is no delivery evidence at all, so the guard reads it as unknown.
     """
 
     delivery, exposure = trace.get("delivery"), trace.get("exposure")
     if not isinstance(delivery, list) or not isinstance(exposure, dict):
         return None
     document = {
-        "schema_version": _delivery_schema_version(delivery, exposure),
         "evaluation_id": text(trace.get("evaluation_id")),
         "snapshot_id": text(trace.get("snapshot_id")),
         "delivery": delivery,
         "exposure": exposure,
     }
     return document if delivery_shape(document) else None
-
-
-def _delivery_schema_version(delivery: list[Any], exposure: dict[str, Any]) -> str:
-    """Return the version the trace's delivery facts are in.
-
-    A fact or instruction item that names ``slot_key`` is what MiDojo writes now; one that
-    names ``probe_key`` and none that names ``slot_key`` is what a trace recorded before
-    term.5a holds. A trace with neither names no instruction, so either version accepts it.
-    """
-
-    items = [
-        item
-        for item in [*delivery, *(exposure.get("instructions") or [])]
-        if isinstance(item, dict)
-    ]
-    legacy = any(LEGACY_SLOT_KEY in item for item in items)
-    current = any("slot_key" in item for item in items)
-    return LEGACY_DELIVERY_SCHEMA_VERSION if legacy and not current else DELIVERY_SCHEMA_VERSION
 
 
 def sealed_trace_failure(trace: dict[str, Any]) -> str | None:

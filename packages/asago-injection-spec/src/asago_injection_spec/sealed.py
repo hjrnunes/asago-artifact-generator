@@ -98,13 +98,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from asago_contracts_core import ENVELOPE_FIELD
 from midojo_spec.snapshot import CONTENT_FIELDS, DigestFault, verified
 
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.mcp_records import read_json, text
 
-from .delivery_contract import read_delivery  # noqa: F401  (garak_ipi.py imports it here)
 from .document import Envelope
 
 # The names term.5a renamed, read from a document recorded before it: the receipt's
@@ -212,13 +210,10 @@ ATTACK_OUTCOME = ("attempted", "blocked", "effect_observed", "injection_delivere
 # What a grade a judge service took part in also has (from cab2a35): each request MiDojo
 # sent or would have sent and the answer, a ``JudgeRecord``. The receipt does not carry it.
 JUDGEMENTS = "judgements"
-DELIVERY_SCHEMA_VERSION = "midojo-delivery-v2"
-LEGACY_DELIVERY_SCHEMA_VERSION = "midojo-delivery-v1"
-DELIVERY_SCHEMA_VERSIONS = (DELIVERY_SCHEMA_VERSION, LEGACY_DELIVERY_SCHEMA_VERSION)
-DELIVERY_FIELDS = frozenset(
-    {"schema_version", "evaluation_id", "snapshot_id", "delivery", "exposure"}
-)
+DELIVERY_FIELDS = frozenset({"evaluation_id", "snapshot_id", "delivery", "exposure"})
 # ``delivery.DeliveryFact``, ``delivery.Exposure`` and ``delivery.InstructionExposure``.
+# The delivery file contract is gone, so this shape checks the raw facts only: the slot key
+# reads under either name (``slot_key_of``), as a document recorded before term.5a wrote it.
 DELIVERY_FACT_FIELDS = frozenset(
     {
         "call_id",
@@ -233,13 +228,11 @@ DELIVERY_FACT_FIELDS = frozenset(
         *FACT_FIELDS,
     }
 )
-LEGACY_DELIVERY_FACT_FIELDS = DELIVERY_FACT_FIELDS - {"slot_key"} | {LEGACY_SLOT_KEY}
 BOUNDARIES = ("emitted", "agent_tool_result", "model_input")
 EXPOSURE_STATUSES = frozenset({"exposed", "not_exposed", "unknown"})
 INSTRUCTION_EXPOSURE_FIELDS = frozenset(
     {"plan_instruction_index", "channel", "slot_key", "placed_by", "exposure", "reason"}
 )
-LEGACY_INSTRUCTION_EXPOSURE_FIELDS = INSTRUCTION_EXPOSURE_FIELDS - {"slot_key"} | {LEGACY_SLOT_KEY}
 PLACERS = frozenset({"interceptor", "host"})
 # The channel the interceptor places in, and the modes it places with (``InjectionMode``).
 TOOL_OUTPUT = "tool_output"
@@ -604,38 +597,28 @@ def _three_valued(value: Any) -> bool:
 
 
 def delivery_shape(document: dict[str, Any]) -> bool:
-    """The runner's ``delivery.json``: ``midojo-delivery-v2``, or the ``midojo-delivery-v1`` a
-    run recorded before term.5a wrote, the evaluation and snapshot it describes, MiDojo's
-    ``DeliveryFact`` list and its ``Exposure``, field for field.
+    """The raw delivery facts and exposure the runner derived from a seal: the evaluation and
+    snapshot they describe, MiDojo's ``DeliveryFact`` list and its ``Exposure``, field for
+    field.
 
-    Each version names the instruction's slot key its own way, ``slot_key`` or the v1
-    ``probe_key``; a document that mixes the two is not either version. A document that
-    carries the self-identifying envelope adds the ``contract`` block; the installed-spec
-    reader validates that block, and this shape leaves it out.
+    The delivery file contract is gone, so no version selects the shape. Each fact and
+    instruction item names the instruction's slot key under either name, ``slot_key`` or the
+    ``probe_key`` a run recorded before term.5a wrote (``slot_key_of``); a document that
+    names both reads ``slot_key``.
     """
 
     exposure = document.get("exposure")
-    version = document.get("schema_version")
-    current = version == DELIVERY_SCHEMA_VERSION
-    if not current and version != LEGACY_DELIVERY_SCHEMA_VERSION:
-        return False
-    fact_fields = DELIVERY_FACT_FIELDS if current else LEGACY_DELIVERY_FACT_FIELDS
-    item_fields = INSTRUCTION_EXPOSURE_FIELDS if current else LEGACY_INSTRUCTION_EXPOSURE_FIELDS
-    slot = "slot_key" if current else LEGACY_SLOT_KEY
     return (
-        set(document) - {ENVELOPE_FIELD} == DELIVERY_FIELDS
+        set(document) == DELIVERY_FIELDS
         and isinstance(document["evaluation_id"], str)
         and isinstance(document["snapshot_id"], str)
         and isinstance(document["delivery"], list)
-        and all(_delivery_fact_shape(fact, fact_fields, slot) for fact in document["delivery"])
+        and all(_delivery_fact_shape(fact) for fact in document["delivery"])
         and isinstance(exposure, dict)
         and set(exposure) == {*BOUNDARIES, "instructions"}
         and all(_one_of(exposure[boundary], EXPOSURE_STATUSES) for boundary in BOUNDARIES)
         and isinstance(exposure["instructions"], list)
-        and all(
-            _instruction_exposure_shape(item, item_fields, slot)
-            for item in exposure["instructions"]
-        )
+        and all(_instruction_exposure_shape(item) for item in exposure["instructions"])
     )
 
 
@@ -643,29 +626,36 @@ def _index(value: Any) -> bool:
     return type(value) is int and value >= 0
 
 
-def _delivery_fact_shape(fact: Any, fields: frozenset[str], slot: str) -> bool:
+def _delivery_fact_shape(fact: Any) -> bool:
     return (
         isinstance(fact, dict)
-        and set(fact) - PLACEMENT_FIELDS == fields
+        and (
+            set(fact) - PLACEMENT_FIELDS == DELIVERY_FACT_FIELDS
+            or set(fact) - PLACEMENT_FIELDS
+            == DELIVERY_FACT_FIELDS - {"slot_key"} | {LEGACY_SLOT_KEY}
+        )
         and isinstance(fact["call_id"], str)
         and isinstance(fact["function"], str)
         and _one_of(fact["disposition"], DISPOSITIONS)
         and (fact["turn"] is None or type(fact["turn"]) is int)
         and _index(fact["interceptor_instruction_index"])
         and (fact["plan_instruction_index"] is None or _index(fact["plan_instruction_index"]))
-        and _optional_text(fact[slot])
+        and _optional_text(slot_key_of(fact))
         and _facts_shape(fact)
         and _placement_shape(fact)
     )
 
 
-def _instruction_exposure_shape(item: Any, fields: frozenset[str], slot: str) -> bool:
+def _instruction_exposure_shape(item: Any) -> bool:
     return (
         isinstance(item, dict)
-        and set(item) == fields
+        and (
+            set(item) == INSTRUCTION_EXPOSURE_FIELDS
+            or set(item) == INSTRUCTION_EXPOSURE_FIELDS - {"slot_key"} | {LEGACY_SLOT_KEY}
+        )
         and _index(item["plan_instruction_index"])
         and isinstance(item["channel"], str)
-        and _optional_text(item[slot])
+        and _optional_text(slot_key_of(item))
         and _one_of(item["placed_by"], PLACERS)
         and isinstance(item["exposure"], dict)
         and all(

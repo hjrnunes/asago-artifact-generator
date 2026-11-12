@@ -48,7 +48,7 @@ the attempt would have decided from.
 | `report.jsonl` | the probe's attempt lines: one per turn at status 1, then the sealed turn at status 2 with `notes.evaluation_trace` and the detectors' records |
 | `snapshot.json` | the snapshot MiDojo served, as `GET /runs/{id}/snapshot` returns it (`tampered` edits it after the seal) |
 | `verdict.json` | `midojo.grade`'s verdict of that snapshot, with the evaluation and snapshot IDs |
-| `delivery.json` | `midojo-delivery-v2`, with the contract's envelope: MiDojo's delivery facts and the exposure it derives |
+| `delivery.json` | MiDojo's delivery facts and the exposure it derives, as the trace states them |
 | `ipi-episodes.json` | the compiled probe source entry: the injection spec, its placements and its metadata |
 | `expected.json` | what the receipt must say about the case |
 

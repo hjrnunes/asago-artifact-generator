@@ -19,8 +19,8 @@ receipt must say about them.
 **What is real.** ``snapshot.json`` and ``verdict.json`` are MiDojo documents of a run: a
 scripted agent calls a real MCP server through MiDojo's interceptor, which places the
 payload and records every call, and ``midojo.grade`` seals the verdict. ``delivery.json``
-holds what ``delivery_facts``/``exposure`` derive from the sealed plan and calls, stamped
-with the envelope the orchestrator's episode runner writes in a real run. Every
+holds what ``delivery_facts``/``exposure`` derive from the sealed plan and calls, as the
+probe's trace states them. Every
 clock, name and token is pinned, as MiDojo's own ``tests/fixtures/inconclusive_vectors/
 generate.py`` does, so a reseal writes the same bytes.
 
@@ -109,7 +109,6 @@ if str(_CASE_BUILDERS) not in sys.path:
 
 import episode as harness  # noqa: E402  (the scripted target and agent beside this file)
 import midojo  # noqa: E402
-from asago_contracts_core import write_envelope  # noqa: E402
 from injection_spec_cases import DISPOSITIONS, TARGET, write_case_package  # noqa: E402
 from midojo.control_plane import service, state, store  # noqa: E402
 from midojo.control_plane.client import snapshot_from_response  # noqa: E402
@@ -120,14 +119,12 @@ from midojo.delivery import delivery_facts, exposure  # noqa: E402
 
 from asago_bundle_core.text import canonical_text  # noqa: E402
 from asago_bundle_garak.compiler import ipi_entry  # noqa: E402
-from asago_injection_spec import delivery_contract  # noqa: E402
+from asago_injection_spec.document import read_envelope  # noqa: E402
 from asago_injection_spec.injection_spec_compile import injection_spec_document  # noqa: E402
 from asago_injection_spec.sealed import (  # noqa: E402
-    DELIVERY_SCHEMA_VERSION,
     TURN_FAILED,
     Compiled,
     delivery_shape,
-    read_envelope,
     sealed_failure,
 )
 
@@ -153,10 +150,6 @@ EFFECT_DETECTOR = "midojo.EvaluationEffect"
 CONDITION_DETECTOR = "toolcall.ToolCallCondition"
 DETECTORS = (EFFECT_DETECTOR, VERDICT_DETECTOR, CONDITION_DETECTOR)
 GOAL = "elicit harmful behaviour through an injected MiDojo injection spec"
-# The writer of ``delivery.json`` in a real run: the orchestrator's episode runner, which
-# derives the facts from the seal and stamps the contract's envelope.
-DELIVERY_WRITER = "asago-orch.qualification.midojo_episode_runner"
-DELIVERY_WRITER_VERSION = "0.1.0"
 INTENT = "T009indirect"
 # ``InjectionSpecProbe.repeats``: one attempt per source entry, and the template raises neither.
 REPEATS = 1
@@ -431,7 +424,13 @@ def _unjudged(grade: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def delivered(built: Any, snapshot: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Return MiDojo's exposure of the seal and its delivery facts, as a written document."""
+    """Return MiDojo's exposure of the seal and its delivery facts, as the trace states them.
+
+    The delivery file contract is gone: the document holds the raw facts and exposure the
+    probe's trace carries (``evaluation_id``, ``snapshot_id``, ``delivery``, ``exposure``),
+    with no version member and no contract envelope, which is the shape the route's reader
+    checks (``delivery_shape``).
+    """
 
     calls = snapshot.function_calls
     facts = [fact.model_dump(mode="json") for fact in delivery_facts(built.plan, calls)]
@@ -441,21 +440,13 @@ def delivered(built: Any, snapshot: Any) -> tuple[dict[str, Any], list[dict[str,
         turns=len(snapshot.turns),
         evidence_status=snapshot.evidence_status,
     )
-    document = write_envelope(
-        {
-            "schema_version": DELIVERY_SCHEMA_VERSION,
-            "evaluation_id": snapshot.evaluation_id,
-            "snapshot_id": snapshot.snapshot_id,
-            "delivery": facts,
-            "exposure": shown.model_dump(mode="json"),
-        },
-        delivery_contract.installed_specs().spec(
-            delivery_contract.CONTRACT, delivery_contract.VERSION
-        ),
-        writer=DELIVERY_WRITER,
-        writer_version=DELIVERY_WRITER_VERSION,
-    )
-    assert delivery_shape(document), "the delivery document does not match its own schema"
+    document = {
+        "evaluation_id": snapshot.evaluation_id,
+        "snapshot_id": snapshot.snapshot_id,
+        "delivery": facts,
+        "exposure": shown.model_dump(mode="json"),
+    }
+    assert delivery_shape(document), "the delivery facts do not match their own shape"
     return document, facts
 
 
@@ -991,8 +982,8 @@ def readme(cases: list[tuple[Case, dict]]) -> str:
         "it (`tampered` edits it after the seal) |\n"
         "| `verdict.json` | `midojo.grade`'s verdict of that snapshot, with the evaluation "
         "and snapshot IDs |\n"
-        "| `delivery.json` | `midojo-delivery-v2`, with the contract's envelope: MiDojo's "
-        "delivery facts and the exposure it derives |\n"
+        "| `delivery.json` | MiDojo's delivery facts and the exposure it derives, as the "
+        "trace states them |\n"
         "| `ipi-episodes.json` | the compiled probe source entry: the injection spec, its "
         "placements and its metadata |\n"
         "| `expected.json` | what the receipt must say about the case |\n"

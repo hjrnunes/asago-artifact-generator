@@ -1,15 +1,4 @@
 {
-  "contract": {
-    "id": "midojo-delivery",
-    "provenance": {
-      "validator_version": "asago-contracts-core 0.1.0",
-      "writer": "asago-orch.qualification.midojo_episode_runner",
-      "writer_version": "0.1.0"
-    },
-    "requires": [],
-    "spec_digest": "sha256:d001286d2f55323b9a0bca711b29fe87cd05fbd9bffe6b3a7598bb9e1cc69206",
-    "version": "midojo-delivery-v2"
-  },
   "delivery": [
     {
       "call_id": "10000000-0000-4000-8000-000000000015",
@@ -71,6 +60,5 @@
     ],
     "model_input": "unknown"
   },
-  "schema_version": "midojo-delivery-v2",
   "snapshot_id": "sha256:398adb90a7c3db751b39e8e3558b84d926e0cf8b68e50d9c0a47521022537e32"
 }

@@ -4,8 +4,8 @@ The producer's ``data/contracts/scenario-handoff/`` is the authority and
 ``scripts/sync_handoff_package_data.py`` copies it byte for byte into
 ``asago_contracts_core``'s package data, so the input adapter reads
 ``asago_contracts_core.CONTRACT_DIR`` and needs no repository mirror. The consumer still
-holds two kinds of root kit: the four contracts it owns (``execution-receipt``,
-``midojo-delivery``, ``runtime-context`` and ``tool-bundle``), and the producer mirrors no
+holds two kinds of root kit: the three contracts it owns (``execution-receipt``,
+``runtime-context`` and ``tool-bundle``), and the producer mirrors no
 package ships yet (``model-profile``, ``target-profile`` and ``tool-call-condition``).
 
 Every dependency on an Asago package from another repository names a version range, so an
@@ -26,7 +26,7 @@ from asago_artifact_generator import input_adapter
 _REPO = Path(__file__).resolve().parents[1]
 _CONTRACTS = _REPO / "contracts"
 # The contracts this repository owns and publishes from its root kit.
-_AUTHORITIES = ("execution-receipt", "midojo-delivery", "runtime-context", "tool-bundle")
+_AUTHORITIES = ("execution-receipt", "runtime-context", "tool-bundle")
 # The producer contracts the consumer mirrors because no package ships them yet.
 _MIRRORS = ("model-profile", "target-profile", "tool-call-condition")
 # The Asago packages that live in another repository.

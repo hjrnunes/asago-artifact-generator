@@ -264,7 +264,7 @@ def test_each_delivery_document_repeats_the_trace_facts() -> None:
         trace = trace_of(case)
         document = load(case, "delivery.json")
 
-        assert document["schema_version"] == "midojo-delivery-v2"
+        assert "schema_version" not in document, f"{case}: the delivery contract is gone"
         assert document["snapshot_id"] == trace["snapshot_id"]
         assert document["evaluation_id"] == trace["evaluation_id"]
         assert document["delivery"] == trace["delivery"]
