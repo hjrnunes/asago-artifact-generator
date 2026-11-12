@@ -200,10 +200,12 @@ def _invalid_cases(base: dict[str, Any]) -> dict[str, tuple[str, dict[str, Any]]
                 runtime_capabilities={"api_key": "x"},
             ),
         ),
-        "handoff-v3-input-kind": (
+        "handoff-version-input-kind": (
             "input_kind_unsupported",
             _changed(
-                base, "input_kind names a retired handoff.", input_kind="scenario-handoff-v3"
+                base,
+                "input_kind names a handoff version the consumer does not read.",
+                input_kind="scenario-handoff-v9",
             ),
         ),
         "reference-task-input-kind": (
@@ -228,14 +230,6 @@ def _invalid_cases(base: dict[str, Any]) -> dict[str, tuple[str, dict[str, Any]]
                 base,
                 "schema_version names an unsupported package version.",
                 schema_version="artifact-package-v9",
-            ),
-        ),
-        "schema-version-v2": (
-            "schema_version_unknown",
-            _changed(
-                base,
-                "schema_version names a retired package version.",
-                schema_version="artifact-package-v2",
             ),
         ),
         "member-length-mismatch": (
@@ -353,12 +347,6 @@ def _package_cases() -> _Cases:
             base,
             "creation_model names the authoring model, which is not allowed.",
             creation_model={"model": "configured-private-authoring"},
-        ),
-    )
-    invalid["schema-version-v6"] = (
-        "schema_version_unknown",
-        _changed(
-            base, "schema_version names a version after v5.", schema_version="artifact-package-v6"
         ),
     )
     return {"minimal": base}, invalid

@@ -231,7 +231,6 @@ def test_the_reader_refuses_a_manifest_digest_that_does_not_cover_its_fields(
     ("changes", "message"),
     [
         ({"package_id": ""}, "manifest field is blank: package_id"),
-        ({"input_kind": "scenario-handoff-v4"}, "unsupported package input kind"),
         ({"input_kind": "scenario-handoff-v9"}, "unsupported package input kind"),
         (
             {"schema_version": "artifact-package-v9"},

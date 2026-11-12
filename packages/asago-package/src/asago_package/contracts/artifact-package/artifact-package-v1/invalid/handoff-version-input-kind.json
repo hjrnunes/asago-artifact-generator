@@ -1,5 +1,5 @@
 {
-  "description": "input_kind names a retired handoff.",
+  "description": "input_kind names a handoff version the consumer does not read.",
   "files": {
     "bindings.json": "[]\n",
     "inputs.json": "{\"runtime_contract\":{},\"inventory\":{}}\n",
@@ -19,8 +19,8 @@
       "terminal_status": "accepted"
     },
     "creation_model": {},
-    "input_kind": "scenario-handoff-v3",
-    "manifest_digest": "1b68fecbec06dffb6351d418bf1f4e1b6066d1aea8b6a640dfb2b9f9c5d2d89d",
+    "input_kind": "scenario-handoff-v9",
+    "manifest_digest": "e45c5c22771eb13f463bf5bb661e5d07ce76c1ed93172fb01da58333870a20d8",
     "members": [
       {
         "length": 3,
