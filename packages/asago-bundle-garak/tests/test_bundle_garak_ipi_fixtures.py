@@ -1,15 +1,13 @@
 """The Garak IPI fixtures: seven sealed cases, each with both evidence forms.
 
 ``fixtures/ipi/`` is generated output. ``tools/fixture-generators/garak_ipi.py`` compiles
-each case's planted package with the MiDojo adapter, seals it with MiDojo in front of the
-scripted fixture target, and writes the Garak report and MiDojo's sealed documents for that
-one seal. These tests pin the set and the outcome every case stands for; the generator's
-``--check`` proves the bytes are reproducible from the same code and the same seals.
-
-A report's detector records are composed to the rules of ``garak/detectors/midojo.py`` and
-``garak/detectors/toolcall.py`` at the fork's pin: the Garak venv installs no MiDojo, so no
-run here executes the probe or the detectors. The cases' outcomes are what those rules
-read from each seal.
+each case's planted package with the consumer's compiler, runs Garak's real
+``midojo.InjectionSpecProbe`` and its three detectors in a Garak interpreter against a
+scripted fixture target, and keeps the report and the sealed documents that one run wrote;
+only ``expected.json`` is composed. These tests pin the set and the outcome every case
+stands for. The generator's ``--check`` proves the bytes reproduce from the same code: the
+test below runs it when ``ASAGO_GARAK_PYTHON`` names a Garak interpreter, and skips, naming
+that variable, when it is unset.
 """
 
 from __future__ import annotations
@@ -17,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -27,9 +26,9 @@ from conftest import REPO
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ipi"
 GENERATOR = REPO / "tools" / "fixture-generators" / "garak_ipi.py"
-# The MiDojo interpreter the generator runs with: it imports ``midojo`` at the pin.
-MIDOJO = REPO.parent / "midojo"
-INTERPRETER = MIDOJO / ".venv" / "bin" / "python"
+# The Garak interpreter the generator runs the probe with; the same variable the
+# generator reads when ``--garak-python`` is absent.
+GARAK_PYTHON = "ASAGO_GARAK_PYTHON"
 FILES = (
     "report.jsonl",
     "snapshot.json",
@@ -287,7 +286,7 @@ def test_every_report_carries_the_detectors_the_route_names() -> None:
         entry = final_attempt(case)
         notes = entry["notes"]
 
-        assert entry["probe_classname"] == "probes.midojo.InjectionSpecProbe"
+        assert entry["probe_classname"] == "midojo.InjectionSpecProbe"
         assert sorted(entry["detector_results"]) == DETECTORS
         assert [record["outcome"] for record in notes["evaluation_verdict_results"]] == [
             CASES[case]["verdict"]
@@ -396,12 +395,12 @@ def test_the_readme_names_every_case_and_its_outcome() -> None:
 
 
 def test_the_generator_reproduces_every_fixture() -> None:
-    if not INTERPRETER.is_file():
-        pytest.skip(f"no MiDojo interpreter at {INTERPRETER} to seal the fixtures with")
+    if not os.environ.get(GARAK_PYTHON):
+        pytest.skip(f"{GARAK_PYTHON} names no Garak interpreter to run the real probe with")
 
     environment = {name: value for name, value in os.environ.items() if name != "FORCE_COLOR"}
     result = subprocess.run(
-        [str(INTERPRETER), str(GENERATOR), "--check"],
+        [sys.executable, str(GENERATOR), "--check"],
         cwd=REPO,
         capture_output=True,
         text=True,

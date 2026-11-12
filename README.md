@@ -1096,12 +1096,12 @@ exchange log are the contracts package's (`midojo_spec.injection_spec_schema`,
 `midojo_spec.injection`, `midojo_spec.snapshot`, `midojo_spec.rubric_judge` and
 `midojo_spec.judge_exchange`). The local `midojo-spec` pin in `pyproject.toml` needs a
 fork SHA at the milestone.
-The fixture generator's interpreter runs the episode with the same revision, the MiDojo
-reset lane at `32e3b54`. It
-reads the v1 document under either ID: `midojo.evaluation_handle.open`, with
-`HostInterception` (`src/midojo/interception_host.py`), `midojo.grade`
-(`src/midojo/control_plane/grading.py`), and, for a reply episode, MiDojo's `reply_judge`
-(`src/midojo/verifiers/judge.py`).
+The Garak fixture generator (`tools/fixture-generators/garak_ipi.py`) compiles each case
+here and runs Garak's real `midojo.InjectionSpecProbe` and its detectors in the Garak
+interpreter `--garak-python` or `ASAGO_GARAK_PYTHON` names, in front of a scripted fixture
+target. The interpreter needs the Garak fork and MiDojo; this repository does not install
+them. The fixture README (`packages/asago-bundle-garak/tests/fixtures/ipi/README.md`) says
+how to run it and what is pinned.
 
 ```bash
 asago-artifact-generator compile PACKAGE --out BUNDLE_DIR --target target.yaml
@@ -1495,7 +1495,7 @@ must match.
 ├── packages/asago-injection-spec/   # injection-spec library (workspace member): a planted_item package to one MiDojo injection spec and a sealed result to evidence
 ├── contracts/                        # the three consumer-owned contracts and the three producer mirrors the app keeps; each contract keeps a version directory (spec.json, schema.json, cases/, README.md) and a lock over its files, the shared core ships scenario-handoff, and the package library ships artifact-package, runtime-contract and capability-gap
 ├── scripts/                          # quality, replay, and budget tools
-├── tools/fixture-generators/         # scripts run in MiDojo's interpreter to seal the adapter's fixtures
+├── tools/fixture-generators/         # the Garak route's fixture generator, which runs the real probe in a Garak interpreter, and the episode judge verifier
 ├── tests/                            # unit tests
 └── runs/                             # authoring output (gitignored)
 ```

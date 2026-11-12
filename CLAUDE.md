@@ -280,11 +280,14 @@ the group the module skips and names what it needs.
   `packages/asago-bundle-garak/tests/fixtures/ipi/` pins those seven sealed cases
   (delivered, undelivered, incomplete, blocked, sequential, reply-judged and a tampered
   snapshot), each with the report, the snapshot, the verdict and the delivery facts
-  MiDojo produced, plus `expected.json` naming the outcome the route must state.
-  `tools/fixture-generators/garak_ipi.py` reseals them with an interpreter whose
-  `midojo_spec` is the revision `pyproject.toml` pins (a MiDojo checkout's environment at
-  that revision); `--check` compares its output with the pinned files and reports zero
-  stale at that revision.
+  MiDojo produced, plus `expected.json` naming the outcome the route must state. Garak's own
+  `midojo.InjectionSpecProbe` and detectors wrote each report: the generator composes none of it.
+  `tools/fixture-generators/garak_ipi.py` regenerates the files. It compiles each case in this
+  environment and runs the real probe and detectors in the Garak interpreter that
+  `--garak-python` or `ASAGO_GARAK_PYTHON` names (the option wins; the interpreter needs the
+  Garak fork and MiDojo). It exits 2 and says so when no usable interpreter is named, and
+  `--check` exits 1 and lists every stale file. The fixtures test runs `--check` when the
+  variable is set and skips, naming it, when it is not.
   The fixture README says what each case is real evidence of and what the report composes.
 - `packages/asago-injection-spec/`: the injection-spec library workspace member
   (`asago_injection_spec`): the compiler from a `planted_item` package to one MiDojo

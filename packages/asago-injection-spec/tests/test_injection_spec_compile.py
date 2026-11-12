@@ -2,9 +2,10 @@
 
 Each case of ``injection_spec_cases.CASES`` is compiled with the fixture target's
 ``target.yaml``. The Garak adapter's fixture generator
-(``tools/fixture-generators/garak_ipi.py``) compiles the same cases for the same target, so
-the documents hold MiDojo's shape. A target's ``call_arguments`` is checked against the
-shape MiDojo's plan data gives it from b5b8c75 (``InjectionPlan.to_data``). Variants of the
+(``tools/fixture-generators/garak_ipi.py``) compiles the same cases for the same target and
+loads each document into Garak's probe, so the documents hold MiDojo's shape. A target's
+``call_arguments`` is checked against the shape MiDojo's plan data gives it from b5b8c75
+(``InjectionPlan.to_data``). Variants of the
 fixture target's declaration files (``injection_spec_cases.target_variant``) cover what the
 target itself does not declare.
 """

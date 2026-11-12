@@ -43,7 +43,7 @@ from injection_spec_cases import (  # noqa: E402, F401  the library's builders, 
 )
 
 # The probe's class name, as the report's ``probe_classname`` writes it.
-PROBE = "probes.midojo.InjectionSpecProbe"
+PROBE = "midojo.InjectionSpecProbe"
 VERDICT = "midojo.EvaluationVerdict"
 EFFECT = "midojo.EvaluationEffect"
 CONDITION_DETECTOR = "toolcall.ToolCallCondition"

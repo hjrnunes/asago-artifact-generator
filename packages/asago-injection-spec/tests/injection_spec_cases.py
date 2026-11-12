@@ -3,10 +3,10 @@
 The packages are authored against the consumer's fixture target (``tests/fixtures/targets/
 piggybank``): their runtime contract holds its seed slot, their inventory its tools. Each
 case is one package; the Garak adapter's fixture generator
-(``tools/fixture-generators/garak_ipi.py``) compiles the same cases for the same target, and
-``tools/fixture-generators/episode.py`` runs each compiled episode with MiDojo's host
-interceptor in front of it. The packages hold the list slot and the three tools they were
-sealed with, not the fixture target's ``read_note`` and its slot. To compile every case's
+(``tools/fixture-generators/garak_ipi.py``) compiles the same cases for the same target and
+runs each compiled episode through Garak's real probe in front of it. The packages hold the
+list slot and the three tools they were sealed with, not the fixture target's ``read_note``
+and its slot. To compile every case's
 injection spec into an empty directory:
 
     uv run python packages/asago-injection-spec/tests/injection_spec_cases.py <empty dir>

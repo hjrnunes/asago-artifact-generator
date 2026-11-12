@@ -5,6 +5,20 @@ and implementation notes, moved out of the agent guide (`CLAUDE.md`) so that
 guide stays short. The adapter package is gone; the entries below record what
 existed, and where each surviving piece lives now.
 
+## 2026-11-12: the Garak fixtures are the real probe's output
+
+The seven cases under `packages/asago-bundle-garak/tests/fixtures/ipi/` are what Garak's
+`midojo.InjectionSpecProbe` and its three detectors write, not reports composed beside a
+sealed trace. `tools/fixture-generators/garak_ipi.py` compiles each case in this
+environment and runs the probe in the Garak interpreter named by `--garak-python` or
+`ASAGO_GARAK_PYTHON`. It exits 2 when none is named, and `--check` exits 1 listing each
+stale file. The report's `probe_classname` is the one Garak writes, `midojo.InjectionSpecProbe`.
+To make a run byte-reproducible, the generator's probe script pins MiDojo's clock and
+evaluation IDs, and replaces the control plane's `evaluation` read with one that does not
+advance the pinned clock (MiDojo's closure wait polls it while a call is held). The
+generator for MiDojo-sealed episodes (`episode.py`, with `midojo_api.py` and `compiled.py`)
+is gone: nothing it wrote remains in the tree.
+
 ## 2026-11-11: the Garak adapter owns the judge service and its exchange log
 
 `asago-bundle-garak judge-serve` now serves the reply judge. Pass `--record PATH` to
