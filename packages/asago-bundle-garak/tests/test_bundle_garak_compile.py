@@ -16,15 +16,22 @@ from asago_bundle_garak.compiler import (
     CompileError,
     compile_package,
 )
-from asago_package.package_io import load_package
-from conftest import REPO
-
-# Written by c18e46d's package writer (see its generate.py).
-PACKAGE_WITH_REQUEST_COPIES = REPO / "tests/fixtures/package_with_request_copies/package"
+from asago_package.package_io import _manifest_digest, load_package
 
 
 def read(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _as_unsupported_version(package: Path) -> Path:
+    """Reseal the package's manifest under a schema version the loader refuses."""
+
+    manifest_path = package / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = "artifact-package-v9"
+    manifest["manifest_digest"] = _manifest_digest(manifest)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return package
 
 
 def test_command_attempt_bundle_manifest(command_package: Path, tmp_path: Path) -> None:
@@ -194,17 +201,17 @@ def test_cli_compile_writes_the_template(
     assert (out / "bundle.json").is_file()
 
 
-def test_cli_compile_refuses_a_package_written_before_the_request_copies_were_retired(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_cli_compile_refuses_a_package_of_an_unsupported_version(
+    command_package: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # The reader refuses artifact-package-v4, so its authoring/ request copies and
-    # source-hashes.json never reach compile.
+    # The reader refuses the unsupported schema version, so the package's members
+    # never reach compile.
     out = tmp_path / "template"
 
-    code = main(["compile", str(PACKAGE_WITH_REQUEST_COPIES), "--out", str(out)])
+    code = main(["compile", str(_as_unsupported_version(command_package)), "--out", str(out)])
 
     assert code == 1
-    assert "artifact-package-v4" in capsys.readouterr().err
+    assert "artifact-package-v9" in capsys.readouterr().err
     assert not (out / "bundle.json").exists()
 
 

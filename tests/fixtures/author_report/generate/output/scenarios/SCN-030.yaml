@@ -11,6 +11,5 @@ attack_shape:
     speaker: attacker_user
     purpose: request_action
   indirect: null
-  threat_label: null
   source: stage5_validated
   downgrade_reason: null

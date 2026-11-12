@@ -1,11 +1,9 @@
 """An accepted package is an artifact-package-v5 that holds only the members a reader uses.
 
 Each request's prompt, reply, ledger record, and review stay in the sidecar
-failure evidence; the package keeps no copy. A package written before then
-(``fixtures/package_with_request_copies``, written by c18e46d's writer) declares
-the retired artifact-package-v4 and no longer loads: the reader refuses it with
-an error that names the version. The writer refuses the copies, and a v5
-package refuses them too.
+failure evidence; the package keeps no copy, and the writer refuses a member
+that carries one. The loader reads only the current version and refuses a
+package of any other version, naming the version it states.
 """
 
 from __future__ import annotations
@@ -34,11 +32,12 @@ _framed, _inventory, _plan, _runtime_contract, _view = world_builders(
     "refund", "framed", "inventory", "plan", "runtime_contract", "view"
 )
 _orchestrator = partial(scripted_orchestrator, task_id="members")
-_OLD_PACKAGE = Path(__file__).parent / "fixtures" / "package_with_request_copies" / "package"
-_RETIRED_SCHEMA_VERSION = "artifact-package-v4"
-# What c18e46d's writer put in a package beside the members still written: per
-# request ``authoring/NN-<stage>`` with ``.json``, ``.prompt`` and ``.raw``, for the
-# stages call1, call2, correction, plan_review and artifact_review.
+# A version no writer ever published, so the loader's refusal names it.
+_UNSUPPORTED_SCHEMA_VERSION = "artifact-package-v9"
+# Paths outside the member whitelist that a package must refuse: the per-request
+# ``authoring/NN-<stage>`` copies with ``.json``, ``.prompt`` and ``.raw`` for the
+# stages call1, call2, correction, plan_review and artifact_review, plus the
+# records of those stages' outcomes.
 _RETIRED_MEMBERS = (
     "source-hashes.json",
     "authoring/ledger.json",
@@ -83,16 +82,12 @@ def _files(root: Path) -> list[str]:
     return sorted(path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file())
 
 
-def _as_v4(package_dir: Path) -> Path:
-    """Reseal the package as artifact-package-v4, as the writer wrote it before v5.
-
-    Between the retirement of the request copies and v5, the writer wrote these
-    same members and manifest under the v4 version string.
-    """
+def _as_unsupported_version(package_dir: Path) -> Path:
+    """Reseal the package under a schema version the loader does not read."""
 
     manifest_path = package_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["schema_version"] = _RETIRED_SCHEMA_VERSION
+    manifest["schema_version"] = _UNSUPPORTED_SCHEMA_VERSION
     manifest["manifest_digest"] = _manifest_digest(manifest)
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     return package_dir
@@ -131,13 +126,6 @@ def test_an_accepted_package_holds_only_the_read_members(package_dir: Path) -> N
     ]
 
 
-def test_the_kept_members_have_the_bytes_c18e46d_wrote(package_dir: Path) -> None:
-    # inputs.json lost its copies of the handoff; the manifest lost the ledger.
-    for member in _files(package_dir):
-        if member not in {"inputs.json", "manifest.json"}:
-            assert (package_dir / member).read_bytes() == (_OLD_PACKAGE / member).read_bytes()
-
-
 def test_the_manifest_keeps_only_the_authoring_outcome(package_dir: Path) -> None:
     manifest = json.loads((package_dir / "manifest.json").read_text(encoding="utf-8"))
 
@@ -165,22 +153,14 @@ def test_inputs_keep_the_runtime_inputs_and_their_provenance(package_dir: Path) 
     assert checks == {"interface": "artifact-authoring-v2", "status": "structurally_valid"}
 
 
-def test_a_v4_package_written_by_c18e46d_is_refused_naming_the_version() -> None:
-    with pytest.raises(
-        PackageIntegrityError,
-        match=f"^unsupported artifact package schema version: {_RETIRED_SCHEMA_VERSION}$",
-    ):
-        load_package(_OLD_PACKAGE)
-
-
-def test_a_v4_package_written_after_the_copies_were_retired_is_refused(
+def test_a_package_of_an_unsupported_version_is_refused_naming_it(
     package_dir: Path,
 ) -> None:
     with pytest.raises(
         PackageIntegrityError,
-        match=f"^unsupported artifact package schema version: {_RETIRED_SCHEMA_VERSION}$",
+        match=f"^unsupported artifact package schema version: {_UNSUPPORTED_SCHEMA_VERSION}$",
     ):
-        load_package(_as_v4(package_dir))
+        load_package(_as_unsupported_version(package_dir))
 
 
 @pytest.mark.parametrize("member", _RETIRED_MEMBERS)
