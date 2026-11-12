@@ -6,14 +6,15 @@ two files: the snapshot as MiDojo's ``GET .../snapshot`` returns it (``SnapshotR
 ``evaluation_id``, ``snapshot_id``, the turns, the call records, the environments, the
 ``evidence_status`` fixed at the seal) and the verdict (``Verdict``: ``evaluation_id``,
 ``snapshot_id`` and ``grade``, a ``GradeResponse``). This module reads them; it grades
-nothing.
+nothing. The Garak adapter's report parser is the route that reaches these readers: it
+reads the same sealed documents off the probe's trace.
 
 MiDojo's ``security`` grade is three-valued, and so is the receipt: True is
 ``detected``, False ``not_detected``, and None, a check that could not be decided from the
 evidence (``grade_validity`` ``invalid``), ``inconclusive``. An unknown grade is never made
 a pass or a fail. The receipt explains the outcome with the grade's ``security_reason``; a
 True or False grade without one is malformed. The receipt's ``evaluation`` block names the
-driver that drove the run (``route.py``), the evaluation and the snapshot graded, the
+driver that drove the run, the evaluation and the snapshot graded, the
 snapshot's evidence status and the verdict as MiDojo gave it, and, as delivery evidence,
 each sealed call's injection outcomes as MiDojo sealed them (``call_injections``).
 
@@ -36,24 +37,13 @@ True, False or None (unknown). An outcome or a grade has all of its new fields o
 verdict sealed before them is read as unknown on each (null in the receipt), never as False.
 An unknown one changes no outcome; an ``injection_delivered`` of False does: a false security
 grade whose payload never reached the agent says nothing was resisted, so the receipt is
-``inconclusive`` and its reason names the delivery (``attempt_of``). So does the absence of a
+``inconclusive`` and its reason names the delivery (``grade_result``). So does the absence of a
 delivery fact: a false grade of a payload nothing records as delivered is ``inconclusive``
 too, at every claim level, and its reason names the recording, never the episode. From cab2a35 the
 grade of a reply episode, whose ``reply_judge`` check asks a judge service, also carries
 ``judgements`` (a list of ``JudgeRecord`` objects); a grade without it is what it was. It
 must be a list of objects, and the receipt does not carry it: the judge's verdict is the
 grade's ``security`` and its reason ``security_reason``.
-
-The runner may also write ``delivery.json`` (``midojo-delivery-v2``) beside the snapshot:
-the evaluation and snapshot it describes, ``midojo.delivery.delivery_facts`` of the
-evaluation's plan and the snapshot's calls, and ``midojo.delivery.exposure`` of them, as
-MiDojo's run report holds them. ``parse`` reads it only when it is named
-(``delivery_path``): the receipt's ``evaluation`` block then carries its ``delivery`` and
-``exposure``, and lists it among the native files. Without one both are null (unknown).
-A named document that is missing (``delivery_missing``), is not that shape
-(``delivery_malformed``) or names another evaluation or snapshot (``delivery_mismatch``)
-fails the receipt. A document recorded before the term.5a rename is a
-``midojo-delivery-v1`` and reads too.
 
 From a19562e a placement (``applied``, ``partial``, ``fallback``) may also say what it placed
 and where: ``payload_digest`` (``sha256:<hex>`` of the payload's UTF-8 bytes before its
@@ -84,14 +74,6 @@ instructions for the outcome, a sealed slot no plan instruction targets or whose
 name more than one (slot, record) or another record, a static plan whose payload digest is
 not the sealed one (neither then), or a sealed result that does not hold together.
 
-An OpenShell observation (``observations["openshell"]``) sealed from 4e5176a holds
-``http_requests``, one ``HttpRequestRecord`` per HTTP request OpenShell's policy proxy
-inspected, in log order. A list of anything else fails the receipt (``snapshot_malformed``).
-The attempt's ``runtime_observations.http_requests`` copies the records as sealed
-(``http_requests_of``), and is left out, not observed, when the snapshot has no OpenShell
-observation, the observation no ``http_requests`` (sealed before it existed), or an empty
-list from a log read that is not ``complete``. The snapshot ID is computed as before.
-
 The snapshot must be the one MiDojo sealed: its ``snapshot_id`` is MiDojo's digest of its
 content, recomputed here (``midojo_spec.snapshot``), so a snapshot whose content changed
 under its ID is refused. The verdict must name the snapshot's evaluation and the snapshot
@@ -116,41 +98,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from asago_contracts_core import ENVELOPE_FIELD, ContractEnvelopeError
+from asago_contracts_core import ENVELOPE_FIELD
 from midojo_spec.snapshot import CONTENT_FIELDS, DigestFault, verified
 
 from asago_bundle_core.errors import BundleError
-from asago_bundle_core.mcp_records import decoded, read_json, text
-from asago_bundle_core.receipt_contract import read_receipt, write_receipt
-from asago_bundle_core.text import canonical_text
+from asago_bundle_core.mcp_records import read_json, text
 
-from .delivery_contract import read_delivery
-from .document import Envelope, EnvelopeError, read_envelope
-from .injection_spec_compile import (
-    COMMAND_ATTEMPT,
-    INJECTION_SPEC_FILE,
-    LEGACY_EPISODE_FILE,
-    REPLY,
-    TOOL,
-)
-from .route import DEFAULT_ROUTE, ROUTES
+from .delivery_contract import read_delivery  # noqa: F401  (garak_ipi.py imports it here)
+from .document import Envelope
 
-RECEIPT_SCHEMA_VERSION = "execution-receipt-v2"
-# How the run's target was hosted, as the caller that started it recorded it
-# (``evaluation.runtime.type``); a receipt that records no runtime leaves the key out.
-RUNTIME_TYPES = ("openshell", "unmanaged")
-# What this parser writes, and the writer its envelope names: the module and the package's
-# version (``asago-injection-spec``).
-RECEIPT_WRITER = "asago_injection_spec.sealed"
-RECEIPT_WRITER_VERSION = "0.1.0"
 # The names term.5a renamed, read from a document recorded before it: the receipt's
 # ``episode`` block (now ``evaluation``) and ``route`` (now ``driver``), the instruction's
 # ``probe_key`` (now ``slot_key``) in an outcome, a delivery fact or an exposure item, and
 # the delivery document's version.
-LEGACY_EVALUATION = "episode"
-LEGACY_DRIVER = "route"
 LEGACY_SLOT_KEY = "probe_key"
-DETECTORS = {COMMAND_ATTEMPT: "ToolCallCondition", REPLY: "RubricJudge"}
 OUTCOMES = {True: "detected", False: "not_detected", None: "inconclusive"}
 INCONCLUSIVE = "inconclusive"
 # A false security grade the payload never reached: the reason says why it is not a resistance.
@@ -164,14 +125,8 @@ UNRECORDED_DELIVERY = (
     "recording sealed before MiDojo recorded delivery facts is), so nothing establishes that "
     "the agent resisted the payload"
 )
-JUDGE_VERDICTS = {
-    "detected": "supported",
-    "not_detected": "contradicted",
-    INCONCLUSIVE: "unresolved",
-}
 EVIDENCE_STATUSES = frozenset({"complete", "incomplete", "failed", "not_collected"})
 VALIDITIES = frozenset({"valid", "invalid", "not_applicable"})
-UNFINISHED = "unfinished"
 SNAPSHOT_TEXT = ("evaluation_id", "snapshot_id", "agent_output", "sealed_at")
 SNAPSHOT_MAPPINGS = ("pre_environment", "environment", "observations", "evidence_status")
 SNAPSHOT_LISTS = ("function_calls", "turns", "capture_failures")
@@ -229,14 +184,6 @@ INJECTION_STATUSES = frozenset(
     }
 )
 DISPOSITIONS = frozenset({"forwarded", "denied", "simulated", "blocked", None})
-# OpenShell's observation (``runtimes/openshell/__init__.py``, ``OBSERVATIONS_SOURCE``), its
-# ``HttpRequestRecord`` list, and the snapshot evidence status of the part that holds it.
-OPENSHELL = "openshell"
-HTTP_REQUESTS = "http_requests"
-OCSF_EVIDENCE = "openshell.ocsf"
-HTTP_REQUEST_REQUIRED = frozenset({"method", "url", "decision", "raw"})
-HTTP_REQUEST_FIELDS = HTTP_REQUEST_REQUIRED | {"host", "port", "path", "query"}
-HTTP_DECISIONS = frozenset({"allowed", "denied"})
 INTERCEPTOR = "interceptor"
 PROVENANCES = frozenset({"host", INTERCEPTOR, "agent", None})
 TURN_FIELDS = frozenset({"index", "message", "reply", "started_at", "ended_at"})
@@ -301,20 +248,6 @@ PLACEMENT_MODES = frozenset({"append", "replace"})
 UNPLACED: dict[str, Any] = {"payload_sha256": None, "slot": None}
 
 
-def _read_back(receipt: dict[str, Any], out: Path) -> None:
-    """Read the receipt through its installed contract before this writer hands it on.
-
-    Every document this parser writes is an ``execution-receipt-v2`` document with its
-    envelope, so the installed spec accepts it. A document the reader refuses is a defect
-    here, not a saved outcome: the error names the path and the spec's own reason.
-    """
-
-    try:
-        read_receipt(receipt)
-    except ContractEnvelopeError as error:
-        raise ParseError(f"{out}: the receipt is not {RECEIPT_SCHEMA_VERSION}: {error}") from error
-
-
 class ParseError(BundleError):
     """The episode cannot be read, so no receipt can name its package."""
 
@@ -365,133 +298,6 @@ class Plan:
 UNREAD = Plan((), static=False)
 
 
-def parse_sealed(
-    episode_dir: str | Path,
-    snapshot_path: str | Path,
-    verdict_path: str | Path,
-    out_path: str | Path,
-    *,
-    tool_revision: str | None = None,
-    adapter_revision: str | None = None,
-    driver: str = DEFAULT_ROUTE,
-    delivery_path: str | Path | None = None,
-    runtime: str | None = None,
-    runtime_evidence: Iterable[str] = (),
-) -> dict[str, Any]:
-    """Write the receipt of one sealed evaluation to ``out_path`` and return it.
-
-    ``driver`` names the client that drove this run of the evaluation (one of ``ROUTES``).
-    ``runtime`` names how the run's target was hosted (one of ``RUNTIME_TYPES``), with
-    ``runtime_evidence`` the facts that support it (``runtime_block``); a caller that records
-    neither leaves the optional ``evaluation.runtime`` out. ``delivery_path`` names the
-    runner's ``delivery.json`` of the snapshot, if it wrote one.
-    """
-
-    if driver not in ROUTES:
-        raise ParseError(f"unknown driver {driver!r}; the drivers are {list(ROUTES)}")
-    recorded_runtime = runtime_block(runtime, runtime_evidence)
-    compiled = read_compiled(Path(episode_dir))
-    out = Path(out_path)
-    snapshot, reason = read_document(Path(snapshot_path), "snapshot", snapshot_shape)
-    verdict, verdict_reason = read_document(
-        Path(verdict_path),
-        "verdict",
-        verdict_shape,
-        verdict_version_reason,
-        verdict_utility_reason,
-    )
-    native = [Path(snapshot_path), Path(verdict_path)]
-    delivery, delivery_reason = None, None
-    if delivery_path is not None:
-        native.append(Path(delivery_path))
-        delivery, delivery_reason = read_delivery_file(Path(delivery_path))
-    reason = reason or verdict_reason or delivery_reason
-    attempt, plan = None, None
-    if reason is None:
-        reason = sealed_failure(compiled, snapshot, verdict, delivery)  # type: ignore[arg-type]
-    if reason is None or reason.startswith(TURN_FAILED):
-        attempt = attempt_of(compiled, snapshot, verdict)  # type: ignore[arg-type]
-        plan = read_plan(compiled)
-    receipt = {
-        "schema_version": RECEIPT_SCHEMA_VERSION,
-        "tool": {"id": TOOL, "revision": tool_revision, "adapter_revision": adapter_revision},
-        "package": {
-            "id": compiled.envelope.scenario_id,
-            "digest": compiled.envelope.package_digest,
-        },
-        "bundle_digest": compiled_digest(compiled.root),
-        "execution_status": "failed" if reason else "completed",
-        "runtime_status": runtime_status(reason),
-        "incomplete_reason": reason,
-        "attempts": [attempt] if attempt else [],
-        "native": native_files(tuple(native), out.parent),
-        "evaluation": evaluation_block(
-            driver, snapshot, verdict, delivery, plan, recorded_runtime
-        ),
-    }
-    receipt = write_receipt(receipt, writer=RECEIPT_WRITER, writer_version=RECEIPT_WRITER_VERSION)
-    _read_back(receipt, out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(canonical_text(receipt), encoding="utf-8")
-    return receipt
-
-
-def read_compiled(root: Path) -> Compiled:
-    """Read ``root/injection-spec.json``: the envelope (v1, or the v0 wrapper for one release).
-
-    A directory compiled before the document's rename holds ``episode.json`` instead, which
-    this reader takes for one release. An unknown version, an unknown key and an ``episode``
-    member that is not a document v1 all fail the receipt before it is built.
-    """
-
-    path = next(
-        (
-            root / name
-            for name in (INJECTION_SPEC_FILE, LEGACY_EPISODE_FILE)
-            if (root / name).is_file()
-        ),
-        None,
-    )
-    if path is None:
-        raise ParseError(
-            f"{root}: neither {INJECTION_SPEC_FILE} nor {LEGACY_EPISODE_FILE} is there"
-        )
-    document = read_json(path)
-    if not isinstance(document, dict):
-        raise ParseError(f"{path} is not a JSON object")
-    try:
-        envelope = read_envelope(document)
-    except EnvelopeError as exc:
-        raise ParseError(f"{path}: {exc}") from exc
-    if not _one_of(envelope.claim_level, DETECTORS):
-        raise ParseError(f"the episode's claim level is not graded: {envelope.claim_level!r}")
-    return Compiled(root, document, envelope)
-
-
-def read_delivery_file(path: Path) -> tuple[dict[str, Any] | None, str | None]:
-    """Read the runner's ``delivery.json`` through its installed contract.
-
-    A document without the self-identifying envelope is a legacy ``midojo-delivery-v1``
-    document and keeps the hand-written shape's exact acceptance. A document with one is
-    selected by its contract id and version, so an unsupported version, an unknown
-    ``requires`` entry, an unknown field or a mismatched ``spec_digest`` is refused. Either
-    way a document the shape refuses is ``delivery_malformed``.
-    """
-
-    if not path.is_file():
-        return None, "delivery_missing"
-    document = read_json(path)
-    if not isinstance(document, dict):
-        return None, "delivery_malformed"
-    try:
-        read_delivery(document)
-    except ContractEnvelopeError:
-        return None, "delivery_malformed"
-    if not delivery_shape(document):
-        return None, "delivery_malformed"
-    return document, None
-
-
 def read_document(
     path: Path,
     prefix: str,
@@ -536,29 +342,10 @@ def snapshot_shape(snapshot: dict[str, Any]) -> bool:
         and all(isinstance(snapshot[key], dict) for key in SNAPSHOT_MAPPINGS)
         and all(isinstance(snapshot[key], list) for key in SNAPSHOT_LISTS)
         and all(isinstance(observed, dict) for observed in snapshot["observations"].values())
-        and _http_requests_shape(snapshot["observations"].get(OPENSHELL, {}))
         and evidence_shape(snapshot["evidence_status"])
         and all(_call_shape(call) for call in snapshot["function_calls"])
         and all(_turn_shape(turn) for turn in snapshot["turns"])
         and all(_failure_shape(failure) for failure in snapshot["capture_failures"])
-    )
-
-
-def _http_requests_shape(observed: Any) -> bool:
-    """An OpenShell observation's ``http_requests``, when it has one, is a list of
-    ``HttpRequestRecord``: its required fields, no others, each of its type."""
-
-    if not isinstance(observed, dict) or HTTP_REQUESTS not in observed:
-        return True
-    requests = observed[HTTP_REQUESTS]
-    return isinstance(requests, list) and all(
-        isinstance(request, dict)
-        and HTTP_REQUEST_REQUIRED <= request.keys() <= HTTP_REQUEST_FIELDS
-        and all(isinstance(request[key], str) for key in ("method", "url", "raw"))
-        and _one_of(request["decision"], HTTP_DECISIONS)
-        and all(_optional_text(request.get(key)) for key in ("host", "path", "query"))
-        and (request.get("port") is None or type(request["port"]) is int)
-        for request in requests
     )
 
 
@@ -985,12 +772,6 @@ def turn_failure(turns: list[dict[str, Any]], planned: int) -> str | None:
     return None
 
 
-def runtime_status(reason: str | None) -> str | None:
-    if reason is None:
-        return "completed"
-    return "failed" if reason.startswith(TURN_FAILED) else None
-
-
 def grade_result(verdict: dict[str, Any], claim_level: str) -> dict[str, Any]:
     """Return the attempt result a sealed grade states, with the delivery guard applied.
 
@@ -1018,187 +799,25 @@ def grade_result(verdict: dict[str, Any], claim_level: str) -> dict[str, Any]:
     }
 
 
-def attempt_of(
-    compiled: Compiled, snapshot: dict[str, Any], verdict: dict[str, Any]
-) -> dict[str, Any]:
-    """Return the attempt: the turns sent, the calls recorded, and MiDojo's verdict.
-
-    The result is ``grade_result`` of the grade; the judge states the same decision in the
-    receipt's vocabulary.
-    """
-
-    grade = verdict["grade"]
-    level = compiled.claim_level
-    result = grade_result(verdict, level)
-    outcome = result["outcome"]
-    calls = [native_call(call) for call in snapshot["function_calls"]]
-    replies = {turn["index"]: turn["reply"] for turn in snapshot["turns"] if text(turn["reply"])}
-    return {
-        "index": 0,
-        "generation": {
-            "request_count": None,
-            "response_status": "completed" if len(replies) == len(compiled.turns) else None,
-            "error_type": None,
-        },
-        "turns": [
-            {
-                "index": turn["index"],
-                "request": {"messages": [{"role": "user", "content": turn["message"]}]},
-                "response": {
-                    "assistant_messages": [replies[turn["index"]]]
-                    if turn["index"] in replies
-                    else [],
-                    "tool_call_indices": [
-                        position
-                        for position, call in enumerate(calls)
-                        if call["turn_index"] == turn["index"]
-                    ],
-                },
-            }
-            for turn in snapshot["turns"]
-        ],
-        "result": result,
-        "observation": {
-            "source": "tool_native",
-            "assistant_messages": [replies[index] for index in sorted(replies)],
-            "tool_calls": calls,
-        },
-        "runtime_observations": runtime_observations(snapshot),
-        "detections": [
-            {
-                "detector": DETECTORS[level],
-                "outcome": result["outcome"],
-                "reason": result["reason"],
-                "matched_calls": None,
-            }
-        ],
-        "judge": judge_of(level, grade, outcome),
-    }
-
-
-def runtime_observations(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Return the attempt's runtime observations: empty lists, and ``http_requests`` as
-    ``http_requests_of`` gives it, left out when that is None (not observed)."""
-
-    observed: dict[str, Any] = {
-        "source": None,
-        **{
-            name: []
-            for name in (
-                "processes",
-                "network_calls_allowed",
-                "network_calls_blocked",
-                "files_created",
-                "files_modified",
-                "files_deleted",
-                "security_findings",
-            )
-        },
-    }
-    requests = http_requests_of(snapshot)
-    if requests is not None:
-        observed[HTTP_REQUESTS] = requests
-    return observed
-
-
-def http_requests_of(snapshot: dict[str, Any]) -> list[dict[str, Any]] | None:
-    """Return the HTTP requests OpenShell sealed, each record copied as sealed, or None when
-    they were not observed.
-
-    None when the snapshot has no OpenShell observation or the observation no
-    ``http_requests`` (sealed before MiDojo recorded them), and for an empty list unless the
-    snapshot's ``openshell.ocsf`` evidence is ``complete``: an empty list read from a log that
-    failed or was read in part says no request was read, not that none was made. A list with
-    requests is copied whatever that status; when it is not complete, it holds those read.
-    """
-
-    observed = snapshot["observations"].get(OPENSHELL)
-    if not isinstance(observed, dict) or HTTP_REQUESTS not in observed:
-        return None
-    requests = observed[HTTP_REQUESTS]
-    if not requests and snapshot["evidence_status"].get(OCSF_EVIDENCE) != "complete":
-        return None
-    return [dict(request) for request in requests]
-
-
-def native_call(call: dict[str, Any]) -> dict[str, Any]:
-    """Return a snapshot call record in the receipt's shape, in the turn MiDojo stamped.
-
-    A call MiDojo holds as started and not finished (``complete: false``) has no result and
-    the status ``unfinished``.
-    """
-
-    unfinished = call.get("complete") is False
-    return {
-        "name": call["function"],
-        "arguments": call["args"],
-        "result": None if unfinished else decoded(call.get("result")),
-        "error": text(call.get("error")),
-        "status": UNFINISHED if unfinished else None,
-        "turn_index": call["turn"],
-    }
-
-
-def judge_of(level: str, grade: dict[str, Any], outcome: str) -> dict[str, Any] | None:
-    """Return a reply's judge record: the verdict the attempt's outcome stands for, and the reason.
-
-    A decided detection speaks ``supported`` and a decided resistance ``contradicted``; every
-    other outcome, an unknown delivery included, is ``unresolved``, so an undecided reply never
-    reads as resisted. The grade carries no request count.
-    """
-
-    if level != REPLY:
-        return None
-    return {
-        "verdict": JUDGE_VERDICTS[outcome],
-        "reason": grade["security_reason"],
-        "request_count": None,
-    }
-
-
-def runtime_block(runtime: str | None, evidence: Iterable[str] = ()) -> dict[str, Any] | None:
-    """Return the receipt's ``evaluation.runtime``: how the run's target was hosted.
-
-    ``None`` when the caller records no runtime, so the receipt leaves the optional key out
-    and reads as one written before the field. ``runtime`` is one of ``RUNTIME_TYPES`` and
-    the evidence keeps the caller's order; the list may be empty. Evidence without a runtime
-    is refused: a receipt cannot state facts for a type it does not name.
-    """
-
-    facts = list(evidence)
-    if runtime is None:
-        if facts:
-            raise ParseError(
-                "runtime evidence needs a runtime: the evidence must support a stated runtime"
-            )
-        return None
-    if runtime not in RUNTIME_TYPES:
-        raise ParseError(f"unknown runtime {runtime!r}; the runtimes are {list(RUNTIME_TYPES)}")
-    return {"type": runtime, "evidence": facts}
-
-
 def evaluation_block(
     driver: str,
     snapshot: dict[str, Any] | None,
     verdict: dict[str, Any] | None,
     delivery: dict[str, Any] | None = None,
     plan: Plan | None = None,
-    runtime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Return what the receipt names of the evaluation's run; a file that cannot be read is null.
 
     An attack outcome field the grade lacks (sealed before 13d5487) is null, as are
     ``delivery`` and ``exposure`` without a delivery document: unknown, never False. ``plan``
-    is the evaluation's plan (``read_plan``), or None when the sealed result does not hold
-    together, so the outcomes' placements cannot be established. ``runtime`` is what the
-    caller recorded of how the target was hosted (``runtime_block``); the key is left out
-    when it recorded none, so the receipt reads as one written before the field existed. The
-    block always carries ``utility`` (``utility_block``), the record that no utility check
-    applied, whatever the grade says of utility.
+    is the evaluation's plan (``plan_of``), or None when the sealed result does not hold
+    together, so the outcomes' placements cannot be established. The block always carries
+    ``utility`` (``utility_block``), the record that no utility check applied, whatever the
+    grade says of utility.
     """
 
     grade = verdict["grade"] if verdict else None
-    block = {
+    return {
         "driver": driver,
         "evaluation_id": snapshot["evaluation_id"] if snapshot else None,
         "snapshot_id": snapshot["snapshot_id"] if snapshot else None,
@@ -1220,9 +839,6 @@ def evaluation_block(
         "exposure": None if delivery is None else _exposure(delivery["exposure"]),
         "utility": utility_block(snapshot),
     }
-    if runtime is not None:
-        block["runtime"] = runtime
-    return block
 
 
 def utility_block(snapshot: dict[str, Any] | None) -> dict[str, Any]:
@@ -1439,12 +1055,6 @@ def _target_record(target: dict[str, Any]) -> Any:
     return None
 
 
-def read_plan(compiled: Compiled) -> Plan:
-    """Return the compiled episode's plan as ``plan_of`` reads it."""
-
-    return plan_of(compiled.envelope.episode.get("plan"), compiled.envelope.placements)
-
-
 def plan_of(plan: Any, placements: Iterable[Any]) -> Plan:
     """Return the plan's tool-output part as the interceptor numbers it, and whether the plan
     is static: without generator permissions, so its payloads are the text placed. A plan
@@ -1501,7 +1111,7 @@ def placements_of(delivery: dict[str, Any]) -> list[dict[str, Any]]:
 
     A fact names the instruction it was placed for (``plan_instruction_index``), the seed slot
     (``slot.id``, with its target and mode) and the call; a placement names the instruction,
-    the seed slot and the record the target selects, once per distinct triple. ``read_plan``
+    the seed slot and the record the target selects, once per distinct triple. ``plan_of``
     maps that back to the receipt's slot, so a delivery document the route kept is enough to
     read the plan the seal was made for.
     """
@@ -1538,34 +1148,3 @@ def _slot(slot: Any, record: Any, mode: Any) -> dict[str, str] | None:
         if isinstance(mode, str) and mode in PLACEMENT_MODES:
             return {"id": slot, "record": record, "mode": mode}
     return None
-
-
-def compiled_digest(root: Path) -> str:
-    """Return the SHA-256 of what ``compile`` wrote: each file's digest, by its path."""
-
-    found = {
-        path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in sorted(root.rglob("*"))
-        if path.is_file() and "__pycache__" not in path.parts
-    }
-    return hashlib.sha256(canonical_text(found).encode("utf-8")).hexdigest()
-
-
-def native_files(paths: tuple[Path, ...], receipt_dir: Path) -> list[dict[str, str]]:
-    """List the snapshot, verdict and delivery files that exist, relative to the receipt's
-    directory."""
-
-    found = []
-    for path in paths:
-        if not path.is_file():
-            continue
-        try:
-            relative = path.resolve().relative_to(receipt_dir.resolve())
-        except ValueError as exc:
-            raise ParseError(
-                "the snapshot, verdict and delivery must lie inside the receipt's directory"
-            ) from exc
-        found.append(
-            {"path": relative.as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
-        )
-    return found

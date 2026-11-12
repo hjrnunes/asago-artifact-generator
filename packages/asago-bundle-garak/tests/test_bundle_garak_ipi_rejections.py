@@ -29,6 +29,7 @@ from ipi_cases import (
     trace,
     verdict_record,
 )
+from midojo_spec.snapshot import snapshot_digest
 
 from asago_bundle_garak.report_parse import parse_report
 from asago_injection_spec.sealed import UNDELIVERED, UNRECORDED_DELIVERY, slot_id
@@ -410,6 +411,107 @@ def test_a_delivery_document_that_is_not_midojo_s_states_no_delivery(tmp_path: P
     assert (receipt["execution_status"], receipt["incomplete_reason"]) == ("completed", None)
     assert receipt["evaluation"]["delivery"] is None
     assert receipt["evaluation"]["exposure"] is None
+
+
+# --- the OpenShell observation a snapshot may still carry -------------------------------
+
+
+def resealed_with_http_requests(sealed: dict[str, Any], requests: Any) -> dict[str, Any]:
+    """The sealed trace with an OpenShell observation carrying ``http_requests``.
+
+    The observation joins the snapshot before its ID is recomputed, so the seal holds and
+    the reader cannot refuse it as a tampered one. The route no longer copies the records:
+    a snapshot that carries them verifies by digest and the receipt reads as one whose
+    runtime nothing observed.
+    """
+
+    snapshot = dict(sealed["snapshot"])
+    snapshot["observations"] = {
+        **snapshot["observations"],
+        "openshell": {"http_requests": requests},
+    }
+    snapshot["snapshot_id"] = snapshot_digest(snapshot)
+    return {
+        **sealed,
+        "snapshot": snapshot,
+        "snapshot_id": snapshot["snapshot_id"],
+        "verdict": {**sealed["verdict"], "snapshot_id": snapshot["snapshot_id"]},
+    }
+
+
+@pytest.mark.parametrize(
+    "requests",
+    [
+        [
+            {
+                "method": "GET",
+                "url": "http://10.0.0.1/status",
+                "decision": "allowed",
+                "host": "10.0.0.1",
+                "port": 80,
+                "path": "/status",
+                "query": None,
+                "raw": "GET http://10.0.0.1/status allowed",
+            },
+            {
+                "method": "POST",
+                "url": "http://10.0.0.1/pay",
+                "decision": "denied",
+                "host": None,
+                "port": None,
+                "path": None,
+                "query": None,
+                "raw": "POST http://10.0.0.1/pay denied",
+            },
+        ],
+        [],
+    ],
+    ids=["two-requests", "empty-list"],
+)
+def test_a_snapshot_sealed_with_http_requests_verifies_and_the_route_ignores_them(
+    tmp_path: Path, requests: list[dict[str, Any]]
+) -> None:
+    """A snapshot that carries ``http_requests`` verifies by its own digest.
+
+    The observation is part of the content the snapshot ID digests, so a resealed snapshot
+    that carries it verifies as any other does and the receipt completes. The route no
+    longer reads the records: the attempt's runtime observations name no source and no
+    ``http_requests`` member, whatever the observation holds, because Garak observes no
+    runtime.
+    """
+
+    sealed = resealed_with_http_requests(sealed_trace(), requests)
+
+    receipt = parse(make_rejection(tmp_path, sealed))
+
+    assert (receipt["execution_status"], receipt["incomplete_reason"]) == ("completed", None)
+    (attempt,) = receipt["attempts"]
+    assert attempt["runtime_observations"]["source"] is None
+    assert "http_requests" not in attempt["runtime_observations"]
+
+
+def test_http_requests_edited_after_the_seal_fail_it_as_a_tampered_snapshot(
+    tmp_path: Path,
+) -> None:
+    """A snapshot whose ``http_requests`` changed under its ID is refused, never read.
+
+    Editing the observation after the seal changes the content the ID digests, so the
+    reader refuses the seal with MiDojo's own reason and the receipt states no attempt.
+    """
+
+    sealed = sealed_trace()
+    sealed["snapshot"]["observations"] = {
+        **sealed["snapshot"]["observations"],
+        "openshell": {"http_requests": []},
+    }
+
+    receipt = parse(make_rejection(tmp_path, sealed))
+
+    assert (receipt["execution_status"], receipt["incomplete_reason"]) == (
+        "failed",
+        "snapshot_digest_mismatch",
+    )
+    assert receipt["attempts"] == []
 
 
 # --- the placement each sealed outcome establishes ---------------------------------------
