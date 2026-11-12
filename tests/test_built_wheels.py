@@ -39,7 +39,6 @@ PRODUCER_PACKAGES = ("asago-contracts-core", "asago-handoff", "asago-report-kit"
 PROBE = """
 import hashlib
 import json
-import sys
 from pathlib import Path
 
 import asago_artifact_generator
@@ -65,7 +64,6 @@ def specs(loaded):
     return sorted(f"{s.contract} {s.version}" for s in loaded.specs)
 
 
-names = json.loads(sys.argv[1])
 print(
     json.dumps(
         {
@@ -78,11 +76,9 @@ print(
                     asago_package,
                 )
             },
-            "app": {name: tree(app_kit(name)) for name in names["app"]},
-            "package": {name: tree(package_kit(name)) for name in names["package"]},
-            "bundle": {
-                name: tree(receipt_contract.CONTRACTS_DIR / name) for name in names["bundle"]
-            },
+            "app": tree(app_kit("kit").parent),
+            "package": tree(package_kit("kit").parent),
+            "bundle": tree(receipt_contract.CONTRACTS_DIR),
             "scenario-handoff": tree(asago_contracts_core.CONTRACT_DIR),
             "specs": {
                 "receipt_contract": specs(receipt_contract.installed_specs()),
@@ -173,12 +169,7 @@ def installed(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
             *map(str, sorted(wheels.glob("*.whl"))),
         ]
     )
-    names = {
-        "app": _names(REPO / "contracts"),
-        "package": _names(PACKAGE_DATA),
-        "bundle": _names(BUNDLE_DATA),
-    }
-    return json.loads(_run([str(python), "-I", "-c", PROBE, json.dumps(names)], cwd=outside))
+    return json.loads(_run([str(python), "-I", "-c", PROBE], cwd=outside))
 
 
 def test_the_install_reads_every_contract_from_outside_the_checkouts(
@@ -192,25 +183,24 @@ def test_the_install_reads_every_contract_from_outside_the_checkouts(
 
 
 def test_the_root_wheel_carries_every_root_kit_byte_for_byte(installed: dict[str, Any]) -> None:
-    assert sorted(installed["app"]) == _names(REPO / "contracts")
-    for name, files in installed["app"].items():
-        _assert_carries(f"root wheel, {name}", _tree(REPO / "contracts" / name), files)
+    _assert_carries("root wheel, contracts", _tree(REPO / "contracts"), installed["app"])
 
 
 def test_the_package_wheel_carries_its_kits_byte_for_byte(installed: dict[str, Any]) -> None:
-    assert sorted(installed["package"]) == _names(PACKAGE_DATA)
-    for name, files in installed["package"].items():
-        _assert_carries(f"asago-package wheel, {name}", _tree(PACKAGE_DATA / name), files)
+    _assert_carries("asago-package wheel, contracts", _tree(PACKAGE_DATA), installed["package"])
 
 
 def test_the_bundle_core_wheel_carries_the_root_kits_without_their_locks(
     installed: dict[str, Any],
 ) -> None:
-    assert sorted(installed["bundle"]) == _names(BUNDLE_DATA)
-    for name, files in installed["bundle"].items():
-        authority = _tree(REPO / "contracts" / name)
-        authority.pop("CONTRACT.lock")
-        _assert_carries(f"asago-bundle-core wheel, {name}", authority, files)
+    authority = {
+        f"{name}/{relative}": digest
+        for name in _names(BUNDLE_DATA)
+        for relative, digest in _tree(REPO / "contracts" / name).items()
+        if relative != "CONTRACT.lock"
+    }
+
+    _assert_carries("asago-bundle-core wheel, contracts", authority, installed["bundle"])
 
 
 def test_the_contracts_core_wheel_carries_the_producers_scenario_handoff_kit(
