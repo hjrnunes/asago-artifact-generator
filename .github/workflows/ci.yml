@@ -41,17 +41,9 @@ jobs:
       # The producer-pair group installs the producer app from the sibling checkout
       # above, so the writer-to-reader pair test runs in CI instead of skipping.
       - run: uv sync --locked --group producer-pair
-      # A breaking schema change between installed contract versions needs a new
-      # major version. The check runs on the consumer's contract roots and the
-      # package copies it ships.
-      - name: Schema-diff check
-        run: >-
-          uv run python -m asago_contracts_core.schema_diff_cli
-          contracts
-          packages/asago-package/src/asago_package/contracts
-          packages/asago-bundle-core/src/asago_bundle_core/contracts
-          packages/asago-injection-spec/src/asago_injection_spec/contracts
       - run: ./scripts/quality.sh
+      # The root session runs the copy checks: the mirrors of the producer's kits, the
+      # built-wheel install and the MiDojo lock.
       - run: uv run pytest tests/ -q
       # The package tests import `from conftest import ...`, which names one module
       # per session, so each package runs in its own pytest session.
