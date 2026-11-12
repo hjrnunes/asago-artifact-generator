@@ -546,7 +546,7 @@ def _seed_cases() -> tuple[dict[str, Any], dict[str, tuple[tuple[str, str], Any]
     invalid = {
         "unknown-schema-version": (
             ("/schema_version", "const"),
-            _seed(schema_version="artifact-seed-v2"),
+            _seed(schema_version="artifact-seed-v9"),
         ),
         "missing-carrier-operation": (("/", "required"), no_carrier),
         "unknown-top-level-key": (("/", "additionalProperties"), _seed(note="x")),

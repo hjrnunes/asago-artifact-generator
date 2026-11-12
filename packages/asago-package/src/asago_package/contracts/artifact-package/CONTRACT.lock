@@ -44,7 +44,7 @@
     "artifact-seed-v1/invalid/item-unknown-key.json": "3b4b6ef1aab6448c8a1965a1a82d9ac141f95ece0667937ffaff3b4f0460a908",
     "artifact-seed-v1/invalid/missing-carrier-operation.json": "2304e80307c8b44da1e9c5999aa5226d5b54a27f45d6de7977a3cb05e31a91e7",
     "artifact-seed-v1/invalid/no-items.json": "91f480f1ce475e32a6be58344a7d7f839448c82a23533cda0193dcf3b822423f",
-    "artifact-seed-v1/invalid/unknown-schema-version.json": "5b93146baae7c4bb1f18f03323e63106de60938daf4886b4b1efd7408c041673",
+    "artifact-seed-v1/invalid/unknown-schema-version.json": "b87286f7722e124065a953125dbf8a963232bee5add4dba458b193489b700f3c",
     "artifact-seed-v1/invalid/unknown-top-level-key.json": "689cdb340487708f271582e9ef16571332bcb4e2d0c03ad273040991fdc9be46",
     "artifact-seed-v1/schema.json": "c6a77187d1fa169507d5df2f9760525eb7161dad3296c3dab343a993bc0462fc",
     "artifact-seed-v1/valid/append.json": "82e89b3a4bbd19b8b9d400969a23293d83758dc2c8ea9796c7a98787afa75811",
