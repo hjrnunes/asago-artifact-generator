@@ -405,7 +405,7 @@ def _examples_schema(plan: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def neutral_artifact_response_without_source() -> dict[str, Any]:
-    """Return only the four v2 Call 2 metadata fields."""
+    """Return only the four Call 2 metadata fields."""
 
     example = _neutral_artifact_response()
     return {
@@ -417,7 +417,7 @@ def neutral_artifact_response_without_source() -> dict[str, Any]:
 
 
 def neutral_artifact_plan() -> dict[str, Any]:
-    """Return a plan matching the neutral v2 example."""
+    """Return a plan matching the neutral example."""
 
     return {
         "interpretation": {
@@ -557,7 +557,7 @@ def _setup_recipe_schema() -> dict[str, Any]:
 
 
 def _canonical_prerequisite_schema() -> dict[str, Any]:
-    """Return the closed executable prerequisite schema for the v2 wire."""
+    """Return the closed executable prerequisite schema for the wire."""
 
     return {
         "type": "array",

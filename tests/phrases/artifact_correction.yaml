@@ -16,7 +16,7 @@ cases:
       forbidden:
         - 'def evaluate'
         - needs_plan_revision
-  v5:
+  current-handoff:
     user:
       once:
         - 'The producer''s analysis of this scenario as structured fields.'

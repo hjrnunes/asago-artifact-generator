@@ -14,7 +14,7 @@ _contract, _inventory, _minimal_plan = world_builders(
 
 
 def _plan(**overrides: object) -> dict:
-    """Return the minimal refund plan in v2 form, with no prerequisites."""
+    """Return the minimal refund plan, with no prerequisites."""
 
     return _minimal_plan(
         assumptions=[],

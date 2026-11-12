@@ -1,4 +1,4 @@
-"""The consumer reads the shared evaluator: the v2 vectors and the producer's behaviour."""
+"""The consumer reads the shared evaluator: the kit's vectors and the producer's behaviour."""
 
 from __future__ import annotations
 

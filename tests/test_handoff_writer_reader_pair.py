@@ -62,16 +62,16 @@ from asago_scenario_generator.stpa.scenario_prod.handoff import (  # noqa: E402
 )
 
 HANDOFFS = Path(__file__).resolve().parent / "fixtures" / "handoffs"
-# A producer-written v6 handoff with its checked-in .feature companion.
+# A producer-written handoff with its checked-in .feature companion.
 PRODUCER_FILE = HANDOFFS / "klarna-attack-path-SCN-027.yaml"
-# The installed v6 kit's indirect case, which states the controlling party.
+# The installed kit's indirect case, which states the controlling party.
 V6_CASE = (
     CONTRACT_DIR / "scenario-handoff-v1" / "cases" / "valid" / "adversarial-indirect-listing.json"
 )
 
 
 def _hand_built_payload() -> dict[str, Any]:
-    """A complete v6 handoff dict, written by hand rather than published by the producer."""
+    """A complete handoff dict, written by hand rather than published by the producer."""
     return {
         "schema_version": "scenario-handoff-v1",
         "scenario_id": "SCN-907",

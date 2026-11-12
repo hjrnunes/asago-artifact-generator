@@ -714,7 +714,7 @@ class AuthoringOrchestrator:
         runtime_contract: dict[str, Any],
         allowance_kind: str,
     ) -> tuple[dict[str, Any] | None, list[Finding], bytes] | None:
-        """Replace one failed v2 response in its original stage format.
+        """Replace one failed response in its original stage format.
 
         The caller owns the stage-local allowance decision. A syntactically
         valid candidate is returned with its validation findings.

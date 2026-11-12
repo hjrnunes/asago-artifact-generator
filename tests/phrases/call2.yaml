@@ -50,7 +50,7 @@ cases:
     user:
       forbidden:
         - 'the producer resolves it to its supplied value'
-  v5:
+  current-handoff:
     user:
       once:
         - 'The producer''s analysis of this scenario as structured fields.'

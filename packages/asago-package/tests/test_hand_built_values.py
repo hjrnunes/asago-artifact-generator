@@ -54,7 +54,7 @@ def _digest(manifest: dict[str, Any]) -> str:
 
 
 def _manifest(**changes: Any) -> dict[str, Any]:
-    """A hand-built v5 manifest, sealed the way the contract says a manifest is sealed."""
+    """A hand-built manifest, sealed the way the contract says a manifest is sealed."""
 
     manifest: dict[str, Any] = {
         "schema_version": V5,

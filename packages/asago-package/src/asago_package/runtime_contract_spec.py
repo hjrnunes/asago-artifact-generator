@@ -36,7 +36,7 @@ def read_runtime_contract(document: Any) -> ContractSpec:
     The error is a ``ContractEnvelopeError``: an unsupported version lists the supported
     ones, an unknown ``requires`` entry names what the spec supports, an unknown field names
     the declared extensions, and a mismatched ``spec_digest`` names the status it broke. A
-    v3 document without the envelope raises ``MissingEnvelopeError``.
+    document without the envelope raises ``MissingEnvelopeError``.
     """
 
     return installed_specs().read(document)

@@ -63,7 +63,7 @@ def enveloped(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def stamped(manifest: dict[str, Any]) -> dict[str, Any]:
-    """Add the v2 envelope without validating, as a test of a broken payload needs."""
+    """Add the envelope without validating, as a test of a broken payload needs."""
 
     spec = installed_specs().spec("tool-bundle", SCHEMA_VERSION)
     return {
@@ -83,7 +83,7 @@ def stamped(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 def read_errors(manifest: dict[str, Any]) -> list[str]:
-    """Return what the reader says about a payload, stamped as a v2 writer stamps it."""
+    """Return what the reader says about a payload, stamped as the writer stamps it."""
 
     return manifest_errors(manifest if "contract" in manifest else stamped(manifest))
 

@@ -120,7 +120,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 _ROOT = Path(__file__).resolve().parents[1]
 HANDOFFS = FIXTURES / "handoffs"
 HANDOFF = HANDOFFS / "refund-bound.json"
-# A klarna SCN-027 v6 handoff whose attack_path replaces the attack tree.
+# A klarna SCN-027 handoff whose attack_path replaces the attack tree.
 ATTACK_PATH_HANDOFF = HANDOFFS / "klarna-attack-path-SCN-027.yaml"
 # The klarna handoffs plant an order item through lookup_order, which no slot of the ehr
 # world carries. These runtime contract keys add the planted-item delivery and the order-item
@@ -143,7 +143,7 @@ KLARNA_INDIRECT_RUNTIME: dict[str, Any] = {
 
 
 def published(document: dict[str, Any]) -> dict[str, Any]:
-    """Return a v6 document with the envelope the version requires.
+    """Return a handoff document with the envelope the version requires.
 
     The helper writes the envelope itself rather than through ``write_envelope``, because
     that writer validates the body it stamps and the invalid kit cases must still reach the
@@ -166,7 +166,7 @@ def published(document: dict[str, Any]) -> dict[str, Any]:
 
 
 def signed(document: dict[str, Any]) -> dict[str, Any]:
-    """Return ``document`` with its v6 digest recomputed over its body, and its envelope."""
+    """Return ``document`` with its digest recomputed over its body, and its envelope."""
 
     body = {
         key: value
@@ -178,7 +178,7 @@ def signed(document: dict[str, Any]) -> dict[str, Any]:
 
 
 def _published_kit_cases() -> Path:
-    """Write the v6 kit's cases with their envelope, which the kit's bare payloads lack."""
+    """Write the handoff kit's cases with their envelope, which the kit's bare payloads lack."""
 
     directory = Path(tempfile.mkdtemp(prefix="published-handoff-kit-"))
     atexit.register(shutil.rmtree, directory, ignore_errors=True)
@@ -192,7 +192,7 @@ def _published_kit_cases() -> Path:
     return directory
 
 
-#: The v6 kit's ``valid/`` and ``invalid/`` cases, each with the envelope a reader requires.
+#: The handoff kit's ``valid/`` and ``invalid/`` cases, each with the envelope a reader requires.
 KIT = _published_kit_cases()
 KIT_VALID = KIT / "valid"
 NO_CONDITION_HANDOFF = KIT_VALID / "adversarial-condition-omitted.json"
@@ -533,7 +533,7 @@ def neutral_call2_response() -> bytes:
 
 
 def validate_neutral_example() -> list[Finding]:
-    """Validate the neutral example through the v2 response seams."""
+    """Validate the neutral example through the response seams."""
 
     plan = neutral_artifact_plan()
     metadata = neutral_artifact_response_without_source()
@@ -546,14 +546,14 @@ def validate_neutral_example() -> list[Finding]:
 
 
 def build_neutral_artifact_package(destination: str | Path) -> Path:
-    """Persist the neutral v2 example through the real package writer."""
+    """Persist the neutral example through the real package writer."""
 
     metadata = neutral_artifact_response_without_source()
     plan = neutral_artifact_plan()
     findings = validate_neutral_example()
     if findings:
         raise ValueError(
-            "neutral v2 example is invalid: " + "; ".join(finding.detail for finding in findings)
+            "neutral example is invalid: " + "; ".join(finding.detail for finding in findings)
         )
     members = {
         "plan.json": _json_bytes(plan),

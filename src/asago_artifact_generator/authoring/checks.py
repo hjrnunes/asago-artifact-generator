@@ -271,12 +271,12 @@ def collect_plan_findings(
     source_refs: Mapping[tuple[str, str], str] | None = None,
     declaration_findings: Collection[Finding] | None = None,
 ) -> list[Finding]:
-    """Return every structural finding for a v2 plan that ``normalize_plan`` returned.
+    """Return every structural finding for a plan that ``normalize_plan`` returned.
 
-    The v2 root fields (``assumptions`` and ``required_observations``) are
+    The root fields (``assumptions`` and ``required_observations``) are
     checked here; the remaining fields go through the shared field validator,
     which skips prerequisite contents.
-    Prerequisites are then checked once, against the closed v2 form,
+    Prerequisites are then checked once, against the closed form,
     followed by the omission-trigger, stimulus-slot, and established-trigger
     cross-checks.
 
@@ -549,7 +549,7 @@ def collect_artifact_findings(
     condition: Mapping[str, Any] | None = None,
     planted_max_chars: int | None = None,
 ) -> list[Finding]:
-    """Validate v2 metadata that ``normalize_artifact`` returned against the accepted plan.
+    """Validate metadata that ``normalize_artifact`` returned against the accepted plan.
 
     ``condition`` is the handoff's bound tool-call condition. A command-attempt
     artifact whose example captures pass the structural checks is also scored
@@ -999,7 +999,7 @@ def _plan_assumptions_findings(
     inventory: dict[str, Any],
     provenance_ids: Collection[str],
 ) -> list[Finding]:
-    """Validate the v2 assumptions list and each assumption's shape and reference."""
+    """Validate the assumptions list and each assumption's shape and reference."""
 
     assumptions = plan.get("assumptions")
     if not isinstance(assumptions, list):
@@ -1840,7 +1840,7 @@ def _canonical_prerequisite_findings(
     *,
     safe_behavior: str | None = None,
 ) -> list[Finding]:
-    """Validate the closed prerequisite form used by the v2 plan wire.
+    """Validate the closed prerequisite form used by the plan wire.
 
     This is the only prerequisite validator. It expects the prerequisite
     binding consumers to be added already.
@@ -2173,7 +2173,7 @@ def normalize_plan(
 
 
 def normalize_artifact(metadata: Any, plan: dict[str, Any]) -> tuple[Any, list[dict[str, Any]]]:
-    """Return a copy of v2 metadata with its stimulus slots derived, and the rewrites.
+    """Return a copy of metadata with its stimulus slots derived, and the rewrites.
 
     ``plan`` is the accepted plan ``normalize_plan`` returned; its declared
     bindings name the slots.  The metadata passed in is not changed.  Metadata

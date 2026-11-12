@@ -50,7 +50,7 @@ CASES: dict[str, Callable[[Path], Any]] = {
     "not-called": _from_handoff(NOT_CALLED_HANDOFF),
     "no-condition": _from_handoff(NO_CONDITION_HANDOFF),
     "omission": signed_omission_view,
-    "v5": _from_handoff(CURRENT_HANDOFF),
+    "current-handoff": _from_handoff(CURRENT_HANDOFF),
     "prior-round": lambda _scratch: None,
 }
 # Cases whose plan review follows a revision (``render_prior_round_packets``); their other

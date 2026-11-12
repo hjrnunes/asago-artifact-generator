@@ -22,7 +22,7 @@ uv run asago-artifact-generator generate <scenario-handoff.json> \
   --profiles-file /absolute/path/to/asago-scenario-generator/config/model-profiles.yaml
 ```
 
-`generate` uses the versioned v2 authoring wire. Call 1 returns one closed plan
+`generate` uses the versioned authoring wire (`artifact-authoring-v1`). Call 1 returns one closed plan
 root as either one bare JSON object or exactly one lowercase `json` fenced
 object, with optional surrounding whitespace. Untagged, uppercase, or other
 fences, multiple objects in one block, prose around a single block, and
@@ -65,7 +65,7 @@ text downstream tooling hands the judge as the assistant's reply, and the
 author's summary moves to `summary`; the package has no `reply` field.
 `artifact-package-v1` constrains only the member's manifest entry, so a package
 written before, whose reply examples hold only a description, still loads.
-Each v2 prompt carries the selected case meaning once under `case_meaning`;
+Each prompt carries the selected case meaning once under `case_meaning`;
 the input projection retains scenario/reference identities and narrative/Gherkin
 SHA-256 digests without repeating those texts.
 The accepted Call 1 plan owns setup, bindings, prerequisites, evidence,
@@ -483,15 +483,15 @@ The authoring path accepts producer-owned discovery outputs and one scenario
 handoff:
 
 - `scenario-handoff-v1` JSON or YAML for scenario meaning. The producer's `generate`
-  writes v6, which names the party `party_relation.controlling_party` and carries the
-  contract envelope. A package records `scenario-handoff-v1` as `input_kind`.
+  writes this version, which names the party `party_relation.controlling_party` and carries
+  the contract envelope. A package records `scenario-handoff-v1` as `input_kind`.
 - `execution-target-profile-v1` JSON for the observed target inventory.
 - Optional `runtime-context.json` (`runtime-context-v1`, written by the orchestrator's discover stage) for state and read observations.
 - A target-free runtime contract (`artifact-runtime-contract-v1`). `generate` reads it through the
   installed spec set in the `asago-package` member
   (`contracts/runtime-contract/`) and its lock before any model request, and
   stops at the first fault in path order:
-  `runtime contract schema invalid at <path>: <reason>`. A v3 contract requires
+  `runtime contract schema invalid at <path>: <reason>`. The contract requires
   the `contract` envelope.
 
 Use `asago_artifact_generator.input_adapter.load_input` to validate the
@@ -530,8 +530,7 @@ corrections) shows these fields under `structured_analysis`, with a fixed
 factor's `process_model_belief` is null when the factor states no flawed
 belief, such as a faulty decision rule (`inadequate_control_algorithm`) applied
 to a correct belief; the factor is shown as supplied, and the note says what the
-null means (Call 1 v28, plan review v27, Call 2 v30, artifact review v26,
-corrections v46 and v47).
+null means in every prompt that shows it.
 
 A handoff may also carry an optional `taxonomy` block: `atlas_release`, the
 producer's pinned MITRE ATLAS release (`YYYY.MM`), and `references`, the
@@ -756,19 +755,19 @@ which the member ships as package data. `asago_package.package_io.write_package`
 writes a complete directory atomically, and `load_package` verifies its
 manifest, member paths, lengths, and digests before returning content. A
 manifest has no `detector_interface`, and a package has no `detector.py`.
-The v5 schema lists the member names (`plan.json`, `stimulus.json`,
+The package schema lists the member names (`plan.json`, `stimulus.json`,
 `setup.json`, `bindings.json`, `prerequisites.json`, `checks.json`,
 `inputs.json`, `observations.json`, `judge.json`, `tool_call_condition.json`,
 `explanation.json`, `examples.json`, and `seed.json`), closes the manifest's
 `authoring` to the outcome (`status`, `terminal_status`, and
 `review_status.artifact`), and requires an empty `creation_model`. The loader
-refuses a v5 package with any other member or manifest field.
+refuses a package with any other member or manifest field.
 
 The loader reads only `artifact-package-v1`. It refuses any other version,
 such as `artifact-package-v9`, naming the unsupported value.
 
 The writer writes only `artifact-package-v1`. The lock's
-`package_schema_version` and `digest_domain` name v5. The manifest digest is
+`package_schema_version` and `digest_domain` name `artifact-package-v1`. The manifest digest is
 the SHA-256 of the canonical manifest without `manifest_digest`.
 
 Each package carries the scoring input for its plan's claim level:
@@ -790,9 +789,7 @@ text.
 
 The version directory also holds the contract's cases: `valid/` packages a
 reader must load, `invalid/` packages it must reject, and
-`expected-violations.json`, which names each invalid case's stable code. The v4
-cases stay frozen as contract material, and the consumer reader refuses every
-v4 package by version.
+`expected-violations.json`, which names each invalid case's stable code.
 `artifact-seed-v1/` holds the seed schema's cases the same way, except that
 each invalid seed's entry names the path and keyword where it fails first.
 `metadata-policy.json` lists the manifest metadata the closed secret policy
@@ -830,7 +827,7 @@ the tool-call condition or judge specification, explanation, examples,
 `checks.json`, and `inputs.json` (the inventory, runtime
 contract, discovery provenance, and `authoring_input_pins`). The manifest's
 `authoring` records only the outcome (`status`, `terminal_status`, and
-`review_status.artifact`); `creation_model` stays an empty object, which the v5
+`review_status.artifact`); `creation_model` stays an empty object, which the package
 schema requires. Each request's prompt, raw response, usage, and review live
 only in the failure-evidence sidecar described below.
 The context guard estimates prompt tokens from the rendered UTF-8 system and
@@ -838,7 +835,7 @@ user bytes using the calibration described above; it does not report estimated
 values as provider usage. Use the test helper `build_neutral_artifact_package`
 (`tests/support.py`) to see a neutral package before reviewing model-authored
 output.
-New v2 executable prerequisites use exactly `name`, `check`, `evidence_refs`,
+Executable prerequisites use exactly `name`, `check`, `evidence_refs`,
 `binding`, and `equals`. The binding names a declared runtime binding, and
 `equals` is always present as a JSON literal, including when its value is
 explicitly `null`. When the binding is a `supplied_input` that resolves from the

@@ -201,7 +201,7 @@ SUPERSEDED_ITEMS: tuple[SupersededItem, ...] = ()
 
 
 def prompt_template(version: str) -> str:
-    """Return the template family a prompt version names (``X-v3`` -> ``X``)."""
+    """Return the template family a prompt version names (``X-v1`` -> ``X``)."""
 
     family, separator, number = version.rpartition("-v")
     if not separator or not number.isdigit():

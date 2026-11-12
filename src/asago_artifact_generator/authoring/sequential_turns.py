@@ -265,7 +265,7 @@ def _findings(
 def sequential_plan_findings(
     view: InputView, plan: Any, runtime_contract: dict[str, Any] | None = None
 ) -> list[Finding]:
-    """Return the plan findings that the shape produces for a v4 handoff.
+    """Return the plan findings that the shape produces for a handoff.
 
     These are the turn count, the delivery and, for an indirect shape that names no
     record, the record the plan names.
@@ -289,7 +289,7 @@ def sequential_plan_findings(
 
 
 def sequential_artifact_findings(view: InputView, artifact: Any) -> list[Finding]:
-    """Return the artifact findings that the shape's turn count produces for a v4 handoff."""
+    """Return the artifact findings that the shape's turn count produces for a handoff."""
 
     if not _is_sequential_input(view) or not isinstance(artifact, dict):
         return []

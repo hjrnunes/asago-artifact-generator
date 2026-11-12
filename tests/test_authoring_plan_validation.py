@@ -21,7 +21,7 @@ _inventory, _contract, _minimal_plan = world_builders(
 
 
 def _plan(**overrides):
-    """Return the minimal refund plan with the two root fields only v2 plans carry."""
+    """Return the minimal refund plan with the two root fields a plan carries."""
 
     return _minimal_plan(
         assumptions=[],

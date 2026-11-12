@@ -78,7 +78,7 @@ class PackageManifest:
     members: list[dict[str, Any]]
     authoring: dict[str, Any] = field(default_factory=dict)
     runtime_capabilities: dict[str, Any] = field(default_factory=dict)
-    # Required by the v5 schema, which requires it empty; the writer leaves it so.
+    # Required by the package schema, which requires it empty; the writer leaves it so.
     creation_model: dict[str, Any] = field(default_factory=dict)
     manifest_digest: str = ""
     schema_version: str = PACKAGE_SCHEMA_VERSION

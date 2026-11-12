@@ -308,14 +308,14 @@ class FramingError(AuthoringError):
 
 
 class Call2FramingError(FramingError):
-    """Raised when a v2 Call 2 response is not exactly one JSON object."""
+    """Raised when a Call 2 response is not exactly one JSON object."""
 
     stage = "call2"
     empty_message = "invalid Call 2 framing"
 
 
 class Call1FramingError(FramingError):
-    """Raised when a v2 Call 1 response has unsupported outer framing."""
+    """Raised when a Call 1 response has unsupported outer framing."""
 
     stage = "call1"
     empty_message = "invalid Call 1 framing"

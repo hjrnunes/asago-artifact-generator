@@ -88,7 +88,7 @@ def parse_review_response(raw: bytes) -> ReviewResponse:
     """Parse one strict reviewer response without changing its raw bytes.
 
     The accepted framing is one bare JSON object or exactly one lowercase
-    ```json fenced JSON object, the same strict normalization as a v2 Call 1
+    ```json fenced JSON object, the same strict normalization as a Call 1
     response; a reply of several fences with text between them and no text
     after the last decodes to its last object.  Prose wrappers, multiple
     objects in one fence, adjacent fences, and malformed JSON fail

@@ -777,7 +777,7 @@ def _render_sections(
 
 
 def _input_projection(view: InputView) -> dict[str, Any]:
-    """Return v2 input identity and digests without repeating case meaning."""
+    """Return the input identity and digests without repeating case meaning."""
 
     return {
         "kind": view.kind.value,
@@ -828,7 +828,7 @@ _STRUCTURED_ANALYSIS_NOTE = prose("prompt_context/structured_analysis_note")
 
 
 def _structured_analysis(view: InputView) -> dict[str, Any]:
-    """Return the fields a v5 handoff adds, leaving out a null or empty one, with their note."""
+    """Return the handoff's structured analysis fields and note, omitting null or empty ones."""
 
     analysis: dict[str, Any] = {"note": _STRUCTURED_ANALYSIS_NOTE}
     for key in HANDOFF_FIELDS:

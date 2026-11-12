@@ -63,7 +63,8 @@ _MESSAGES = {
     ),
     "creation_model_not_empty": r"^package manifest schema invalid at creation_model: ",
 }
-# The v5 schema lists the member names, so it rejects any other path before the path checks run.
+# The package schema lists the member names, so it rejects any other path before the path
+# checks run.
 _MEMBER_PATH = r"^package manifest schema invalid at members\.\d+\.path: .* is not one of "
 _VERSION_MESSAGES = {
     "artifact-package-v1": {
@@ -220,7 +221,7 @@ _POLICY = _json(_ROOT / "metadata-policy.json")
 def _package_with(metadata: dict[str, Any]) -> ArtifactPackage:
     """Build the package the metadata policy cases run through.
 
-    The metadata goes in ``runtime_capabilities``: the v5 schema closes ``authoring`` to
+    The metadata goes in ``runtime_capabilities``: the package schema closes ``authoring`` to
     status fields, while the secret policy walks both, so every policy case is a legal
     package the writer accepts.
     """

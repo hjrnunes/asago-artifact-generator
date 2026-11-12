@@ -1,6 +1,6 @@
 """The consumer runs the producer's schema and conformance cases.
 
-The producer's v6 kit carries ``invalid/schema-*.json``, one broken field of
+The producer's handoff kit carries ``invalid/schema-*.json``, one broken field of
 a bound handoff each, with the producer's codes in ``expected-violations.json``.
 This reader reports the same codes in the same order on the raised error's
 ``codes``. The shared validator owns every rule, the schema version included,
@@ -32,7 +32,7 @@ from .support import KIT
 
 _CONTRACT = CONTRACT_DIR
 _KIT = _CONTRACT / "scenario-handoff-v1" / "cases"
-# The kit holds bare payloads; the reader needs the envelope v6 requires, so it loads
+# The kit holds bare payloads; the reader needs the envelope a handoff requires, so it loads
 # these enveloped copies of the same cases.
 _PUBLISHED = KIT
 _EXPECTED = json.loads((_KIT / "expected-violations.json").read_text("utf-8"))

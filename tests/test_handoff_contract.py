@@ -148,7 +148,7 @@ def test_a_document_without_the_envelope_is_rejected() -> None:
 
 @pytest.mark.parametrize("path", _PRODUCER_HANDOFFS, ids=lambda path: path.name)
 def test_every_checked_in_producer_handoff_reads(path: Path) -> None:
-    """A handoff the producer wrote, kept as a fixture, reads as a v6 document."""
+    """A handoff the producer wrote, kept as a fixture, reads as a handoff document."""
 
     document = yaml.safe_load(path.read_text(encoding="utf-8"))
 

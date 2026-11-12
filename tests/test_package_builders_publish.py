@@ -1,8 +1,8 @@
-"""Every in-memory package builder in this suite publishes through the v5 writer.
+"""Every in-memory package builder in this suite publishes through the package writer.
 
-``build_package`` checks the v5 values and the secret policy; the v5 manifest schema runs in
+``build_package`` checks the package values and the secret policy; the manifest schema runs in
 ``write_package``. A helper that stops at ``build_package`` can therefore carry a field the
-writer refuses while every test still passes: the m6-dcpl1d worker found an authoring
+writer refuses while every test still passes: a review found an authoring
 ``{attempts, max_retries}`` block that way. Each builder whose package stands for a package
 the pipeline publishes goes through the writer here. A builder that deliberately assembles a
 partial package for a reader that accepts partials is not in this list.

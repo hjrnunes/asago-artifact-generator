@@ -40,7 +40,7 @@ contracts and historical experiment details belong in their own documents.
 - This consumer designs concrete stimuli, setup declarations, runtime bindings,
   and semantic judge specifications using supplied facts and documented
   capabilities. Packages (`artifact-package-v1`, from a `scenario-handoff-v1`
-  input) contain no detector code; the loader refuses a v4 package.
+  input) contain no detector code; the loader refuses another package version.
 - `generate` is target-free. The plan owns the experiment; artifact authoring turns
   the accepted plan into a frozen package. Code checks run before the applicable
   semantic review. Corrections stay within their stage.
@@ -152,7 +152,7 @@ the group the module skips and names what it needs.
   the same module.
 - `packages/asago-package/`: the package library workspace member (`asago_package`), which
   depends only on pydantic, jsonschema and `asago-contracts-core`. It owns `package_io` (the
-  v5 writer, loader and values), the contract kit (canonical JSON, framed digests, schema
+  writer, loader and values), the contract kit (canonical JSON, framed digests, schema
   errors, lock checks, the package's own `contract_dir`), the `metadata_policy` secret
   walker, and the binding and slot rules (`binding_rules`, plus authoring's `bindings`). It
   ships the authority copies of `artifact-package`, `runtime-contract` and `capability-gap`

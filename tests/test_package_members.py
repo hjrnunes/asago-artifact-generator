@@ -134,7 +134,8 @@ def test_the_manifest_keeps_only_the_authoring_outcome(package_dir: Path) -> Non
         "terminal_status": "accepted",
         "review_status": {"artifact": "accepted"},
     }
-    # Kept, empty: both schemas and downstream loaders require the key, and v5 requires it empty.
+    # Kept, empty: the package schema and downstream loaders require the key, and the schema
+    # requires it empty.
     assert manifest["creation_model"] == {}
     assert manifest["schema_version"] == PACKAGE_SCHEMA_VERSION == "artifact-package-v1"
 

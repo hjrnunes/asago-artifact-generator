@@ -81,7 +81,7 @@ def build_call1_packet(
     *,
     max_prompt_bytes: int = MAX_RENDERED_PROMPT_BYTES,
 ) -> PromptPacket:
-    """Render the v3 plan-author prompt over the unchanged v2 response wire."""
+    """Render the plan-author prompt over the response wire."""
 
     context = build_plan_author_context(view, inventory, runtime_contract)
     sections = (
@@ -125,7 +125,7 @@ def build_call2_packet(
     *,
     max_prompt_bytes: int = MAX_RENDERED_PROMPT_BYTES,
 ) -> PromptPacket:
-    """Render the v3 artifact-author prompt over the unchanged v2 response wire."""
+    """Render the artifact-author prompt over the response wire."""
 
     context = build_artifact_author_context(view, plan, inventory, runtime_contract)
     sections: tuple[tuple[str, Any], ...] = (

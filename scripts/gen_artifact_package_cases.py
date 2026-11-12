@@ -64,7 +64,7 @@ _FILES = {
     "tool_call_condition.json": _CONDITION,
     "seed.json": json.dumps(_SEED_DOCUMENT, separators=(",", ":")) + "\n",
 }
-# A v5 manifest records only the authoring outcome and an empty creation model.
+# A manifest records only the authoring outcome and an empty creation model.
 _AUTHORING = {
     "status": "accepted",
     "terminal_status": "accepted",

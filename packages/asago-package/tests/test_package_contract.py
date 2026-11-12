@@ -1,7 +1,7 @@
-"""The artifact-package authority contract: v5, which the writer writes and the reader loads.
+"""The artifact-package authority contract, which the writer writes and the reader loads.
 
-The v4 schema stays frozen alongside v5 for the contract cases and the orchestrator's
-mirror; the reader refuses a v4 package. The writer writes only artifact-package-v1.
+The reader refuses a package that states another version. The writer writes only
+artifact-package-v1.
 """
 
 from __future__ import annotations
