@@ -13,7 +13,6 @@ from asago_handoff.condition_eval import (
     NOT_DETECTED,
     ConditionEvaluation,
     evaluate_condition,
-    evaluate_condition_v2,
     validate_condition,
 )
 
@@ -23,6 +22,5 @@ __all__ = [
     "NOT_DETECTED",
     "ConditionEvaluation",
     "evaluate_condition",
-    "evaluate_condition_v2",
     "validate_condition",
 ]

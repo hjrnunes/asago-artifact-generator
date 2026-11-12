@@ -157,7 +157,5 @@ def test_each_evaluator_difference_pins_the_producer_behaviour(
 
 def test_the_consumer_name_is_the_shared_evaluator() -> None:
     from asago_handoff import evaluate_condition as shared
-    from asago_handoff.condition_eval import evaluate_condition_v2
 
     assert evaluate_condition is shared
-    assert evaluate_condition is evaluate_condition_v2
