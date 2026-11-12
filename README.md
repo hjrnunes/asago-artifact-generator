@@ -1483,7 +1483,29 @@ The injection-spec library's tests hold byte copies of MiDojo's own files
 (`packages/asago-injection-spec/tests/fixtures/midojo/injection_spec_document/`), and
 `packages/asago-injection-spec/tests/fixtures/midojo.lock` pins each copy's SHA-256
 and the SDK revision they come from, which the `midojo-spec` pin in `pyproject.toml`
-must match.
+must match. After a repin, copy the vectors from the new revision and run
+`python3 scripts/midojo_lock.py` to rewrite the lock; `--check` changes nothing and
+names each difference.
+
+### Contract copies
+
+Each contract has one maintained source, and a test fails when a copy differs from it.
+CI runs them with the rest of `tests/` and the member sessions.
+
+| Contract | Source | Copy | Test |
+| --- | --- | --- | --- |
+| `model-profile`, `target-profile`, `tool-call-condition` | the producer's `data/contracts/` | `contracts/` | `tests/test_contract_homes.py` (needs the `producer-pair` group) |
+| `execution-receipt`, `tool-bundle` | `contracts/` | `asago-bundle-core` package data | each contract's test in `packages/asago-bundle-core/tests/` |
+| `artifact-package`, `runtime-contract`, `capability-gap` | `asago-package` package data | none | none |
+| `runtime-context` | `contracts/` | none | none |
+
+`tests/test_built_wheels.py` builds the root wheel, `asago-package`, `asago-bundle-core`
+and the producer packages they need, installs them into a fresh environment and reads
+every contract from a directory outside the checkouts. It compares each installed file
+with its source and names every file a wheel lacks. A wheel built from a checkout proves
+what the checkout packages, not what a published wheel carries. `asago-injection-spec` and
+`asago-bundle-garak` ship no contract data of their own, and the `midojo-spec` package
+that carries the injection-spec document contract has no installed-wheel test yet.
 
 ## Project structure
 
@@ -1494,7 +1516,7 @@ must match.
 ├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse and the judge service
 ├── packages/asago-injection-spec/   # injection-spec library (workspace member): a planted_item package to one MiDojo injection spec and a sealed result to evidence
 ├── contracts/                        # the three consumer-owned contracts and the three producer mirrors the app keeps; each contract keeps a version directory (spec.json, schema.json, cases/, README.md) and a lock over its files, the shared core ships scenario-handoff, and the package library ships artifact-package, runtime-contract and capability-gap
-├── scripts/                          # quality, replay, and budget tools
+├── scripts/                          # quality, replay, budget and MiDojo lock tools
 ├── tools/fixture-generators/         # the Garak route's fixture generator, which runs the real probe in a Garak interpreter, and the episode judge verifier
 ├── tests/                            # unit tests
 └── runs/                             # authoring output (gitignored)
