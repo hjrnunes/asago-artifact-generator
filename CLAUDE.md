@@ -291,6 +291,10 @@ the group the module skips and names what it needs.
   injection spec, the consumer envelope, the placement and reachability checks, the
   sealed-result readers, and the judge-turn vocabulary compile and the judge service share.
   `sealed.delivery_shape` checks the raw delivery facts and exposure a trace states.
+  The reader accepts only the current envelope and MiDojo document IDs; sealed
+  outcomes, delivery facts and exposure items name their slots with `slot_key`,
+  and verdicts carry `midojo-verdict-v1` in `schema_version`. Compile writes only
+  `injection-spec.json`.
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-package/tests -q`.

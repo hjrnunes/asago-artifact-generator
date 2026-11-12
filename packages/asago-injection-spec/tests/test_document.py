@@ -1,21 +1,7 @@
-"""The envelope: ``asago-midojo-package-v1``, and the v0 wrapper it reads for one release.
+"""The supported envelope and its pinned MiDojo document vectors.
 
-``fixtures/midojo/`` holds byte copies of MiDojo's own files: ``injection_spec_document/``
-the documents its reader accepts and refuses
-(``tests/fixtures/injection_spec_document/``), and the two documents it moved
-out of the goldens: the cm.58 ``episode.json`` (``legacy_documents/``) and its verdict
-(``verdict_document/``). The snapshot digest vectors MiDojo ships beside them
-(``packages/midojo-spec/vectors/snapshot/vectors.json`` at the pinned revision) are not
-kept as a copy: the route recomputes the digest through ``midojo_spec.snapshot`` itself,
-so there is nothing to pin.
-``test_the_copies_are_midojo_s_own`` pins each copy's sha256 in
-``midojo.lock``, so a copy that changes without the lock fails here; it does not compare a
-copy with MiDojo's file at the pinned revision. Three copies are older than that revision's
-files and are kept as they were recorded, because the owner decided not to re-sync them (a
-later change deletes this adapter): ``injection_spec_document/README.md``,
-``legacy_documents/v0_cm58_episode.json`` and ``verdict_document/v0_cm58_verdict.json``.
-The v0 copy is the cm.58 ``episode.json`` verbatim, the
-file this library wrote before the envelope and the version MiDojo read as v0.
+The lock pins byte copies of MiDojo's injection-spec documents; the snapshot digest
+vectors are read from the installed contracts rather than duplicated here.
 """
 
 from __future__ import annotations
@@ -37,8 +23,6 @@ from asago_injection_spec.document import (
     ENVELOPE_FIELDS,
     ENVELOPE_SCHEMA,
     INJECTION_SPEC_SCHEMA,
-    LEGACY_INJECTION_SPEC_SCHEMA,
-    LEGACY_SCHEMA,
     EnvelopeError,
     UnsupportedEnvelopeVersion,
     build_envelope,
@@ -48,7 +32,6 @@ from asago_injection_spec.document import (
 VECTORS = Path(__file__).parent / "fixtures" / "midojo"
 LOCK = Path(__file__).parent / "fixtures" / "midojo.lock"
 DOCUMENTS = VECTORS / "injection_spec_document"
-V0 = VECTORS / "legacy_documents" / "v0_cm58_episode.json"
 PINNED = json.loads(LOCK.read_text(encoding="utf-8"))
 PINS: dict[str, str] = PINNED["files"]
 
@@ -114,7 +97,6 @@ def test_each_v1_vector_is_a_document_of_the_schema_this_adapter_validates_again
 
 def test_the_schema_constant_is_the_one_the_contracts_name() -> None:
     assert INJECTION_SPEC_SCHEMA == INJECTION_SPEC_DOCUMENT_V1 == "midojo-injection-spec-v1"
-    assert LEGACY_INJECTION_SPEC_SCHEMA == "midojo-episode-v1"
 
 
 def test_build_envelope_writes_the_episode_as_given() -> None:
@@ -162,47 +144,12 @@ def test_a_v1_envelope_reads_back_what_it_wrote() -> None:
     assert envelope.episode == episode
 
 
-def test_read_envelope_takes_a_path() -> None:
-    with pytest.warns(DeprecationWarning):
-        envelope = read_envelope(V0)
+def test_read_envelope_takes_a_path(tmp_path: Path) -> None:
+    path = tmp_path / "injection-spec.json"
+    document = _envelope(_read(DOCUMENTS / "v1_single.json"))
+    path.write_text(json.dumps(document), encoding="utf-8")
 
-    assert envelope.source_version == LEGACY_SCHEMA
-
-
-def test_a_v1_document_under_the_old_id_still_reads() -> None:
-    """A recorded v1 envelope holds the document's old ID; the reader takes it."""
-
-    episode = _read(DOCUMENTS / "v1_single.json") | {
-        "schema_version": LEGACY_INJECTION_SPEC_SCHEMA
-    }
-
-    with pytest.warns(DeprecationWarning, match="midojo-episode-v1") as raised:
-        envelope = read_envelope(_envelope(episode))
-
-    assert "midojo-injection-spec-v1" in str(raised[0].message)
-    assert envelope.source_version == ENVELOPE_SCHEMA
-    assert envelope.episode["schema_version"] == LEGACY_INJECTION_SPEC_SCHEMA
-
-
-def test_the_old_id_is_the_v1_schema_s_closed_shape() -> None:
-    """The old ID names the same closed shape, which is why the reader names both IDs."""
-
-    document = _read(DOCUMENTS / "v1_single.json")
-
-    schema = load_schema()
-    schema["properties"]["schema_version"] = {"const": LEGACY_INJECTION_SPEC_SCHEMA}
-    jsonschema.validate(document | {"schema_version": LEGACY_INJECTION_SPEC_SCHEMA}, schema)
-    with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(document | {"schema_version": "completely-unsupported-id"}, schema)
-
-
-def test_reading_a_v0_wrapper_warns_that_it_is_deprecated() -> None:
-    """MiDojo and orch warn as well: the v0 wrapper is read for one release only."""
-
-    with pytest.warns(DeprecationWarning, match="midojo-episode-v2") as raised:
-        read_envelope(V0)
-
-    assert "asago-midojo-package-v1" in str(raised[0].message)
+    assert read_envelope(path).episode == document["episode"]
 
 
 def test_reading_a_v1_envelope_warns_about_nothing() -> None:
@@ -226,54 +173,21 @@ def test_reading_a_v1_envelope_warns_about_nothing() -> None:
     assert envelope.source_version == ENVELOPE_SCHEMA
 
 
-def test_a_v0_wrapper_reads_as_an_injection_spec_document() -> None:
-    """The cm.58 document: its version, its interception and its tools move inside."""
-
-    envelope = read_envelope(V0)
-
-    assert envelope.source_version == "midojo-episode-v2"
-    assert (envelope.scenario_id, envelope.claim_level) == ("SCN-051", "command_attempt")
-    assert envelope.delivery == "sequential"
-    assert envelope.tool_revision_range == ">=b5b8c752"
-    document = envelope.episode
-    assert document["schema_version"] == INJECTION_SPEC_SCHEMA
-    assert document["turns"] == ["Can you look up ORD-101 for me?", "Thanks, what does it say?"]
-    assert document["interception"] == {"mode": "host", "upstream": None}
-    assert document["verifiers"] == []
-    assert "lookup_order" in document["tools"]["allowed"]
-    assert document["tools"]["write_disposition"] == {
-        "default": "forward",
-        "tools": {
-            "escalate_to_human": "forward",
-            "process_refund": "forward",
-            "schedule_payment": "forward",
-        },
-    }
-    assert document["environment_type"] is None
-    assert set(document) - {
-        "schema_version",
-        "environment_type",
-        "interception",
-        "tools",
-        "verifiers",
-    } == set(_read(V0)["episode"])
-    jsonschema.validate(document, load_schema())
-
-
-@pytest.mark.parametrize("version", ["midojo-episode-v9", "asago-midojo-package-v9", ""])
+@pytest.mark.parametrize("version", ["asago-midojo-package-v9", ""])
 def test_an_unknown_version_is_refused_naming_it(version: str) -> None:
-    document = _read(V0) | {"schema_version": version}
+    document = _envelope(_read(DOCUMENTS / "v1_single.json")) | {"schema_version": version}
 
     with pytest.raises(UnsupportedEnvelopeVersion) as raised:
         read_envelope(document)
 
     assert raised.value.version == version
     assert version in str(raised.value)
-    assert raised.value.supported == (ENVELOPE_SCHEMA, LEGACY_SCHEMA)
+    assert raised.value.supported == (ENVELOPE_SCHEMA,)
 
 
 def test_an_envelope_without_a_version_is_refused() -> None:
-    document = {key: value for key, value in _read(V0).items() if key != "schema_version"}
+    document = _envelope(_read(DOCUMENTS / "v1_single.json"))
+    del document["schema_version"]
 
     with pytest.raises(EnvelopeError, match="schema_version is required"):
         read_envelope(document)
@@ -281,10 +195,10 @@ def test_an_envelope_without_a_version_is_refused() -> None:
 
 def test_a_version_that_is_not_text_is_refused() -> None:
     with pytest.raises(EnvelopeError, match="schema_version must be a string"):
-        read_envelope(_read(V0) | {"schema_version": 1})
+        read_envelope(_envelope(_read(DOCUMENTS / "v1_single.json")) | {"schema_version": 1})
 
 
-@pytest.mark.parametrize("version", ["midojo-episode-v9", "asago-midojo-package-v1"])
+@pytest.mark.parametrize("version", ["midojo-injection-spec-v9", "asago-midojo-package-v9"])
 def test_an_episode_member_of_another_version_is_refused_naming_it(version: str) -> None:
     """The v1 envelope holds a v1 document: another version is a refusal, not a conversion."""
 
@@ -305,34 +219,24 @@ def test_an_episode_member_of_another_version_is_refused_naming_it(version: str)
 
     assert raised.value.version == version
     assert raised.value.where == "episode"
-    assert raised.value.supported == (INJECTION_SPEC_SCHEMA, LEGACY_INJECTION_SPEC_SCHEMA)
+    assert raised.value.supported == (INJECTION_SPEC_SCHEMA,)
     assert version in str(raised.value)
 
 
-@pytest.mark.parametrize("version", [ENVELOPE_SCHEMA, LEGACY_SCHEMA])
-def test_an_unknown_key_is_refused(version: str) -> None:
-    """Both envelopes are closed: a key this adapter does not read fails the receipt."""
+def test_an_unknown_key_is_refused() -> None:
+    """An unknown envelope key is refused."""
 
-    if version == ENVELOPE_SCHEMA:
-        document = _envelope(_read(DOCUMENTS / "v1_single.json"))
-    else:
-        document = copy.deepcopy(_read(V0))
+    document = _envelope(_read(DOCUMENTS / "v1_single.json"))
 
     with pytest.raises(EnvelopeError, match="unknown key 'extra'; the document is closed"):
         read_envelope(document | {"extra": None})
 
 
-def test_a_v0_episode_with_an_unknown_key_is_refused() -> None:
-    document = copy.deepcopy(_read(V0))
-    document["episode"]["runtime_query"] = None
-
-    with pytest.raises(EnvelopeError, match="unknown key 'runtime_query'"):
-        read_envelope(document)
-
-
 @pytest.mark.parametrize("delivery", ["", "streaming", None])
 def test_a_delivery_this_adapter_does_not_write_is_refused(delivery: Any) -> None:
-    document = copy.deepcopy(_read(V0)) | {"delivery": delivery}
+    document = copy.deepcopy(_envelope(_read(DOCUMENTS / "v1_single.json"))) | {
+        "delivery": delivery
+    }
 
     with pytest.raises(EnvelopeError, match="delivery"):
         read_envelope(document)
@@ -344,21 +248,23 @@ def test_the_deliveries_are_the_two_the_compiler_writes() -> None:
 
 @pytest.mark.parametrize("name", ["package_id", "scenario_id", "package_digest", "claim_level"])
 def test_a_field_that_is_not_text_is_refused(name: str) -> None:
-    document = _read(V0) | {name: ["not", "text"]}
+    document = _envelope(_read(DOCUMENTS / "v1_single.json")) | {name: ["not", "text"]}
 
     with pytest.raises(EnvelopeError, match=f"{name} must be a non-empty string"):
         read_envelope(document)
 
 
 def test_placements_that_are_not_an_array_of_objects_are_refused() -> None:
-    document = copy.deepcopy(_read(V0)) | {"placements": ["piggybank.note.body"]}
+    document = copy.deepcopy(_envelope(_read(DOCUMENTS / "v1_single.json"))) | {
+        "placements": ["piggybank.note.body"]
+    }
 
     with pytest.raises(EnvelopeError, match="placements entry must be a JSON object"):
         read_envelope(document)
 
 
 def test_turns_that_are_not_text_are_refused() -> None:
-    document = copy.deepcopy(_read(V0))
+    document = copy.deepcopy(_envelope(_read(DOCUMENTS / "v1_single.json")))
     document["episode"]["turns"] = [1, 2]
 
     with pytest.raises(EnvelopeError, match="turns must be an array of non-empty strings"):
@@ -366,7 +272,7 @@ def test_turns_that_are_not_text_are_refused() -> None:
 
 
 def test_a_plan_that_is_not_an_object_or_null_is_refused() -> None:
-    document = copy.deepcopy(_read(V0))
+    document = copy.deepcopy(_envelope(_read(DOCUMENTS / "v1_single.json")))
     document["episode"]["plan"] = "instructions"
 
     with pytest.raises(EnvelopeError, match="plan must be a JSON object or null"):
@@ -376,19 +282,14 @@ def test_a_plan_that_is_not_an_object_or_null_is_refused() -> None:
 def test_an_episode_without_a_plan_still_reads() -> None:
     """MiDojo's document makes the plan optional; a receipt reads such an episode unread."""
 
-    document = copy.deepcopy(_read(V0))
+    document = copy.deepcopy(_envelope(_read(DOCUMENTS / "v1_single.json")))
     del document["episode"]["plan"]
 
-    assert read_envelope(document).episode["plan"] is None
-
-    episode = _read(DOCUMENTS / "v1_single.json")
-    del episode["plan"]
-
-    assert "plan" not in read_envelope(_envelope(episode)).episode
+    assert "plan" not in read_envelope(document).episode
 
 
 def test_an_episode_without_a_runtime_is_refused() -> None:
-    document = copy.deepcopy(_read(V0))
+    document = copy.deepcopy(_envelope(_read(DOCUMENTS / "v1_single.json")))
     del document["episode"]["runtime"]
 
     with pytest.raises(EnvelopeError, match="runtime must be a JSON object"):

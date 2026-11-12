@@ -1191,26 +1191,11 @@ document, and `injection_spec_document` builds it against `midojo_spec.injection
 - `verifiers`: always `[]`. MiDojo's built-in checks grade every episode, so the runner
   registers no verifier, and the directory holds `injection-spec.json` alone.
 
-The envelope names one MiDojo revision range for every case, `>=2a794f3`: the first
-revision that carries every capability the document uses, `b5b8c75` (a target that matches
-the call's arguments), `3824922` (the text block that mirrors the structured content),
-`c0bee12` (`result_record` targets) and `cab2a35` (`reply_judge`), and that reads the
-document's new ID, `midojo-injection-spec-v1`. `8e8208f`, the range the recorded fixtures
-name, reads only the old ID. The recorded fixtures keep the old ID and the range they
-name: they are recorded data, read as written.
-
-`parse` and the library's `read_envelope` also read the older `midojo-episode-v2` wrapper
-that `compile` wrote before this release, the bare episode with `tools` and `placements` at
-the top level, and convert it to the v1 document. A document that keeps the old ID
-`midojo-episode-v1` reads too, warning that it is deprecated, and so does one under the
-pre-rename filename `episode.json`, which every recorded fixture keeps. Any other
-version, of the envelope or of its `episode` member, is refused, naming the version and
-what is supported.
-
-The adapter's modules carry the document's new name. `injection_spec_compile` writes it
-and `injection_spec` builds it; the pre-rename `episode_compile` and `episode` modules are
-gone, and their importers name `asago_injection_spec.injection_spec_compile` and
-`.injection_spec`.
+The envelope names the MiDojo revision range `>=2a794f3`, which supports the
+document ID `midojo-injection-spec-v1` and its required interception and grading
+capabilities. `compile` writes only `injection-spec.json`. `read_envelope` accepts
+`asago-midojo-package-v1` with a `midojo-injection-spec-v1` member; an unsupported
+version of either names the refused version and the supported one.
 
 A command attempt is checked by MiDojo's `tool_call_condition` predicate. A reply is
 checked by MiDojo's `reply_judge` predicate, at `episode.security.reply_judge`:
@@ -1346,13 +1331,10 @@ whose result names the record, are not checked: the interceptor finds the record
 call's result, and which call returns it depends on argument values the declarations do
 not tie to it.
 
-`parse` reads the snapshot as MiDojo's `GET .../snapshot` returns it and the verdict as
-`{evaluation_id, snapshot_id, grade}`, with or without `schema_version`
-`midojo-verdict-v1`: a versioned verdict reads into the same receipt fields as an
-unversioned one. The route checks the verdict's shape, not its version: a verdict that
-names another `schema_version` still reads, because the shape check admits either the
-versioned or the versionless field set (the injection-spec library's
-`verdict_version_reason` names a version it refuses, but this route does not call it).
+`parse` reads the snapshot as MiDojo's `GET .../snapshot` returns it and
+requires a `midojo-verdict-v1` verdict with `schema_version`, `evaluation_id`,
+`snapshot_id`, and `grade`. The sealed reader refuses an unsupported version by
+name; a verdict without a version is malformed.
 A reply episode's grade (from
 `cab2a35`) also carries
 `judgements`, MiDojo's record of each judge request and answer, a list of objects; `parse`
@@ -1501,9 +1483,7 @@ Each workspace member runs in its own session, for example
 `uv run pytest packages/asago-bundle-core/tests -q`.
 
 The injection-spec library's tests hold byte copies of MiDojo's own files
-(`packages/asago-injection-spec/tests/fixtures/midojo/`: the injection-spec documents
-under `injection_spec_document/`, and the documents MiDojo filed under
-`legacy_documents/` and `verdict_document/`), and
+(`packages/asago-injection-spec/tests/fixtures/midojo/injection_spec_document/`), and
 `packages/asago-injection-spec/tests/fixtures/midojo.lock` pins each copy's SHA-256
 and the SDK revision they come from, which the `midojo-spec` pin in `pyproject.toml`
 must match.

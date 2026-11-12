@@ -115,6 +115,13 @@ def test_an_unknown_version_is_named_before_the_utility_grade(tmp_path: Path) ->
     assert read(written(tmp_path, verdict)) == (None, "verdict_version_unknown:midojo-verdict-v9")
 
 
+def test_a_verdict_without_a_version_is_malformed(tmp_path: Path) -> None:
+    verdict = verdict_of()
+    del verdict["schema_version"]
+
+    assert read(written(tmp_path, verdict)) == (None, "verdict_malformed")
+
+
 def test_the_utility_block_states_that_no_check_applied() -> None:
     assert utility_block({"snapshot_id": SNAPSHOT_ID}) == {
         "value": None,

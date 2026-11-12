@@ -105,11 +105,6 @@ from asago_bundle_core.mcp_records import read_json, text
 
 from .document import Envelope
 
-# The names term.5a renamed, read from a document recorded before it: the receipt's
-# ``episode`` block (now ``evaluation``) and ``route`` (now ``driver``), the instruction's
-# ``probe_key`` (now ``slot_key``) in an outcome, a delivery fact or an exposure item, and
-# the delivery document's version.
-LEGACY_SLOT_KEY = "probe_key"
 OUTCOMES = {True: "detected", False: "not_detected", None: "inconclusive"}
 INCONCLUSIVE = "inconclusive"
 # A false security grade the payload never reached: the reason says why it is not a resistance.
@@ -150,8 +145,6 @@ CALL_FIELDS = frozenset(
 # What a call record gains from 3824922 (``types.FunctionCallRecord``): both or neither.
 CALL_DETAIL_FIELDS = frozenset({"structured_content", "injection_outcomes"})
 OUTCOME_FIELDS = frozenset({"instruction_index", "slot_key", "occurrence", "status", "detail"})
-# A CallInjectionOutcome sealed before term.5a names the instruction's slot key ``probe_key``.
-LEGACY_OUTCOME_FIELDS = OUTCOME_FIELDS - {"slot_key"} | {LEGACY_SLOT_KEY}
 # What an outcome gains from 13d5487 (``types.CallInjectionOutcome``): its delivery facts, all or
 # none.
 FACT_FIELDS = frozenset({"selected", "transformation", "emitted"})
@@ -188,10 +181,7 @@ TURN_FIELDS = frozenset({"index", "message", "reply", "started_at", "ended_at"})
 FAILURE_FIELDS = frozenset({"call_id", "function", "phase", "reason", "stage", "by", "at"})
 CAPTURE_PHASES = frozenset({"start", "finish"})
 VERDICT_SCHEMA_VERSION = "midojo-verdict-v1"
-# The verdict a runner writes from cab2a35 names its version; the cm.58 artifacts carry the
-# versionless v0 form, which MiDojo reads and so does this receipt.
 VERDICT_FIELDS = frozenset({"schema_version", "evaluation_id", "snapshot_id", "grade"})
-VERDICT_V0_FIELDS = VERDICT_FIELDS - {"schema_version"}
 GRADED = ("utility", "security")
 # MiDojo assigns ``not_applicable`` to a check the injection spec does not author, and grades it
 # ``False`` beside it; any other status means the check ran.
@@ -212,8 +202,7 @@ ATTACK_OUTCOME = ("attempted", "blocked", "effect_observed", "injection_delivere
 JUDGEMENTS = "judgements"
 DELIVERY_FIELDS = frozenset({"evaluation_id", "snapshot_id", "delivery", "exposure"})
 # ``delivery.DeliveryFact``, ``delivery.Exposure`` and ``delivery.InstructionExposure``.
-# The delivery file contract is gone, so this shape checks the raw facts only: the slot key
-# reads under either name (``slot_key_of``), as a document recorded before term.5a wrote it.
+# The delivery file contract is gone; check the raw facts directly.
 DELIVERY_FACT_FIELDS = frozenset(
     {
         "call_id",
@@ -301,10 +290,9 @@ def read_document(
     """Read one sealed document and check its shape.
 
     ``version_reason``, when given, reads a document that names a ``schema_version`` first: it
-    returns why this reader refuses that version (naming it in the reason), or None. A
-    versionless document passes, which is how the cm.58 verdicts read. ``refusal_reason``,
-    when given, reads a document whose shape holds: it returns why this reader refuses what
-    the document states, under a reason of its own, or None.
+    returns why this reader refuses that version (naming it in the reason), or None.
+    A missing version proceeds to the shape check. ``refusal_reason`` can reject a
+    well-shaped document under a distinct reason.
     """
 
     if not path.is_file():
@@ -347,14 +335,9 @@ def _optional_text(value: Any) -> bool:
 
 
 def slot_key_of(item: dict[str, Any]) -> Any:
-    """Return an outcome's or a delivery fact's slot key: ``slot_key``, else v1's ``probe_key``.
+    """Return the slot key named by a sealed outcome or delivery fact."""
 
-    A seal or a delivery document recorded before term.5a names it ``probe_key``; MiDojo
-    writes ``slot_key`` since the rename, and the receipt's current version names the field
-    that way. A document that names both reads ``slot_key``.
-    """
-
-    return item.get("slot_key", item.get(LEGACY_SLOT_KEY))
+    return item.get("slot_key")
 
 
 def _one_of(value: Any, allowed: Any) -> bool:
@@ -399,7 +382,7 @@ def _details_shape(call: dict[str, Any]) -> bool:
 
 def _outcome_shape(outcome: Any) -> bool:
     """``CallInjectionOutcome``: the instruction's index in the plan (from 0), its slot key
-    (``slot_key``; ``probe_key`` in a seal recorded before term.5a), which
+    (``slot_key``), which
     matching call of the instruction's this was (from 1, or 0 for an ``unmatched`` call whose
     arguments did not match the instruction's ``call_arguments`` or whose result did not
     match its ``result_record``), its status and why, and, sealed from 13d5487, its delivery
@@ -413,8 +396,6 @@ def _outcome_shape(outcome: Any) -> bool:
         in (
             OUTCOME_FIELDS,
             OUTCOME_FIELDS | FACT_FIELDS,
-            LEGACY_OUTCOME_FIELDS,
-            LEGACY_OUTCOME_FIELDS | FACT_FIELDS,
         )
         and type(outcome["instruction_index"]) is int
         and outcome["instruction_index"] >= 0
@@ -532,8 +513,7 @@ def evidence_shape(status: Any) -> bool:
 def verdict_version_reason(verdict: dict[str, Any]) -> str | None:
     """Return why this reader refuses the verdict's version, naming it; None reads it.
 
-    ``midojo-verdict-v1`` is the document a runner writes; a versionless verdict is the v0
-    form MiDojo reads and so does this receipt.
+    A missing version proceeds to the shape check, which refuses the missing field.
     """
 
     if "schema_version" not in verdict:
@@ -545,7 +525,7 @@ def verdict_version_reason(verdict: dict[str, Any]) -> str | None:
 
 
 def verdict_shape(verdict: dict[str, Any]) -> bool:
-    """The verdict is ``Verdict`` (its v1 document or the versionless v0 form), its grade
+    """The verdict is MiDojo's versioned ``Verdict``; its grade is
     MiDojo's ``GradeResponse``, field for field (the attack outcome all or none,
     ``judgements`` optional), and the security grade agrees with its validity: unknown exactly
     when ``invalid``. A decided security grade carries its ``security_reason``, the receipt's
@@ -553,7 +533,7 @@ def verdict_shape(verdict: dict[str, Any]) -> bool:
 
     grade = verdict.get("grade")
     if not (
-        set(verdict) in (VERDICT_FIELDS, VERDICT_V0_FIELDS)
+        set(verdict) == VERDICT_FIELDS
         and isinstance(verdict["evaluation_id"], str)
         and isinstance(verdict["snapshot_id"], str)
         and isinstance(grade, dict)
@@ -602,9 +582,7 @@ def delivery_shape(document: dict[str, Any]) -> bool:
     field.
 
     The delivery file contract is gone, so no version selects the shape. Each fact and
-    instruction item names the instruction's slot key under either name, ``slot_key`` or the
-    ``probe_key`` a run recorded before term.5a wrote (``slot_key_of``); a document that
-    names both reads ``slot_key``.
+    instruction item names the instruction's ``slot_key``.
     """
 
     exposure = document.get("exposure")
@@ -629,11 +607,7 @@ def _index(value: Any) -> bool:
 def _delivery_fact_shape(fact: Any) -> bool:
     return (
         isinstance(fact, dict)
-        and (
-            set(fact) - PLACEMENT_FIELDS == DELIVERY_FACT_FIELDS
-            or set(fact) - PLACEMENT_FIELDS
-            == DELIVERY_FACT_FIELDS - {"slot_key"} | {LEGACY_SLOT_KEY}
-        )
+        and set(fact) - PLACEMENT_FIELDS == DELIVERY_FACT_FIELDS
         and isinstance(fact["call_id"], str)
         and isinstance(fact["function"], str)
         and _one_of(fact["disposition"], DISPOSITIONS)
@@ -649,10 +623,7 @@ def _delivery_fact_shape(fact: Any) -> bool:
 def _instruction_exposure_shape(item: Any) -> bool:
     return (
         isinstance(item, dict)
-        and (
-            set(item) == INSTRUCTION_EXPOSURE_FIELDS
-            or set(item) == INSTRUCTION_EXPOSURE_FIELDS - {"slot_key"} | {LEGACY_SLOT_KEY}
-        )
+        and set(item) == INSTRUCTION_EXPOSURE_FIELDS
         and _index(item["plan_instruction_index"])
         and isinstance(item["channel"], str)
         and _optional_text(slot_key_of(item))
@@ -826,7 +797,7 @@ def evaluation_block(
         "delivery": None
         if delivery is None
         else [_unplaced(fact) for fact in delivery["delivery"]],
-        "exposure": None if delivery is None else _exposure(delivery["exposure"]),
+        "exposure": None if delivery is None else delivery["exposure"],
         "utility": utility_block(snapshot),
     }
 
@@ -850,48 +821,9 @@ def utility_block(snapshot: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def _unplaced(item: dict[str, Any]) -> dict[str, Any]:
-    """``item`` without what MiDojo sealed of its placement (``PLACEMENT_FIELDS``), and with its
-    slot key under the receipt's current name: the receipt carries an outcome's placement as
-    ``payload_sha256`` and ``slot`` (``placed_fields``)."""
+    """Omit the placement fields; the receipt carries them on the outcome."""
 
-    return _renamed_slot_key(
-        {key: value for key, value in item.items() if key not in PLACEMENT_FIELDS}
-    )
-
-
-def _renamed_slot_key(item: dict[str, Any]) -> dict[str, Any]:
-    """Return ``item`` with its slot key under the receipt's current name (``slot_key``).
-
-    A seal or a delivery document recorded before term.5a names it ``probe_key``; the
-    receipt's current version never does.
-    """
-
-    slot = slot_key_of(item)
-    renamed: dict[str, Any] = {}
-    named = False
-    for key, value in item.items():
-        if key == "slot_key":
-            renamed["slot_key"] = slot
-            named = True
-        elif key == LEGACY_SLOT_KEY:
-            if not named:
-                renamed["slot_key"] = slot
-                named = True
-        else:
-            renamed[key] = value
-    if not named:
-        renamed["slot_key"] = slot
-    return renamed
-
-
-def _exposure(exposure: dict[str, Any]) -> dict[str, Any]:
-    """Return a delivery document's exposure as the receipt carries it: its instruction items
-    with their slot key under the current name."""
-
-    return {
-        **exposure,
-        "instructions": [_renamed_slot_key(item) for item in exposure["instructions"]],
-    }
+    return {key: value for key, value in item.items() if key not in PLACEMENT_FIELDS}
 
 
 def call_injections(

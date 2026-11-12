@@ -80,6 +80,7 @@ from asago_injection_spec.sealed import (
     snapshot_shape,
     verdict_shape,
     verdict_utility_reason,
+    verdict_version_reason,
 )
 
 from .compiler import (
@@ -640,13 +641,19 @@ def sealed_snapshot(trace: dict[str, Any]) -> dict[str, Any] | None:
 def sealed_verdict(trace: dict[str, Any]) -> dict[str, Any] | None:
     """Return the verdict the trace sealed, or None when it states none this parser reads.
 
+    An unsupported version is refused before the shape check.
     A verdict whose grade ran a utility check is one this parser does not read
     (``verdict_utility_reason``): the receipt records no utility check, so it states none of
     that grade.
     """
 
     found = trace.get("verdict")
-    if isinstance(found, dict) and verdict_shape(found) and verdict_utility_reason(found) is None:
+    if (
+        isinstance(found, dict)
+        and verdict_version_reason(found) is None
+        and verdict_shape(found)
+        and verdict_utility_reason(found) is None
+    ):
         return found
     return None
 
@@ -710,11 +717,14 @@ def unreadable_document(document: Any, prefix: str) -> str:
 def unreadable_verdict(document: Any) -> str:
     """Return the reason MiDojo's reader names for a sealed verdict it cannot read.
 
-    That is ``unreadable_document``'s, except for a verdict whose shape holds and whose grade
-    ran a utility check: ``verdict_utility_graded`` (``verdict_utility_reason``), its own
-    reason, so a refused check never reads as a malformed verdict.
+    An unsupported version is named. A verdict whose shape holds but whose grade ran a
+    utility check gets ``verdict_utility_graded``, not ``verdict_malformed``.
     """
 
+    if isinstance(document, dict):
+        unknown = verdict_version_reason(document)
+        if unknown is not None:
+            return unknown
     if isinstance(document, dict) and verdict_shape(document):
         refused = verdict_utility_reason(document)
         if refused is not None:

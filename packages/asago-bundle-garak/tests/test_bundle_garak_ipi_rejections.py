@@ -32,7 +32,7 @@ from ipi_cases import (
 from midojo_spec.snapshot import snapshot_digest
 
 from asago_bundle_garak.report_parse import parse_report
-from asago_injection_spec.sealed import UNDELIVERED, UNRECORDED_DELIVERY, slot_id
+from asago_injection_spec.sealed import UNDELIVERED, UNRECORDED_DELIVERY, delivery_shape, slot_id
 from conftest import receipt_payload
 
 TEXTS = ("Can you read me my notes?",)
@@ -276,6 +276,26 @@ def test_a_delivery_mismatch_outranks_the_grade(tmp_path: Path) -> None:
 # --- the published shapes: what MiDojo's own reader pins --------------------------------
 
 
+def test_an_unsupported_verdict_version_fails_naming_it(tmp_path: Path) -> None:
+    sealed = sealed_trace()
+    sealed["verdict"]["schema_version"] = "midojo-verdict-v9"
+
+    receipt = parse(make_rejection(tmp_path, sealed))
+
+    assert receipt["incomplete_reason"] == "verdict_version_unknown:midojo-verdict-v9"
+    assert receipt["attempts"] == []
+
+
+def test_a_verdict_without_a_version_is_malformed(tmp_path: Path) -> None:
+    sealed = sealed_trace()
+    del sealed["verdict"]["schema_version"]
+
+    receipt = parse(make_rejection(tmp_path, sealed))
+
+    assert receipt["incomplete_reason"] == "verdict_malformed"
+    assert receipt["attempts"] == []
+
+
 def test_a_decided_grade_without_its_security_reason_is_malformed(tmp_path: Path) -> None:
     """A decided grade carries its reason: the receipt's explanation of the outcome."""
 
@@ -393,6 +413,45 @@ def test_a_call_whose_outcome_details_are_not_midojo_s_is_malformed(
 
     assert receipt["incomplete_reason"] == "snapshot_malformed"
     assert receipt["attempts"] == []
+
+
+def test_an_outcome_with_probe_key_instead_of_slot_key_is_malformed(
+    tmp_path: Path,
+) -> None:
+    """A sealed outcome must name its slot with the current field."""
+
+    def mutate(outcome: dict[str, Any]) -> None:
+        outcome["probe_key"] = outcome.pop("slot_key")
+
+    receipt = parse(make_rejection(tmp_path, outcome=mutate))
+
+    assert receipt["incomplete_reason"] == "snapshot_malformed"
+    assert receipt["attempts"] == []
+
+
+@pytest.mark.parametrize("member", ["delivery", "exposure"])
+def test_delivery_shape_refuses_probe_key_instead_of_slot_key(tmp_path: Path, member: str) -> None:
+    """A delivery fact or exposure item with an old slot field supplies no delivery."""
+
+    def mutate(sealed: dict[str, Any]) -> None:
+        if member == "delivery":
+            fact = sealed["delivery"][0]
+        else:
+            fact = sealed["exposure"]["instructions"][0]
+        fact["probe_key"] = fact.pop("slot_key")
+        assert not delivery_shape(
+            {
+                "evaluation_id": sealed["evaluation_id"],
+                "snapshot_id": sealed["snapshot_id"],
+                "delivery": sealed["delivery"],
+                "exposure": sealed["exposure"],
+            }
+        )
+
+    receipt = parse(make_rejection(tmp_path, mutate=mutate))
+
+    assert receipt["evaluation"]["delivery"] is None
+    assert receipt["evaluation"]["exposure"] is None
 
 
 def test_a_delivery_document_that_is_not_midojo_s_states_no_delivery(tmp_path: Path) -> None:

@@ -42,26 +42,6 @@ def receipt_payload(document: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in document.items() if key != "contract"}
 
 
-def as_current_slot_keys(item: Any) -> Any:
-    """Return ``item`` with every ``probe_key`` renamed to ``slot_key``, recursively.
-
-    A run recorded before term.5a seals a delivery fact, an exposure item and an injection
-    outcome with ``probe_key``; the receipt always carries the current name. Comparing a
-    receipt with a recorded document means renaming the recorded one.
-    """
-
-    if isinstance(item, list):
-        return [as_current_slot_keys(entry) for entry in item]
-    if isinstance(item, dict):
-        renamed = {
-            key: as_current_slot_keys(value) for key, value in item.items() if key != "probe_key"
-        }
-        if "probe_key" in item:
-            renamed.setdefault("slot_key", as_current_slot_keys(item["probe_key"]))
-        return renamed
-    return item
-
-
 _ACCOUNT_SCHEMA = {
     "type": "object",
     "properties": {"account_id": {"type": "string"}, "balance": {"type": "number"}},

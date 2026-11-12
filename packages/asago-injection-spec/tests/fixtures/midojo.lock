@@ -1,7 +1,7 @@
 {
   "source": "midojo local 32e3b541244459626582ca00f31ac91ec29e06d2",
   "files": {
-    "injection_spec_document/README.md": "7c9c10208e82debf4cce80affbeb385cbc6ec1ab48eb1c4e05973e1fbcdc5d98",
+    "injection_spec_document/README.md": "765e33dfa71f05e3130dab881e0a6d0de72ecc14fe33cd37498af0dc78b4aff0",
     "injection_spec_document/generate.py": "c9df22b25f6db2317d621a32a9da562a829d9a0b570bdd7d11d434fb6747bc38",
     "injection_spec_document/refused_bad_disposition.json": "799761dd1059743922987d479cbdb5465f48c3412f5d9be169921901608e2215",
     "injection_spec_document/refused_nonempty_verifiers.json": "92beb0007ddb2a3d4ef17699d0af90928a6c5063d920db4571acaff86bad6e13",
@@ -13,8 +13,6 @@
     "injection_spec_document/v1_openshell.json": "bee6f79df5f2e32edb50989cef7ab9ad73f2bb943de7c0c156718e921b5125f1",
     "injection_spec_document/v1_reply_judge.json": "bd14fd0c84add8bf92b39abf2ed3057c0cf239a1185fe1e577850ab2ddef245b",
     "injection_spec_document/v1_sequential.json": "4abd877898c042844cc46f6055314cae33484c7727b067b9798009aab2574bce",
-    "injection_spec_document/v1_single.json": "f3045916bd7ce7e3339deb4e22cb9b4bb1abf0a1e92dbc1b18130780b26fc6f0",
-    "legacy_documents/v0_cm58_episode.json": "2ed42034d7332094ca1548947da6cc0139181596f9c3c187e9961c5448969e49",
-    "verdict_document/v0_cm58_verdict.json": "1bb55e5f91705c826a51823d2d885833335707dbd7ff75a02e81d045e980eaf7"
+    "injection_spec_document/v1_single.json": "f3045916bd7ce7e3339deb4e22cb9b4bb1abf0a1e92dbc1b18130780b26fc6f0"
   }
 }
