@@ -983,7 +983,7 @@ OLDER_CALL1_ENTRY = replay_gate.ExpectedPromptDifference(
     template="authoring-call1",
     from_prompt_version="authoring-call1-v26",
     to_prompt_version=CALL1_PROMPT_VERSION_V31,
-    bead="asago-vfh7",
+    bead="item-a",
     reason="the vfh7 recording carries authoring-call1-v26",
 )
 
@@ -1386,7 +1386,7 @@ def test_gate_fails_an_entry_the_recording_carries_but_matches_nothing(
         template="authoring-call1",
         from_prompt_version="authoring-call1-v26",
         to_prompt_version="authoring-call1-v32",
-        bead="asago-vfh7",
+        bead="item-a",
         reason="an entry whose to-version the code does not render",
     )
     _rewrite_prompt(
@@ -1415,7 +1415,7 @@ def _superseded(
     stage: str = "call1",
     prompt_version: str = CALL1_PROMPT_VERSION_V31,
     prompt_sha256: str = "a" * 64,
-    bead: str = "asago-t971",
+    bead: str = "item-b",
     reason: str = "t971 re-authors the recorded item",
 ) -> replay_gate.SupersededItem:
     """Return a synthetic item-level superseded declaration."""
@@ -1451,7 +1451,7 @@ def _superseded_mismatch(dispatch_index: int = 1, stage: str = "call1") -> dict[
 def test_gate_declares_a_superseded_item_and_passes(
     unresolved_stage: Path, tmp_path: Path
 ) -> None:
-    _rewrite_prompt(unresolved_stage, 1, user="the prompt asago-t971 replaced")
+    _rewrite_prompt(unresolved_stage, 1, user="the prompt item-b replaced")
     entry = _superseded(prompt_sha256=_recorded_digest_at(unresolved_stage, 1))
 
     result = run_gate(unresolved_stage, work=tmp_path / "work", superseded=(entry,))
@@ -1466,7 +1466,7 @@ def test_gate_declares_a_superseded_item_and_passes(
     assert "superseded: 1 declared superseded items" in report
     assert (
         "  superseded: run-test SCN-901 dispatch 1"
-        f" (call1, {CALL1_PROMPT_VERSION_V31}): bead asago-t971:"
+        f" (call1, {CALL1_PROMPT_VERSION_V31}): bead item-b:"
         " t971 re-authors the recorded item"
     ) in report
     assert asdict(item)["superseded"]["recording"] == "run-test"
@@ -1495,7 +1495,7 @@ def test_gate_matches_a_superseded_item_a_declared_difference_covered(
         template="authoring-call1",
         from_prompt_version=from_version,
         to_prompt_version=CALL1_PROMPT_VERSION_V31,
-        bead="asago-7bt8.6",
+        bead="item-c",
         reason="the declared change that covers the pinned dispatch",
     )
 
@@ -1520,7 +1520,7 @@ def test_gate_matches_a_superseded_item_a_declared_difference_covered(
 def test_gate_fails_a_superseded_declaration_at_another_dispatch(
     unresolved_stage: Path, tmp_path: Path
 ) -> None:
-    _rewrite_prompt(unresolved_stage, 2, user="a later prompt asago-t971 did not declare")
+    _rewrite_prompt(unresolved_stage, 2, user="a later prompt item-b did not declare")
     entry = _superseded(prompt_sha256=_recorded_digest_at(unresolved_stage, 1))
 
     result = run_gate(unresolved_stage, work=tmp_path / "work", superseded=(entry,))
@@ -1639,7 +1639,7 @@ def test_stage_report_names_each_superseded_item() -> None:
     assert "superseded: 1 declared superseded items" in report
     assert (
         "  superseded: gsx7-author-klarna SCN-008 dispatch 5"
-        " (correction, authoring-correction-v48): bead asago-t971:"
+        " (correction, authoring-correction-v48): bead item-b:"
         " fd0de5a adds the binding_in_fixed_turn finding"
     ) in report
 
@@ -1659,7 +1659,7 @@ def test_stage_report_names_a_stale_superseded_item() -> None:
     assert "superseded: 0 declared superseded items" in report
     assert (
         "  stale superseded item: run-test SCN-901 dispatch 1"
-        f" (call1, {CALL1_PROMPT_VERSION_V31}): bead asago-t971:"
+        f" (call1, {CALL1_PROMPT_VERSION_V31}): bead item-b:"
         " the recording no longer mismatches at the declared dispatch"
     ) in report
 
@@ -1891,7 +1891,7 @@ def test_main_uses_the_declared_superseded_items(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _rewrite_prompt(unresolved_stage, 1, user="the prompt asago-t971 replaced")
+    _rewrite_prompt(unresolved_stage, 1, user="the prompt item-b replaced")
     entry = _superseded(prompt_sha256=_recorded_digest_at(unresolved_stage, 1))
     monkeypatch.setattr(replay_gate, "SUPERSEDED_ITEMS", (entry,))
 
@@ -1901,7 +1901,7 @@ def test_main_uses_the_declared_superseded_items(
     output = capsys.readouterr().out
     assert (
         "  superseded: run-test SCN-901 dispatch 1"
-        f" (call1, {CALL1_PROMPT_VERSION_V31}): bead asago-t971:"
+        f" (call1, {CALL1_PROMPT_VERSION_V31}): bead item-b:"
     ) in output
     assert "superseded:      1" in output
     assert output.splitlines()[-1] == "PASS"
