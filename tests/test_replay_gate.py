@@ -984,7 +984,7 @@ OLDER_CALL1_ENTRY = replay_gate.ExpectedPromptDifference(
     from_prompt_version="authoring-call1-v26",
     to_prompt_version=CALL1_PROMPT_VERSION_V31,
     bead="item-a",
-    reason="the vfh7 recording carries authoring-call1-v26",
+    reason="the older recording carries authoring-call1-v26",
 )
 
 
@@ -1416,7 +1416,7 @@ def _superseded(
     prompt_version: str = CALL1_PROMPT_VERSION_V31,
     prompt_sha256: str = "a" * 64,
     bead: str = "item-b",
-    reason: str = "t971 re-authors the recorded item",
+    reason: str = "a re-authoring replaces the recorded item",
 ) -> replay_gate.SupersededItem:
     """Return a synthetic item-level superseded declaration."""
 
@@ -1467,7 +1467,7 @@ def test_gate_declares_a_superseded_item_and_passes(
     assert (
         "  superseded: run-test SCN-901 dispatch 1"
         f" (call1, {CALL1_PROMPT_VERSION_V31}): bead item-b:"
-        " t971 re-authors the recorded item"
+        " a re-authoring replaces the recorded item"
     ) in report
     assert asdict(item)["superseded"]["recording"] == "run-test"
 
