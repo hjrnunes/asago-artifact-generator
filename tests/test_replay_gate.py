@@ -988,7 +988,7 @@ OLDER_CALL1_ENTRY = replay_gate.ExpectedPromptDifference(
 )
 
 
-def _ff36f1c_entry() -> replay_gate.ExpectedPromptDifference:
+def _older_call1_entry() -> replay_gate.ExpectedPromptDifference:
     """Return the call-1 declaration the matching tests use."""
 
     return OLDER_CALL1_ENTRY
@@ -1152,7 +1152,7 @@ def _prompt_attempt(version: str, user: str, **fields: object) -> dict:
 
 
 def test_a_declared_difference_leaves_the_rest_of_its_attempt_compared(tmp_path: Path) -> None:
-    entry = _ff36f1c_entry()
+    entry = _older_call1_entry()
     recorded = {
         "attempts": [_prompt_attempt(entry.from_prompt_version, "older prompt", status="accepted")]
     }
@@ -1176,7 +1176,7 @@ def test_a_declared_difference_leaves_the_rest_of_its_attempt_compared(tmp_path:
 
 
 def test_an_undeclared_prompt_difference_is_reported(tmp_path: Path) -> None:
-    entry = _ff36f1c_entry()
+    entry = _older_call1_entry()
     recorded = {"attempts": [_prompt_attempt(entry.from_prompt_version, "older prompt")]}
     replayed = {"attempts": [_prompt_attempt(entry.to_prompt_version, "current prompt")]}
 
@@ -1230,7 +1230,7 @@ def _digest_attempt(version: str, digest: str, **fields: object) -> dict:
 def test_a_declared_version_pair_masks_a_dispatch_whose_messages_do_not_change(
     tmp_path: Path,
 ) -> None:
-    entry = _ff36f1c_entry()
+    entry = _older_call1_entry()
     recorded = {"attempts": [_digest_attempt(entry.from_prompt_version, "a" * 64)]}
     replayed = {"attempts": [_digest_attempt(entry.to_prompt_version, "b" * 64)]}
     declared = [
@@ -1286,7 +1286,7 @@ def test_a_declared_version_pair_masks_the_review_digest_of_the_prompt(tmp_path:
 
 
 def test_a_dispatch_outside_a_declared_version_pair_is_reported(tmp_path: Path) -> None:
-    entry = _ff36f1c_entry()
+    entry = _older_call1_entry()
     recorded = {"attempts": [_digest_attempt("authoring-call1-v3", "a" * 64)]}
     replayed = {"attempts": [_digest_attempt(entry.to_prompt_version, "b" * 64)]}
     declared = [
@@ -1330,9 +1330,12 @@ def test_an_entry_the_recording_does_not_carry_is_not_stale(
 def test_gate_declares_a_listed_prompt_difference_and_passes(
     unresolved_stage: Path, tmp_path: Path
 ) -> None:
-    entry = _ff36f1c_entry()
+    entry = _older_call1_entry()
     _rewrite_prompt(
-        unresolved_stage, 1, user="the prompt ff36f1c recorded", version=entry.from_prompt_version
+        unresolved_stage,
+        1,
+        user="the prompt the older build recorded",
+        version=entry.from_prompt_version,
     )
 
     result = run_gate(unresolved_stage, work=tmp_path / "work", declared=(entry,))
@@ -1390,7 +1393,10 @@ def test_gate_fails_an_entry_the_recording_carries_but_matches_nothing(
         reason="an entry whose to-version the code does not render",
     )
     _rewrite_prompt(
-        unresolved_stage, 1, user="the prompt ff36f1c recorded", version=entry.from_prompt_version
+        unresolved_stage,
+        1,
+        user="the prompt the older build recorded",
+        version=entry.from_prompt_version,
     )
 
     result = run_gate(unresolved_stage, work=tmp_path / "work", declared=(entry,))
@@ -1485,7 +1491,9 @@ def test_gate_matches_a_superseded_item_a_declared_difference_covered(
     """
 
     from_version = "authoring-call1-v4"
-    _rewrite_prompt(unresolved_stage, 1, user="the prompt ff36f1c recorded", version=from_version)
+    _rewrite_prompt(
+        unresolved_stage, 1, user="the prompt the older build recorded", version=from_version
+    )
     entry = _superseded(
         prompt_version=from_version,
         prompt_sha256=_recorded_digest_at(unresolved_stage, 1),
@@ -1606,7 +1614,7 @@ def test_stage_report_names_each_superseded_item() -> None:
         dispatch_index=5,
         stage="correction",
         prompt_version="authoring-correction-v0",
-        reason="fd0de5a adds the binding_in_fixed_turn finding",
+        reason="a later build adds the binding_in_fixed_turn finding",
     )
     item = _item(
         "SCN-008",
@@ -1640,7 +1648,7 @@ def test_stage_report_names_each_superseded_item() -> None:
     assert (
         "  superseded: gsx7-author-klarna SCN-008 dispatch 5"
         " (correction, authoring-correction-v0): bead item-b:"
-        " fd0de5a adds the binding_in_fixed_turn finding"
+        " a later build adds the binding_in_fixed_turn finding"
     ) in report
 
 
@@ -1751,7 +1759,7 @@ def test_stage_report_passes_only_when_every_item_passes() -> None:
         stage_dir=Path("/s"),
         work=Path("/w"),
         items=[_item("SCN-1", "accepted")],
-        stale=[_ff36f1c_entry()],
+        stale=[_older_call1_entry()],
     )
 
     assert passing.report().splitlines()[-2:] == ["failed:     0", "PASS"]
@@ -1800,7 +1808,7 @@ def test_summary_fails_when_an_entry_is_stale() -> None:
         stage_dir=Path("/a"),
         work=Path("/w"),
         items=[_item("SCN-1", "accepted")],
-        stale=[_ff36f1c_entry()],
+        stale=[_older_call1_entry()],
     )
 
     lines = _summary([stale], 1.0).splitlines()
