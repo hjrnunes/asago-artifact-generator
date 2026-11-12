@@ -222,16 +222,24 @@ class GeneratorError(Exception):
 def garak_python(option: str | None) -> str:
     """Return the interpreter that runs the probe, or raise ``GeneratorError`` with the reason.
 
-    The option wins over ``ASAGO_GARAK_PYTHON``. The interpreter must run and import the
-    Garak fork's MiDojo probe, MiDojo, ``fastmcp`` and ``yaml``.
+    The option wins over ``ASAGO_GARAK_PYTHON`` whenever it is given, an empty one included:
+    an empty option is an error, never a fall back to the variable. The interpreter must run
+    and import the Garak fork's MiDojo probe, MiDojo, ``fastmcp`` and ``yaml``.
     """
 
-    chosen = option or os.environ.get(PYTHON_VARIABLE)
-    if not chosen:
-        raise GeneratorError(
-            "no Garak interpreter: pass --garak-python PATH or set "
-            f"{PYTHON_VARIABLE} to a Python that has the Garak fork and MiDojo installed"
-        )
+    if option is not None:
+        if not option:
+            raise GeneratorError(
+                "--garak-python is empty: name a Python that has the Garak fork and MiDojo"
+            )
+        chosen = option
+    else:
+        chosen = os.environ.get(PYTHON_VARIABLE)
+        if not chosen:
+            raise GeneratorError(
+                "no Garak interpreter: pass --garak-python PATH or set "
+                f"{PYTHON_VARIABLE} to a Python that has the Garak fork and MiDojo installed"
+            )
     probe = "; ".join(f"import {name}" for name in REQUIRED_MODULES)
     try:
         run = subprocess.run(

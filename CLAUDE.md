@@ -287,8 +287,9 @@ the group the module skips and names what it needs.
   `--garak-python` or `ASAGO_GARAK_PYTHON` names (the option wins; the interpreter needs the
   Garak fork and MiDojo). It exits 2 and says so when no usable interpreter is named, and
   `--check` exits 1 and lists every stale file. The fixtures test runs `--check` when the
-  variable is set and skips, naming it, when it is not.
-  The fixture README says what each case is real evidence of and what the report composes.
+  variable is set (an empty value fails, because the generator exits 2) and skips, naming it,
+  when it is unset.
+  The fixture README says what each case is real evidence of and what is pinned.
 - `packages/asago-injection-spec/`: the injection-spec library workspace member
   (`asago_injection_spec`): the compiler from a `planted_item` package to one MiDojo
   injection spec, the consumer envelope, the placement and reachability checks, the

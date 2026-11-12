@@ -6,8 +6,8 @@ each case's planted package with the consumer's compiler, runs Garak's real
 scripted fixture target, and keeps the report and the sealed documents that one run wrote;
 only ``expected.json`` is composed. These tests pin the set and the outcome every case
 stands for. The generator's ``--check`` proves the bytes reproduce from the same code: the
-test below runs it when ``ASAGO_GARAK_PYTHON`` names a Garak interpreter, and skips, naming
-that variable, when it is unset.
+test below runs it when ``ASAGO_GARAK_PYTHON`` is set, and skips, naming that variable, only
+when it is unset: an empty value fails, because the generator exits 2.
 """
 
 from __future__ import annotations
@@ -394,8 +394,53 @@ def test_the_readme_names_every_case_and_its_outcome() -> None:
     assert "snapshot_digest_mismatch" in readme, "the README names the tampered case's reason"
 
 
+def _check(variable: str | None, *arguments: str) -> subprocess.CompletedProcess[str]:
+    """Run ``--check`` with the variable set to ``variable``, or unset when it is None."""
+
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if name not in (GARAK_PYTHON, "FORCE_COLOR")
+    }
+    if variable is not None:
+        environment[GARAK_PYTHON] = variable
+    return subprocess.run(
+        [sys.executable, str(GENERATOR), "--check", *arguments],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=300,
+    )
+
+
+@pytest.mark.parametrize(
+    ("variable", "arguments", "message"),
+    [
+        (None, (), "no Garak interpreter"),
+        ("", (), "no Garak interpreter"),
+        ("STUB", ("--garak-python", ""), "--garak-python is empty"),
+        ("STUB", ("--garak-python", "/nonexistent/garak-python"), "/nonexistent/garak-python"),
+    ],
+    ids=["unset", "empty variable", "empty option beside a usable variable", "option wins"],
+)
+def test_the_generator_exits_two_when_no_usable_interpreter_is_named(
+    tmp_path: Path, variable: str | None, arguments: tuple[str, ...], message: str
+) -> None:
+    # A stub that exits 0 passes the generator's import probe, so a variable that wins by
+    # mistake would get past the interpreter check instead of stopping at it.
+    stub = tmp_path / "python"
+    stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    stub.chmod(0o755)
+
+    result = _check(str(stub) if variable == "STUB" else variable, *arguments)
+
+    assert result.returncode == 2, (result.returncode, result.stderr)
+    assert message in result.stderr, result.stderr
+
+
 def test_the_generator_reproduces_every_fixture() -> None:
-    if not os.environ.get(GARAK_PYTHON):
+    if GARAK_PYTHON not in os.environ:
         pytest.skip(f"{GARAK_PYTHON} names no Garak interpreter to run the real probe with")
 
     environment = {name: value for name, value in os.environ.items() if name != "FORCE_COLOR"}
