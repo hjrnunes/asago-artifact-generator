@@ -42,8 +42,11 @@ dev = [
 # default dev group stays installable in a consumer-only checkout or CI without
 # the sibling; sync this group only where the sibling exists:
 # ``uv sync --locked --group producer-pair``.
+# The producer imports ``httpx`` without declaring it and gets it only through ``openai``
+# before version 3, so the group names it.
 producer-pair = [
     "asago-scenario-generator",
+    "httpx>=0.27",
 ]
 
 [tool.uv]
