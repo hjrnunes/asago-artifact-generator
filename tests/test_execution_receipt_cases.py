@@ -232,7 +232,7 @@ def test_the_reader_accepts_every_valid_case_with_the_envelope(version: str, cas
 
 
 @pytest.mark.parametrize("case", _cases(_LATEST, "valid"), ids=lambda case: case.stem)
-def test_a_v2_document_without_the_envelope_is_refused(case: Path) -> None:
+def test_a_document_without_the_envelope_is_refused(case: Path) -> None:
     with pytest.raises(MissingEnvelopeError, match="execution-receipt"):
         _specs().read(_json(case))
 

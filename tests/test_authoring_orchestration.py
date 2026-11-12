@@ -30,8 +30,8 @@ from .support import (
     world_builders,
 )
 
-_framed, _metadata, _authoring_inventory, _authoring_plan, _authoring_runtime_contract = world_builders(
-    "refund", "framed", "metadata", "inventory", "plan", "runtime_contract"
+_framed, _metadata, _authoring_inventory, _authoring_plan, _authoring_runtime_contract = (
+    world_builders("refund", "framed", "metadata", "inventory", "plan", "runtime_contract")
 )
 
 (_view,) = world_builders("refund-minimal", "view")
@@ -104,7 +104,9 @@ def test_two_calls_build_an_immutable_package_without_detector_code(tmp_path: Pa
     assert [record["stage"] for record in result.ledger] == ["call1", "call2"]
     evidence = load_failure_evidence(tmp_path / "package.failure-evidence.json")
     first = evidence["attempts"][0]
-    assert base64.b64decode(first["raw_response"]["base64"]) == json.dumps(_authoring_plan()).encode()
+    assert (
+        base64.b64decode(first["raw_response"]["base64"]) == json.dumps(_authoring_plan()).encode()
+    )
     assert first["usage"]["availability"] == "unavailable"
     assert result.raw_responses["call1"] == json.dumps(_authoring_plan()).encode()
     assert result.raw_responses["call2"] == _framed()
@@ -316,7 +318,9 @@ def test_call2_rejects_fabricated_assistant_or_tool_history(tmp_path: Path) -> N
         "history": [{"role": "assistant", "content": "Sure"}],
         "slots": [],
     }
-    transport = ScriptedAuthoringTransport([json.dumps(_authoring_plan()), _framed(bad), _framed(bad)])
+    transport = ScriptedAuthoringTransport(
+        [json.dumps(_authoring_plan()), _framed(bad), _framed(bad)]
+    )
     result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",

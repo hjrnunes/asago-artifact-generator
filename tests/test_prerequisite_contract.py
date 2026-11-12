@@ -45,7 +45,7 @@ def _plan_fixture(**overrides: object) -> dict[str, object]:
     return plan
 
 
-def test_v2_prerequisites_use_only_canonical_fields_and_declared_binding() -> None:
+def test_prerequisites_use_only_canonical_fields_and_declared_binding() -> None:
     inventory, binding = _inventory_and_binding()
     prerequisite = {
         "name": "booking_state",
@@ -76,7 +76,7 @@ def test_v2_prerequisites_use_only_canonical_fields_and_declared_binding() -> No
     }
 
 
-def test_v2_rejects_intended_safe_behavior_as_prerequisite() -> None:
+def test_validation_rejects_intended_safe_behavior_as_prerequisite() -> None:
     inventory, binding = _inventory_and_binding()
     prerequisite = {
         "name": "safe_behavior",
@@ -99,7 +99,7 @@ def test_v2_rejects_intended_safe_behavior_as_prerequisite() -> None:
     )
 
 
-def test_v2_prerequisites_reject_closed_forms() -> None:
+def test_prerequisites_reject_closed_forms() -> None:
     inventory, binding = _inventory_and_binding()
     base = {
         "name": "booking_state",
@@ -153,7 +153,9 @@ def test_v2_prerequisites_reject_closed_forms() -> None:
         "consumers": ["stimulus.user_text"],
     }
     scalar_base = {**base, "equals": "awaiting_review"}
-    mismatch_plan = _plan_fixture(runtime_bindings=[mismatched_binding], prerequisites=[scalar_base])
+    mismatch_plan = _plan_fixture(
+        runtime_bindings=[mismatched_binding], prerequisites=[scalar_base]
+    )
     mismatch_plan["stimulus_approach"]["request"] = "Review booking {{booking_state}}."
     mismatch_plan = normalize_plan(mismatch_plan, inventory, _contract()).plan
     mismatch_findings = collect_plan_findings(mismatch_plan, inventory, _contract())
@@ -210,7 +212,7 @@ def _prerequisite_findings(prerequisite: dict[str, object]) -> list[tuple[str, s
     ]
 
 
-def test_v2_missing_prerequisite_name_yields_each_canonical_finding_once() -> None:
+def test_a_missing_prerequisite_name_yields_each_canonical_finding_once() -> None:
     prerequisite = _canonical_prerequisite()
     del prerequisite["name"]
 
@@ -222,7 +224,7 @@ def test_v2_missing_prerequisite_name_yields_each_canonical_finding_once() -> No
     ]
 
 
-def test_v2_prerequisite_source_field_yields_only_the_canonical_finding() -> None:
+def test_a_prerequisite_source_field_yields_only_the_canonical_finding() -> None:
     prerequisite = {**_canonical_prerequisite(), "source": ["bindings.booking_state"]}
 
     findings = _prerequisite_findings(prerequisite)
@@ -230,7 +232,7 @@ def test_v2_prerequisite_source_field_yields_only_the_canonical_finding() -> Non
     assert findings == [("unexpected_field", "prerequisites[0].source")]
 
 
-def test_v2_unknown_prerequisite_field_yields_only_the_canonical_finding() -> None:
+def test_an_unknown_prerequisite_field_yields_only_the_canonical_finding() -> None:
     prerequisite = {**_canonical_prerequisite(), "operator": "contains"}
 
     findings = _prerequisite_findings(prerequisite)
@@ -240,7 +242,9 @@ def test_v2_unknown_prerequisite_field_yields_only_the_canonical_finding() -> No
 
 def _empty_consumer_plan(*, prerequisites: list[dict[str, object]]) -> tuple[dict, dict]:
     inventory, binding = _inventory_and_binding()
-    plan = _plan_fixture(runtime_bindings=[{**binding, "consumers": []}], prerequisites=prerequisites)
+    plan = _plan_fixture(
+        runtime_bindings=[{**binding, "consumers": []}], prerequisites=prerequisites
+    )
     return plan, inventory
 
 

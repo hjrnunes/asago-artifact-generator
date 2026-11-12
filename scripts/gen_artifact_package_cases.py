@@ -38,7 +38,7 @@ from typing import Any
 from asago_package.contract_kit import contract_dir
 
 CONTRACT_ROOT = contract_dir("artifact-package")
-V5 = "artifact-package-v1"
+PACKAGE = "artifact-package-v1"
 BINDING_CASES = "binding-cases"
 _HANDOFF = "scenario-handoff-v1"
 SEED = "artifact-seed-v1"
@@ -65,7 +65,7 @@ _FILES = {
     "seed.json": json.dumps(_SEED_DOCUMENT, separators=(",", ":")) + "\n",
 }
 # A v5 manifest records only the authoring outcome and an empty creation model.
-_V5_AUTHORING = {
+_AUTHORING = {
     "status": "accepted",
     "terminal_status": "accepted",
     "review_status": {"artifact": "accepted"},
@@ -110,7 +110,7 @@ def _package(files: dict[str, str], *, description: str, version: str) -> dict[s
             "input_kind": _HANDOFF,
             "source_digests": {"input": "a" * 64},
             "members": [_record(path, files[path]) for path in sorted(files)],
-            "authoring": copy.deepcopy(_V5_AUTHORING),
+            "authoring": copy.deepcopy(_AUTHORING),
             "runtime_capabilities": {},
             "creation_model": {},
         }
@@ -308,11 +308,11 @@ def _with_files_listed(base: dict[str, Any], description: str, extra: dict[str, 
 _Cases = tuple[dict[str, dict[str, Any]], dict[str, tuple[str, dict[str, Any]]]]
 
 
-def _v5_cases() -> _Cases:
+def _package_cases() -> _Cases:
     """Return the current package cases and their invalid variants."""
 
     base = _package(
-        _FILES, description="A v5 package with a seed member, from a v6 handoff.", version=V5
+        _FILES, description="A package with a seed member, from a handoff.", version=PACKAGE
     )
     invalid = _invalid_cases(base)
     for name, member, text in (
@@ -333,7 +333,7 @@ def _v5_cases() -> _Cases:
         _changed(
             base,
             "authoring carries an unsupported ledger.",
-            authoring={**_V5_AUTHORING, "ledger": [{"stage": "call1"}]},
+            authoring={**_AUTHORING, "ledger": [{"stage": "call1"}]},
         ),
     )
     invalid["authoring-plan-review-status"] = (
@@ -342,7 +342,7 @@ def _v5_cases() -> _Cases:
             base,
             "authoring.review_status carries an unsupported plan review.",
             authoring={
-                **_V5_AUTHORING,
+                **_AUTHORING,
                 "review_status": {"artifact": "accepted", "plan": "accepted"},
             },
         ),
@@ -605,7 +605,7 @@ def expected_files() -> dict[str, str]:
     files: dict[str, str] = {"metadata-policy.json": _json_text(_metadata_policy())}
     files.update(_binding_cases())
     files.update(_seed_files())
-    for version, (valid, invalid) in ((V5, _v5_cases()),):
+    for version, (valid, invalid) in ((PACKAGE, _package_cases()),):
         for name, case in valid.items():
             files[f"{version}/valid/{name}.json"] = _json_text(case)
         for name, (_, case) in invalid.items():
@@ -621,7 +621,7 @@ def expected_lock(lock: dict[str, Any], files: dict[str, str]) -> dict[str, Any]
     locked = {
         key: digest
         for key, digest in lock["files"].items()
-        if key == f"{V5}/schema.json" or key == f"{SEED}/schema.json"
+        if key == f"{PACKAGE}/schema.json" or key == f"{SEED}/schema.json"
     }
     locked.update({path: _sha256(text.encode("utf-8")) for path, text in files.items()})
     return {**lock, "files": dict(sorted(locked.items()))}

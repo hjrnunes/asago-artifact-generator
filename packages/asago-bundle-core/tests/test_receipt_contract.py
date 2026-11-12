@@ -119,7 +119,7 @@ def test_the_installed_spec_is_the_execution_receipt_version(version: str) -> No
 
 
 @pytest.mark.parametrize("case", _cases(VERSION), ids=lambda case: case.stem)
-def test_the_reader_accepts_every_v2_valid_case_with_the_envelope(case: Path) -> None:
+def test_the_reader_accepts_every_valid_case_with_the_envelope(case: Path) -> None:
     written = write_envelope(
         _json(case), _spec(VERSION), writer="tests.receipt_contract", writer_version="0.1.0"
     )
@@ -128,12 +128,12 @@ def test_the_reader_accepts_every_v2_valid_case_with_the_envelope(case: Path) ->
 
 
 @pytest.mark.parametrize("case", _cases(VERSION), ids=lambda case: case.stem)
-def test_a_v2_document_without_the_envelope_is_refused(case: Path) -> None:
+def test_a_document_without_the_envelope_is_refused(case: Path) -> None:
     with pytest.raises(MissingEnvelopeError, match=CONTRACT):
         read_receipt(_json(case))
 
 
-def test_the_writer_stamps_the_v2_envelope() -> None:
+def test_the_writer_stamps_the_envelope() -> None:
     spec = _spec(VERSION)
 
     written = write_receipt(

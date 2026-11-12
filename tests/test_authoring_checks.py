@@ -97,13 +97,13 @@ def test_stimulus_slot_findings_report_without_deriving_the_slots() -> None:
     assert stimulus == {"slots": [], "user_text": "Show {{item_id}}"}
 
 
-def test_collect_plan_findings_v2_rejects_a_non_object_plan() -> None:
+def test_collect_plan_findings_rejects_a_non_object_plan() -> None:
     findings = collect_plan_findings("plan", {}, {})
 
     assert _coded(findings) == [("response_type_error", "plan must be an object", "response")]
 
 
-_V2_ROOT_FIELDS_BESIDES_INTERPRETATION = (
+_ROOT_FIELDS_BESIDES_INTERPRETATION = (
     "selected_evidence",
     "assumptions",
     "setup_recipe",
@@ -123,17 +123,17 @@ def _root_presence(findings: list[Any]) -> list[tuple[str, str]]:
     ]
 
 
-def test_collect_plan_findings_v2_reports_each_root_field_problem_once() -> None:
+def test_collect_plan_findings_reports_each_root_field_problem_once() -> None:
     findings = collect_plan_findings({"x": 1, "interpretation": "bad"}, {}, {})
 
     assert _root_presence(findings) == [
         ("unexpected_field", "x"),
-        *(("plan_validation", name) for name in _V2_ROOT_FIELDS_BESIDES_INTERPRETATION),
+        *(("plan_validation", name) for name in _ROOT_FIELDS_BESIDES_INTERPRETATION),
     ]
     assert len(_coded(findings)) == len(set(_coded(findings)))
 
 
-def test_collect_plan_findings_v2_still_reports_a_root_list_field_of_the_wrong_type() -> None:
+def test_collect_plan_findings_still_reports_a_root_list_field_of_the_wrong_type() -> None:
     plan = {"selected_evidence": "x", "setup_recipe": {}, "prerequisites": 1}
 
     findings = collect_plan_findings(plan, {}, {})
@@ -145,7 +145,7 @@ def test_collect_plan_findings_v2_still_reports_a_root_list_field_of_the_wrong_t
     ]
 
 
-def test_collect_plan_findings_v2_checks_each_unresolved_requirement() -> None:
+def test_collect_plan_findings_checks_each_unresolved_requirement() -> None:
     unresolved = [
         "text",
         {"name": "n", "essential": "yes", "reason": "r"},

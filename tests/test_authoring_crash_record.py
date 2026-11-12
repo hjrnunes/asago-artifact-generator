@@ -150,9 +150,7 @@ def test_the_crash_detail_is_redacted_and_truncated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     message = "cannot reach https://models.example/v1?api_key=sk-secret " + "x" * 400
-    monkeypatch.setattr(
-        orchestrator_module, "build_call1_packet", _raising(RuntimeError(message))
-    )
+    monkeypatch.setattr(orchestrator_module, "build_call1_packet", _raising(RuntimeError(message)))
 
     with pytest.raises(RuntimeError):
         run_refund(tmp_path, ScriptedAuthoringTransport([]))

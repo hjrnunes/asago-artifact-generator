@@ -49,9 +49,7 @@ def test_call1_projects_kind_attack_path_and_unavailable_classification() -> Non
 
 def test_functional_and_missing_kinds_get_their_own_stimulus_rules() -> None:
     functional = json_section(
-        build_call1_packet(
-            _view_with(kind="functional"), _inventory(), _runtime_contract()
-        ).user,
+        build_call1_packet(_view_with(kind="functional"), _inventory(), _runtime_contract()).user,
         "SCENARIO DESIGN",
     )
     missing = json_section(

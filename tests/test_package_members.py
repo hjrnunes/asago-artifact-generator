@@ -164,7 +164,7 @@ def test_a_package_of_an_unsupported_version_is_refused_naming_it(
 
 
 @pytest.mark.parametrize("member", _RETIRED_MEMBERS)
-def test_a_v5_package_refuses_a_retired_member(package_dir: Path, member: str) -> None:
+def test_a_package_refuses_a_retired_member(package_dir: Path, member: str) -> None:
     _add_member(package_dir, member)
 
     path = rf"members\.\d+\.path: '{re.escape(member)}' is not one of "
@@ -173,7 +173,7 @@ def test_a_v5_package_refuses_a_retired_member(package_dir: Path, member: str) -
 
 
 @pytest.mark.parametrize("member", _UNKNOWN_MEMBERS)
-def test_a_v5_package_refuses_any_other_member(package_dir: Path, member: str) -> None:
+def test_a_package_refuses_any_other_member(package_dir: Path, member: str) -> None:
     _add_member(package_dir, member)
 
     with pytest.raises(PackageIntegrityError, match=r"members\.\d+\.path: .* is not one of "):
@@ -188,9 +188,7 @@ def test_a_v5_package_refuses_any_other_member(package_dir: Path, member: str) -
         {"review_status": {"artifact": "accepted", "plan": "accepted"}},
     ],
 )
-def test_a_v5_package_refuses_an_unknown_authoring_field(
-    package_dir: Path, authoring: dict
-) -> None:
+def test_a_package_refuses_an_unknown_authoring_field(package_dir: Path, authoring: dict) -> None:
     manifest_path = package_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["authoring"] = {**manifest["authoring"], **authoring}

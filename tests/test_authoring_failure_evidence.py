@@ -22,7 +22,9 @@ from .support import (
     world_builders,
 )
 
-_authoring_inventory, _authoring_runtime_contract = world_builders("refund", "inventory", "runtime_contract")
+_authoring_inventory, _authoring_runtime_contract = world_builders(
+    "refund", "inventory", "runtime_contract"
+)
 
 (_view,) = world_builders("refund-minimal", "view")
 

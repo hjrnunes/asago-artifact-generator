@@ -47,7 +47,7 @@ def _stimulus(tmp_path: Path) -> dict[str, Any]:
     return json.loads((tmp_path / "package" / "stimulus.json").read_text(encoding="utf-8"))
 
 
-def test_a_three_turn_handoff_becomes_a_sequential_v5_package(tmp_path: Path) -> None:
+def test_a_three_turn_handoff_becomes_a_sequential_package(tmp_path: Path) -> None:
     result, transport = _author(tmp_path, direct_view(tmp_path, 3), 3)
 
     assert result.status == "accepted", result.findings
@@ -94,7 +94,7 @@ def _build(input_kind: str, **changes: Any):
     )
 
 
-def test_a_v6_input_builds_a_v5_package() -> None:
+def test_an_input_builds_a_package() -> None:
     assert _build("scenario-handoff-v1").manifest.schema_version == "artifact-package-v1"
 
 
@@ -104,7 +104,7 @@ def test_an_unknown_input_kind_is_refused(input_kind: str) -> None:
         _build(input_kind)
 
 
-def test_a_v5_package_round_trips_and_a_version_swap_is_caught(tmp_path: Path) -> None:
+def test_a_package_round_trips_and_a_version_swap_is_caught(tmp_path: Path) -> None:
     package = _build("scenario-handoff-v1")
     destination = write_package(tmp_path / "out", package)
 

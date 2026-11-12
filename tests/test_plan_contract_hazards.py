@@ -316,9 +316,7 @@ def _setup_findings(step: object) -> list[dict]:
     plan["setup_recipe"] = [step]
     return [
         finding.to_dict()
-        for finding in collect_plan_findings(
-            plan, _hazard_inventory(), _hazard_runtime_contract()
-        )
+        for finding in collect_plan_findings(plan, _hazard_inventory(), _hazard_runtime_contract())
         if finding.path.startswith("setup_recipe")
     ]
 
@@ -364,9 +362,7 @@ def test_setup_step_details_name_the_step_index() -> None:
 
     findings = [
         (finding.detail, finding.path)
-        for finding in collect_plan_findings(
-            plan, _hazard_inventory(), _hazard_runtime_contract()
-        )
+        for finding in collect_plan_findings(plan, _hazard_inventory(), _hazard_runtime_contract())
         if finding.path.startswith("setup_recipe")
     ]
 

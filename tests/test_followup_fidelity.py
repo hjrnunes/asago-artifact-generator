@@ -42,9 +42,7 @@ def _view():
 
 def test_correction_size_accounting_is_evidence_only(tmp_path: Path) -> None:
     invalid = b"```json\n{}\n```\n"
-    transport = ScriptedAuthoringTransport(
-        [json.dumps(neutral_artifact_plan()), invalid, invalid]
-    )
+    transport = ScriptedAuthoringTransport([json.dumps(neutral_artifact_plan()), invalid, invalid])
     result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",

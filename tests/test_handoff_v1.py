@@ -35,9 +35,9 @@ from tests.support import published
 from .prompt_support import STAGES, render_stage_packets
 from .support import KIT, json_section, signed
 
-_V6 = "scenario-handoff-v1"
+_HANDOFF_VERSION = "scenario-handoff-v1"
 _CONTRACT = CONTRACT_DIR
-_KIT = _CONTRACT / _V6 / "cases"
+_KIT = _CONTRACT / _HANDOFF_VERSION / "cases"
 _EXPECTED = json.loads((_KIT / "expected-violations.json").read_text(encoding="utf-8"))
 _INDIRECT = "adversarial-indirect-listing.json"
 _OWNERSHIP_PREFIXES = ("artifact_design_field:", "prose_hiding:")
@@ -72,21 +72,21 @@ def _written(tmp_path: Path, document: dict[str, Any]) -> Path:
     return path
 
 
-def test_an_enveloped_v6_document_reads_with_the_renamed_party(tmp_path: Path) -> None:
+def test_an_enveloped_document_reads_with_the_renamed_party(tmp_path: Path) -> None:
     document = _case(f"valid/{_INDIRECT}")
     relation = document["attack_shape"]["indirect"]["party_relation"]
 
     view = load_input(_written(tmp_path, published(document)))
 
     assert view.kind is InputKind.SCENARIO_HANDOFF_V1
-    assert view.payload[ENVELOPE_FIELD]["version"] == _V6
+    assert view.payload[ENVELOPE_FIELD]["version"] == _HANDOFF_VERSION
     assert view.attack_shape["indirect"]["party_relation"] == {
         "controlling_party": relation["controlling_party"],
         "benign_user_actor_ref": relation["benign_user_actor_ref"],
     }
 
 
-def test_a_v6_document_without_the_envelope_is_refused(tmp_path: Path) -> None:
+def test_a_document_without_the_envelope_is_refused(tmp_path: Path) -> None:
     path = _written(tmp_path, _case(f"valid/{_INDIRECT}"))
 
     with pytest.raises(InputSourceError, match="self-identifying envelope") as raised:
@@ -98,7 +98,7 @@ def test_a_v6_document_without_the_envelope_is_refused(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "case", sorted((_KIT / "valid").glob("*.json")), ids=lambda path: path.stem
 )
-def test_every_valid_v6_case_reads_once_enveloped(tmp_path: Path, case: Path) -> None:
+def test_every_valid_case_reads_once_enveloped(tmp_path: Path, case: Path) -> None:
     document = json.loads(case.read_text(encoding="utf-8"))
 
     view = load_input(_written(tmp_path, published(document)))
@@ -108,7 +108,7 @@ def test_every_valid_v6_case_reads_once_enveloped(tmp_path: Path, case: Path) ->
 
 
 @pytest.mark.parametrize("relative", sorted(_EXPECTED))
-def test_every_invalid_v6_case_reports_the_kits_codes(tmp_path: Path, relative: str) -> None:
+def test_every_invalid_case_reports_the_kits_codes(tmp_path: Path, relative: str) -> None:
     document = published(_case(relative))
 
     with pytest.raises(HandoffSchemaInvalid) as raised:
@@ -121,7 +121,7 @@ def test_every_invalid_v6_case_reports_the_kits_codes(tmp_path: Path, relative: 
     )
 
 
-def test_a_v6_shape_break_is_a_typed_malformed_shape(tmp_path: Path) -> None:
+def test_a_shape_break_is_a_typed_malformed_shape(tmp_path: Path) -> None:
     document = _case("invalid/shape-plan-length-mismatch.json")
 
     with pytest.raises(ShapeVersionMalformed) as raised:
@@ -151,13 +151,13 @@ def _mirrored(tmp_path: Path) -> Path:
 
 def test_the_lock_pins_the_current_kit() -> None:
     lock = json.loads((_CONTRACT / "CONTRACT.lock").read_text(encoding="utf-8"))
-    locked = {name for name in lock["files"] if name.startswith(f"{_V6}/")}
+    locked = {name for name in lock["files"] if name.startswith(f"{_HANDOFF_VERSION}/")}
     assert locked == {
         path.relative_to(_CONTRACT).as_posix()
-        for path in (_CONTRACT / _V6).rglob("*")
+        for path in (_CONTRACT / _HANDOFF_VERSION).rglob("*")
         if path.is_file()
     }
-    assert lock["schema_version"] == _V6
+    assert lock["schema_version"] == _HANDOFF_VERSION
     assert lock["contract"] == "scenario-handoff"
     input_adapter._validate_handoff_kit()
 
@@ -180,7 +180,9 @@ def test_a_lock_missing_the_current_kit_refuses_it(
     mirror = _mirrored(tmp_path)
     lock = json.loads((mirror / "CONTRACT.lock").read_text(encoding="utf-8"))
     lock["files"] = {
-        name: digest for name, digest in lock["files"].items() if not name.startswith(f"{_V6}/")
+        name: digest
+        for name, digest in lock["files"].items()
+        if not name.startswith(f"{_HANDOFF_VERSION}/")
     }
     (mirror / "CONTRACT.lock").write_text(json.dumps(lock), encoding="utf-8")
     monkeypatch.setattr(input_adapter, "_HANDOFF_ROOT", mirror)
@@ -378,7 +380,7 @@ def test_the_analysis_reaches_every_stage_once() -> None:
         assert packets[stage].user.count(json.dumps(_NOTE)[1:-1]) == 1, stage
 
 
-def test_a_package_records_a_v6_input_kind_and_rejects_any_other(tmp_path: Path) -> None:
+def test_a_package_records_an_input_kind_and_rejects_any_other(tmp_path: Path) -> None:
     def package(kind: str):
         return build_package(
             package_id="pkg-1",
@@ -388,8 +390,8 @@ def test_a_package_records_a_v6_input_kind_and_rejects_any_other(tmp_path: Path)
             members={"explanation.json": b"{}\n"},
         )
 
-    loaded = load_package(write_package(tmp_path / "v6", package(_V6)))
-    assert loaded.manifest.input_kind == _V6
+    loaded = load_package(write_package(tmp_path / "package", package(_HANDOFF_VERSION)))
+    assert loaded.manifest.input_kind == _HANDOFF_VERSION
 
     for kind in ("scenario-handoff-v9",):
         with pytest.raises(PackageIntegrityError, match="unsupported package input kind"):

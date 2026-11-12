@@ -14,8 +14,8 @@ from .binding_repair import (
 )
 from .contracts import _call2_contract
 from .core import (
-    PLAN_CORRECTION_PROMPT_VERSION,
     ARTIFACT_CORRECTION_PROMPT_VERSION,
+    PLAN_CORRECTION_PROMPT_VERSION,
     Finding,
     FindingTarget,
     PromptPacket,

@@ -80,7 +80,7 @@ def _rendered_scenario(packet) -> dict:
     return json_section(packet.user, "ORIGINAL SCENARIO AND SOURCE CONTEXT")["scenario"]
 
 
-def test_call1_v2_has_closed_root_and_reports_all_root_faults() -> None:
+def test_call1_has_closed_root_and_reports_all_root_faults() -> None:
     packet = build_call1_packet(_view(), _inventory(), _runtime_contract())
     fields = rendered_response_contract(packet)["fields"]
     assert fields == [
@@ -107,7 +107,7 @@ def test_call1_v2_has_closed_root_and_reports_all_root_faults() -> None:
     }
 
 
-def test_v2_plan_adds_prerequisite_consumers_then_artifact_derives_slots() -> None:
+def test_a_plan_adds_prerequisite_consumers_then_artifact_derives_slots() -> None:
     inventory = _inventory()
     inventory["facts"].append(
         {
@@ -186,7 +186,7 @@ def test_v2_plan_adds_prerequisite_consumers_then_artifact_derives_slots() -> No
     ]
 
 
-def test_v2_undeclared_placeholder_keeps_slot_failure_with_named_feedback() -> None:
+def test_an_undeclared_placeholder_keeps_slot_failure_with_named_feedback() -> None:
     plan = _reply_plan()
     plan["runtime_bindings"] = [
         {
@@ -222,7 +222,7 @@ def test_v2_undeclared_placeholder_keeps_slot_failure_with_named_feedback() -> N
     assert metadata["stimulus"]["slots"] == []
 
 
-def test_v2_call1_accepts_one_lowercase_json_fence_through_orchestrator(tmp_path) -> None:
+def test_call1_accepts_one_lowercase_json_fence_through_orchestrator(tmp_path) -> None:
     plan = _plan()
     raw_plan = b" \n```json\n" + json.dumps(plan, sort_keys=True).encode("utf-8") + b"\n```\n\t"
     transport = ScriptedAuthoringTransport([raw_plan, _framed()])
@@ -240,7 +240,7 @@ def test_v2_call1_accepts_one_lowercase_json_fence_through_orchestrator(tmp_path
     assert json_section(transport.requests[0]["user"], "RESPONSE CONTRACT")["framing"]["accepted"]
 
 
-def test_v2_call1_accepts_one_bare_object_without_transformation(tmp_path) -> None:
+def test_call1_accepts_one_bare_object_without_transformation(tmp_path) -> None:
     raw_plan = json.dumps(_plan(), sort_keys=True).encode("utf-8")
     result = stage_local_orchestrator(
         transport=ScriptedAuthoringTransport([raw_plan, _framed()]),
@@ -254,7 +254,7 @@ def test_v2_call1_accepts_one_bare_object_without_transformation(tmp_path) -> No
     assert "transformation" not in result.ledger[0]
 
 
-def test_v2_call1_correction_accepts_one_lowercase_json_fence(tmp_path) -> None:
+def test_call1_correction_accepts_one_lowercase_json_fence(tmp_path) -> None:
     invalid_plan = json.dumps({"unexpected": True}).encode("utf-8")
     corrected_plan = (
         b"\n```json\r\n" + json.dumps(_plan(), sort_keys=True).encode("utf-8") + b"\r\n```\n"
@@ -289,7 +289,7 @@ def test_v2_call1_correction_accepts_one_lowercase_json_fence(tmp_path) -> None:
         (b'{"value": NaN}', "invalid_json"),
     ],
 )
-def test_v2_call1_rejects_unsupported_framing_through_orchestrator(
+def test_call1_rejects_unsupported_framing_through_orchestrator(
     tmp_path, raw: bytes, finding_code: str
 ) -> None:
     result = stage_local_orchestrator(
@@ -318,7 +318,7 @@ def test_v2_call1_rejects_unsupported_framing_through_orchestrator(
         (b'{"value": NaN}', "invalid_json"),
     ],
 )
-def test_v2_call1_correction_rejects_unsupported_framing(
+def test_call1_correction_rejects_unsupported_framing(
     tmp_path, raw: bytes, finding_code: str
 ) -> None:
     result = stage_local_orchestrator(
@@ -409,7 +409,7 @@ def test_reply_package_keeps_the_judge_and_drops_the_handoff_condition(tmp_path)
     assert not (tmp_path / "package" / "tool_call_condition.json").exists()
 
 
-def test_v2_assembly_resolves_static_judge_facts_with_source_provenance(tmp_path) -> None:
+def test_assembly_resolves_static_judge_facts_with_source_provenance(tmp_path) -> None:
     plan = _reply_plan()
     inventory = _inventory()
     inventory["facts"][0]["provenance"] = {
@@ -442,7 +442,7 @@ def test_v2_assembly_resolves_static_judge_facts_with_source_provenance(tmp_path
     assert json.loads(result.package.members["plan.json"])["assumptions"] == plan["assumptions"]
 
 
-def test_v2_assembly_is_byte_and_digest_deterministic(tmp_path) -> None:
+def test_assembly_is_byte_and_digest_deterministic(tmp_path) -> None:
     plan = _plan() | {
         "semantic_judge": {
             "needed": True,
@@ -481,7 +481,7 @@ def test_v2_assembly_is_byte_and_digest_deterministic(tmp_path) -> None:
         pytest.param("order:owned", True, "unresolved_fact", id="valueless-fact"),
     ],
 )
-def test_v2_assembly_rejects_unresolved_static_judge_fact_before_publication(
+def test_assembly_rejects_unresolved_static_judge_fact_before_publication(
     tmp_path, fact_ref: str, drop_value: bool, code: str
 ) -> None:
     plan = _plan() | {
@@ -535,7 +535,7 @@ def test_new_call2_rejects_plan_owned_resubmission_without_package(tmp_path) -> 
     assert any(finding.code == "plan_conflict" for finding in result.findings)
 
 
-def test_v2_prompt_has_typed_references_selected_schemas_and_measured_bytes() -> None:
+def test_prompt_has_typed_references_selected_schemas_and_measured_bytes() -> None:
     view = _view()
     plan = _plan()
     call1 = build_call1_packet(view, _inventory(), _runtime_contract())
@@ -546,7 +546,7 @@ def test_v2_prompt_has_typed_references_selected_schemas_and_measured_bytes() ->
         assert _rendered_scenario(packet)["semantic_failure"]
 
 
-def test_v2_prompt_keeps_one_structured_copy_of_each_case_context(
+def test_prompt_keeps_one_structured_copy_of_each_case_context(
     tmp_path,
 ) -> None:
     view = _view()
@@ -585,7 +585,7 @@ def test_v2_prompt_keeps_one_structured_copy_of_each_case_context(
         )
 
 
-def test_neutral_v2_example_uses_real_framing_and_package_check(tmp_path) -> None:
+def test_neutral_example_uses_real_framing_and_package_check(tmp_path) -> None:
     assert validate_neutral_example() == []
     destination = build_neutral_artifact_package(tmp_path / "neutral")
     assert not destination.joinpath("detector.py").exists()
@@ -595,7 +595,7 @@ def test_neutral_v2_example_uses_real_framing_and_package_check(tmp_path) -> Non
     )
 
 
-def test_neutral_artifact_response_without_source_matches_v2_metadata() -> None:
+def test_neutral_artifact_response_without_source_matches_metadata() -> None:
     decoded, _ = _decode_stage_response("call2", neutral_call2_response())
 
     assert decoded == neutral_artifact_response_without_source()

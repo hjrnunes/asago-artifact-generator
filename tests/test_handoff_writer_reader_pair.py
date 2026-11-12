@@ -260,7 +260,7 @@ def test_a_hand_built_dict_passes_the_writer_and_the_reader(tmp_path: Path) -> N
     assert view.source_sha256 == hashlib.sha256(handoff_path.read_bytes()).hexdigest()
 
 
-def test_a_v6_handoff_publishes_the_envelope_and_the_reader_reads_it(
+def test_a_handoff_publishes_the_envelope_and_the_reader_reads_it(
     tmp_path: Path,
 ) -> None:
     payload = json.loads(V6_CASE.read_text(encoding="utf-8"))

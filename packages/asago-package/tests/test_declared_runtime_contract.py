@@ -337,7 +337,7 @@ def test_the_base_and_the_inputs_are_not_mutated() -> None:
     assert contract["limits"] is not base["limits"]
 
 
-def test_a_slot_that_still_names_the_v2_scalar_controller_is_refused() -> None:
+def test_a_slot_that_still_names_the_scalar_controller_is_refused() -> None:
     slot = {**_slot(), "controller": "third_party"}
 
     with pytest.raises(RuntimeContractViolation) as error:

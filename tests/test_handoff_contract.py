@@ -138,7 +138,7 @@ def test_the_reader_accepts_every_valid_case_with_the_envelope(version: str, cas
     assert read_handoff(written).version == version
 
 
-def test_a_v6_document_without_the_envelope_is_rejected() -> None:
+def test_a_document_without_the_envelope_is_rejected() -> None:
     with pytest.raises(MissingEnvelopeError) as raised:
         _specs().read(_valid_case(V6))
 

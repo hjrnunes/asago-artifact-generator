@@ -13,7 +13,7 @@ _inventory, _plan, _runtime_contract, _view = world_builders(
 )
 
 
-def test_plan_reviewer_v3_renders_the_shared_binding_rules() -> None:
+def test_plan_reviewer_renders_the_shared_binding_rules() -> None:
     view = _view()
     inventory = _inventory()
     runtime = _runtime_contract()

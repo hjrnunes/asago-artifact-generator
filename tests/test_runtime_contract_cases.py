@@ -144,7 +144,7 @@ def test_the_spec_identifies_the_runtime_spec_alone() -> None:
     assert spec.spec_digest == spec_digest(body, schema)
 
 
-def test_the_loader_refuses_every_v3_case_without_the_envelope() -> None:
+def test_the_loader_refuses_every_case_without_the_envelope() -> None:
     with pytest.raises(RuntimeContractError) as raised:
         load_runtime_contract(_cases("valid")[0])
 
@@ -170,7 +170,7 @@ def test_the_loader_reads_a_yaml_contract(tmp_path: Path) -> None:
     assert load_runtime_contract(path) == document
 
 
-def test_the_loader_names_the_first_v3_schema_fault(tmp_path: Path) -> None:
+def test_the_loader_names_the_first_schema_fault(tmp_path: Path) -> None:
     case = _json(_SPEC_ROOT / "cases" / "invalid" / "slot-missing-writable-by.json")
     document = _enveloped(_spec(), case)
     path = tmp_path / "runtime-contract.json"

@@ -203,7 +203,7 @@ def test_the_writer_refuses_a_hand_built_member_that_is_not_bytes(tmp_path: Path
         )
 
 
-def test_the_reader_refuses_a_manifest_missing_a_v5_field(tmp_path: Path) -> None:
+def test_the_reader_refuses_a_manifest_missing_a_required_field(tmp_path: Path) -> None:
     manifest = _manifest()
     manifest.pop("authoring")
     manifest["manifest_digest"] = _digest(manifest)
@@ -248,7 +248,7 @@ def test_the_reader_refuses_a_manifest_digest_that_does_not_cover_its_fields(
         ({"authoring": None}, "package manifest schema invalid at authoring"),
     ],
 )
-def test_the_reader_refuses_hand_built_manifest_values_v5_closes(
+def test_the_reader_refuses_hand_built_manifest_values_the_schema_closes(
     tmp_path: Path, changes: dict[str, Any], message: str
 ) -> None:
     directory = _materialize(

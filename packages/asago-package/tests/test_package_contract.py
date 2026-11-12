@@ -17,7 +17,7 @@ from asago_package import package_io
 from asago_package.contract_kit import contract_dir
 
 _PACKAGE = contract_dir("artifact-package")
-_V5 = "artifact-package-v1"
+_PACKAGE_VERSION = "artifact-package-v1"
 _HANDOFF_INPUT = "scenario-handoff-v1"
 
 
@@ -51,19 +51,19 @@ def _members(path: str) -> list[dict[str, Any]]:
 
 
 def test_the_schema_accepts_only_its_handoff_input() -> None:
-    schema = _schema(_V5)
+    schema = _schema(_PACKAGE_VERSION)
     accepted = _HANDOFF_INPUT
 
-    assert schema["properties"]["schema_version"] == {"const": _V5}
+    assert schema["properties"]["schema_version"] == {"const": _PACKAGE_VERSION}
     assert schema["properties"]["input_kind"] == {"enum": [accepted]}
-    jsonschema.validate(_manifest(_V5, input_kind=accepted), schema)
+    jsonschema.validate(_manifest(_PACKAGE_VERSION, input_kind=accepted), schema)
     for kind in ("scenario-handoff-v9", "other"):
         with pytest.raises(jsonschema.ValidationError):
-            jsonschema.validate(_manifest(_V5, input_kind=kind), schema)
+            jsonschema.validate(_manifest(_PACKAGE_VERSION, input_kind=kind), schema)
 
 
-def test_the_v5_schema_lists_exactly_the_members_the_writer_writes() -> None:
-    path = _schema(_V5)["$defs"]["member"]["properties"]["path"]
+def test_the_schema_lists_exactly_the_members_the_writer_writes() -> None:
+    path = _schema(_PACKAGE_VERSION)["$defs"]["member"]["properties"]["path"]
 
     assert set(path["enum"]) == package_io._ALLOWED_MEMBER_NAMES
 
@@ -74,31 +74,36 @@ def test_the_v5_schema_lists_exactly_the_members_the_writer_writes() -> None:
 )
 def test_a_retired_member_fails_the_schema(member: str) -> None:
     with pytest.raises(jsonschema.ValidationError, match="is not one of"):
-        jsonschema.validate(_manifest(_V5, members=_members(member)), _schema(_V5))
+        jsonschema.validate(
+            _manifest(_PACKAGE_VERSION, members=_members(member)), _schema(_PACKAGE_VERSION)
+        )
 
 
-def test_the_v5_schema_closes_the_authoring_outcome_and_empties_the_creation_model() -> None:
-    schema = _schema(_V5)
+def test_the_schema_closes_the_authoring_outcome_and_empties_the_creation_model() -> None:
+    schema = _schema(_PACKAGE_VERSION)
     outcome = {"status": "accepted", "terminal_status": "accepted"}
 
     jsonschema.validate(
-        _manifest(_V5, authoring={**outcome, "review_status": {"artifact": "accepted"}}), schema
+        _manifest(
+            _PACKAGE_VERSION, authoring={**outcome, "review_status": {"artifact": "accepted"}}
+        ),
+        schema,
     )
     for authoring in (
         {**outcome, "attempts": 4},
         {**outcome, "review_status": {"artifact": "accepted", "plan": "accepted"}},
     ):
         with pytest.raises(jsonschema.ValidationError, match="Additional properties"):
-            jsonschema.validate(_manifest(_V5, authoring=authoring), schema)
+            jsonschema.validate(_manifest(_PACKAGE_VERSION, authoring=authoring), schema)
     with pytest.raises(jsonschema.ValidationError):
-        jsonschema.validate(_manifest(_V5, creation_model={"model": "m"}), schema)
+        jsonschema.validate(_manifest(_PACKAGE_VERSION, creation_model={"model": "m"}), schema)
 
 
 def test_the_package_lock_names_and_pins_the_current_schema() -> None:
     lock = _json(_PACKAGE / "CONTRACT.lock")
 
-    assert lock["package_schema_version"] == _V5
-    assert lock["digest_domain"] == _V5
-    assert f"{_V5}/schema.json" in lock["files"]
+    assert lock["package_schema_version"] == _PACKAGE_VERSION
+    assert lock["digest_domain"] == _PACKAGE_VERSION
+    assert f"{_PACKAGE_VERSION}/schema.json" in lock["files"]
     assert not any(key.startswith("artifact-package-v9/") for key in lock["files"])
     package_io.validate_artifact_package_contract()

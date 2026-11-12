@@ -132,7 +132,7 @@ class ExpectedPromptDifference:
     """One intended prompt change that a recording made before it may still show.
 
     *stage* is the recorded dispatch stage.  *template* is the prompt template
-    family: a version names its family and build, ``authoring-call1-v27``.
+    family: a version names its family and build, ``authoring-call1-v1``.
     *from_prompt_version* is the version the recording carries and
     *to_prompt_version* the version the current code renders; both versions
     must name *template*.  *bead* is the backlog item that owns the change and

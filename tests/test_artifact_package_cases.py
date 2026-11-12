@@ -64,13 +64,13 @@ _MESSAGES = {
     "creation_model_not_empty": r"^package manifest schema invalid at creation_model: ",
 }
 # The v5 schema lists the member names, so it rejects any other path before the path checks run.
-_V5_MEMBER_PATH = r"^package manifest schema invalid at members\.\d+\.path: .* is not one of "
+_MEMBER_PATH = r"^package manifest schema invalid at members\.\d+\.path: .* is not one of "
 _VERSION_MESSAGES = {
     "artifact-package-v1": {
-        "member_path_invalid": _V5_MEMBER_PATH,
-        "member_path_escapes": _V5_MEMBER_PATH,
-        "member_path_non_canonical": _V5_MEMBER_PATH,
-        "member_path_unexpected": _V5_MEMBER_PATH,
+        "member_path_invalid": _MEMBER_PATH,
+        "member_path_escapes": _MEMBER_PATH,
+        "member_path_non_canonical": _MEMBER_PATH,
+        "member_path_unexpected": _MEMBER_PATH,
     },
 }
 

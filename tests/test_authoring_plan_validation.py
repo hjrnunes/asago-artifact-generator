@@ -266,7 +266,9 @@ def test_plan_validation_accumulates_all_structural_findings() -> None:
         "unresolved_requirements": "wrong",
     }
 
-    findings = collect_plan_findings(malformed, _authoring_inventory(), _authoring_runtime_contract())
+    findings = collect_plan_findings(
+        malformed, _authoring_inventory(), _authoring_runtime_contract()
+    )
 
     assert len(findings) >= 11
     paths = {finding.path for finding in findings}

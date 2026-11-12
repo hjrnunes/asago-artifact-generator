@@ -535,9 +535,7 @@ def test_the_existing_checks_accept_the_indirect_plan_and_artifact(tmp_path: Pat
     assert sequential_plan_findings(view, plan) == []
     assert sequential_artifact_findings(view, metadata) == []
     assert collect_plan_findings(plan, inventory, rt) == []
-    assert (
-        collect_artifact_findings(metadata, plan, inventory, rt, planted_max_chars=LIMIT) == []
-    )
+    assert collect_artifact_findings(metadata, plan, inventory, rt, planted_max_chars=LIMIT) == []
 
 
 def test_an_indirect_plan_must_use_the_planted_item_delivery(tmp_path: Path) -> None:
@@ -751,7 +749,7 @@ def _author(
     return result, transport
 
 
-def test_an_indirect_handoff_becomes_a_v5_package_with_a_seed_that_follows_the_seed_schema(
+def test_an_indirect_handoff_becomes_a_package_with_a_seed_that_follows_the_seed_schema(
     tmp_path: Path,
 ) -> None:
     result, transport = _author(tmp_path)

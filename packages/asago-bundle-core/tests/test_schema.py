@@ -104,7 +104,7 @@ def test_a_garak_manifest_reads(version: str) -> None:
     assert manifest_errors(enveloped(manifest)) == []
 
 
-def test_a_v2_manifest_without_the_envelope_is_refused() -> None:
+def test_a_manifest_without_the_envelope_is_refused() -> None:
     errors = manifest_errors(garak_manifest())
 
     assert errors

@@ -81,7 +81,7 @@ def test_runtime_contract_declared_claim_levels_extend_support() -> None:
     assert "supported claim levels are command_attempt, returned_result." in reply[0].detail
 
 
-def test_v2_plan_validation_rejects_unsupported_claim_level() -> None:
+def test_plan_validation_rejects_unsupported_claim_level() -> None:
     plan = _plan(observation_claim=_claim("returned_result"))
 
     findings = collect_plan_findings(plan, _inventory(), _contract())

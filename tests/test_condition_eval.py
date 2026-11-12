@@ -15,7 +15,7 @@ from asago_artifact_generator.authoring.condition_eval import (
 )
 
 _KIT = Path(__file__).resolve().parents[1] / "contracts/tool-call-condition"
-_V2 = "tool-call-condition-v1"
+_KIT_VERSION = "tool-call-condition-v1"
 
 
 def _vectors(version: str, name: str) -> list[dict[str, Any]]:
@@ -23,11 +23,11 @@ def _vectors(version: str, name: str) -> list[dict[str, Any]]:
     return json.loads(path.read_text(encoding="utf-8"))["vectors"]
 
 
-_EVALUATE = _vectors(_V2, "evaluate.json")
-_VALIDATE = _vectors(_V2, "validate.json")
+_EVALUATE = _vectors(_KIT_VERSION, "evaluate.json")
+_VALIDATE = _vectors(_KIT_VERSION, "validate.json")
 
 
-def test_the_lock_pins_every_kit_file_and_names_v2() -> None:
+def test_the_lock_pins_every_kit_file_and_names_its_version() -> None:
     lock = json.loads((_KIT / "CONTRACT.lock").read_text(encoding="utf-8"))
     files = {
         str(path.relative_to(_KIT)): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -35,7 +35,7 @@ def test_the_lock_pins_every_kit_file_and_names_v2() -> None:
         if path.is_file() and path.name != "CONTRACT.lock"
     }
 
-    assert lock["version"] == _V2
+    assert lock["version"] == _KIT_VERSION
     assert lock["files"] == files
 
 

@@ -22,7 +22,7 @@
       "model": "configured-private-authoring"
     },
     "input_kind": "scenario-handoff-v1",
-    "manifest_digest": "8798159783825c24bc5ddaa9e1938149818e80c122da878c8c7aaaa037705f92",
+    "manifest_digest": "bb3a143f759d2a005b540f9f47859b98ccba91e226e016eec07e35d05e10670c",
     "members": [
       {
         "length": 3,

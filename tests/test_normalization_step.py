@@ -281,8 +281,7 @@ def test_a_normalized_plan_with_every_rewrite_passes_the_checks() -> None:
         == []
     )
     assert (
-        collect_artifact_findings(metadata, normalized.plan, inventory, _runtime_contract())
-        == []
+        collect_artifact_findings(metadata, normalized.plan, inventory, _runtime_contract()) == []
     )
     assert collect_plan_findings(_plan_needing_every_rewrite(), inventory, _runtime_contract())
 

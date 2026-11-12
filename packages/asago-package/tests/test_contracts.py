@@ -111,7 +111,7 @@ def test_a_contract_whose_lock_names_another_contract_is_refused(tmp_path: Path)
         _verify(copy, "artifact-package")
 
 
-def test_the_v5_schema_lists_exactly_the_member_paths_the_module_writes() -> None:
+def test_the_schema_lists_exactly_the_member_paths_the_module_writes() -> None:
     schema = json.loads(
         (contract_dir("artifact-package") / PACKAGE_SCHEMA_VERSION / "schema.json").read_text(
             encoding="utf-8"

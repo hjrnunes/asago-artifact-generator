@@ -280,9 +280,11 @@ agent answers without the call.
 
 ### Versioned prompt roles and evidence
 
-New v2 authoring uses five independently versioned, hashed prompt roles:
+Authoring uses six hashed prompt roles (Call 1, Call 2, plan review, artifact review,
+plan correction and artifact correction), each with its own prompt version.
+`tests/golden/prompts/manifest.json` lists the current version of each role:
 
-- `authoring-call1-v29` renders the plan author context while preserving the
+- `authoring-call1-v1` renders the plan author context while preserving the
   existing 11-field plan response. The handoff's `attack-path-v1`
   `attack_path` appears in SCENARIO DESIGN as an outline of the attacker lines
   and then numbered parts (conditions, attack steps in order, unsafe action,
@@ -290,8 +292,8 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   The purpose, the stimulus rules, the EVIDENCE REFERENCES rules, the response
   contract descriptions, and the correction texts name the attack path, and the
   path's node and source IDs are citable provenance. The plan correction
-  (`authoring-correction-v47`) shows the same outline.
-- `authoring-plan-review-v28` reviews a fresh source-derived plan context. It
+  (`authoring-plan-correction-v1`) shows the same outline.
+- `authoring-plan-review-v1` reviews a fresh source-derived plan context. It
   also shows the value each `supplied_input` binding resolves to, so the
   reviewer can check that a bound value means what the plan uses it for. When a
   binding selects inside one record of a keyed fact, the value also carries
@@ -314,12 +316,11 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   recording's, and refuses any other as a prompt mismatch, which fails the
   item. Every stage's current version carries the structured-analysis note
   that explains a null `process_model_belief` (see the structured-analysis
-  fields below), so a recording made before Call 1 v29, plan review v28, Call 2
-  v31, artifact review v27 and corrections v47 and v48 needs a declared
+  fields below), so a recording made before that note needs a declared
   difference; without one, replaying it refuses its first dispatch. A replay
   serves recorded responses and does not test how a model answers the changed
   prompt.
-- `authoring-call2-v31` renders the immutable accepted plan and the runtime
+- `authoring-call2-v1` renders the immutable accepted plan and the runtime
   contract, and asks for one JSON object without detector code. When the plan
   needs a semantic judge, `semantic_judge_spec_rules` states that the judge question is a yes/no
   question whose yes answer is the violation, that the criteria are a
@@ -329,21 +330,21 @@ New v2 authoring uses five independently versioned, hashed prompt roles:
   `semantic_judge_spec` object; a missing one gets a
   `semantic_judge_spec_required` correction. Its `unsafe` and `safe` examples
   each carry a `reply` written as the target's message (see above).
-- `authoring-artifact-review-v27` reviews the exact artifact object and the
+- `authoring-artifact-review-v1` reviews the exact artifact object and the
   binding and judge declarations; for a reply claim it reads each example's
   `reply` as the target's own message.
-- A review retry of either role (plan review v28, artifact review v27) sends
+- A review retry of either role (plan review, artifact review) sends
   the same prompt followed by PREVIOUS REVIEW RESPONSE REJECTED, the rejected
   response verbatim, its check findings, and an instruction to return one
   complete response that corrects every finding.
-- `authoring-correction-v47` renders only the failed stage format and all
+- `authoring-plan-correction-v1` renders only the failed stage format and all
   current findings. A plan correction after a semantic review finding that
   points to a runtime binding, by `runtime_bindings[<index>]` location or by
   the exact binding name, carries a `review_binding` repair option. The option
   lists the binding's documented selectors, the selected record's sources, and
   `review_selector_checks`: each selector path the required change names,
   checked against the sources that document it. Artifact corrections use
-  `authoring-correction-v48`; a reply plan's carries the Call 2 reply contract.
+  `authoring-artifact-correction-v1`; a reply plan's carries the Call 2 reply contract.
 
 Author and reviewer prompts receive the original scenario, supplied facts,
 operations, schemas, provenance, and runtime capabilities. Reviewers do not

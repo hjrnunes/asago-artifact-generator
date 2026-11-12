@@ -21,7 +21,7 @@
     "creation_model": {},
     "detector_interface": "evaluate(evidence: dict) -> dict",
     "input_kind": "scenario-handoff-v1",
-    "manifest_digest": "f6a09533f2dda727192df1d1bc6e74834f2c3f0713db7aeea9359b3c5e3c47d3",
+    "manifest_digest": "c35b89e4b24f082140cc544d74ade9e83e0eb3830b187bc3eb4e7f2564b12df0",
     "members": [
       {
         "length": 3,

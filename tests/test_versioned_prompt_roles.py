@@ -12,12 +12,12 @@ from asago_artifact_generator.authoring.contracts import (
     PLAN_FIELD_MEANINGS,
 )
 from asago_artifact_generator.authoring.core import (
-    ARTIFACT_REVIEW_PROMPT_VERSION_V31,
+    ARTIFACT_CORRECTION_PROMPT_VERSION,
+    ARTIFACT_REVIEW_PROMPT_VERSION,
     CALL1_PROMPT_VERSION,
     CALL2_PROMPT_VERSION,
     PLAN_CORRECTION_PROMPT_VERSION,
-    ARTIFACT_CORRECTION_PROMPT_VERSION,
-    PLAN_REVIEW_PROMPT_VERSION_V30,
+    PLAN_REVIEW_PROMPT_VERSION,
     Finding,
     PromptOverflowError,
     PromptPacket,
@@ -309,9 +309,9 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
     "version",
     [
         CALL1_PROMPT_VERSION,
-        PLAN_REVIEW_PROMPT_VERSION_V30,
+        PLAN_REVIEW_PROMPT_VERSION,
         CALL2_PROMPT_VERSION,
-        ARTIFACT_REVIEW_PROMPT_VERSION_V31,
+        ARTIFACT_REVIEW_PROMPT_VERSION,
         PLAN_CORRECTION_PROMPT_VERSION,
         ARTIFACT_CORRECTION_PROMPT_VERSION,
     ],

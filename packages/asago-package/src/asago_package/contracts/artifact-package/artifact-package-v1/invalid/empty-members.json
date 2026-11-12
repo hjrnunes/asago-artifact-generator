@@ -20,7 +20,7 @@
     },
     "creation_model": {},
     "input_kind": "scenario-handoff-v1",
-    "manifest_digest": "f9037aaf50d5b8fc974610c4f2da8c1722a6b55c2ef94d64367fe62ee6f7df03",
+    "manifest_digest": "fd3dd5d9023c9bc0c932bbe897b2191d9230297d40ed1f684219b12ba98631f6",
     "members": [],
     "package_id": "pkg-1",
     "runtime_capabilities": {},

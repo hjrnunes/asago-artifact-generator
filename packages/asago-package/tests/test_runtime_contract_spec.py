@@ -112,7 +112,7 @@ def test_the_installed_spec_is_the_runtime_contract_version() -> None:
     assert spec.spec_digest == spec_digest(body, (root / "schema.json").read_bytes())
 
 
-def test_the_reader_refuses_a_v3_document_without_the_envelope() -> None:
+def test_the_reader_refuses_a_document_without_the_envelope() -> None:
     with pytest.raises(MissingEnvelopeError, match="requires the self-identifying envelope"):
         read_runtime_contract(_json(_valid_cases()[0]))
 
@@ -126,7 +126,7 @@ def test_the_reader_accepts_every_valid_case_with_the_envelope(case: Path) -> No
     assert read_runtime_contract(written).version == VERSION
 
 
-def test_the_writer_stamps_the_installed_v3_envelope() -> None:
+def test_the_writer_stamps_the_installed_envelope() -> None:
     case = _json(_valid_cases()[0])
     spec = _spec()
 

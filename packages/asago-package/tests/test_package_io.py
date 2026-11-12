@@ -502,7 +502,7 @@ def test_the_reader_refuses_a_non_string_claim_level(tmp_path: Path, claim_level
         load_package(destination)
 
 
-def test_written_manifest_matches_the_locked_v5_schema(tmp_path: Path) -> None:
+def test_written_manifest_matches_the_locked_schema(tmp_path: Path) -> None:
     import jsonschema
 
     root = contract_dir("artifact-package")

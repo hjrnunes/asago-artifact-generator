@@ -708,9 +708,7 @@ def build_artifact_author_context(
     """Build the immutable-plan context for the artifact author."""
 
     response_contract = deepcopy(
-        _call2_contract(
-            plan, planted_max_chars=planted_text_limit(view, runtime_contract, plan)
-        )
+        _call2_contract(plan, planted_max_chars=planted_text_limit(view, runtime_contract, plan))
     )
     # The neutral example is rendered in its own section so the request has
     # one readable copy of it.

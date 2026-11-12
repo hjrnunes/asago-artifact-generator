@@ -23,20 +23,17 @@ if TYPE_CHECKING:
     from .transport import RequestSession
 
 AUTHORING_INTERFACE_VERSION = "artifact-authoring-v1"
-# The response wire remains v2, while its model-facing templates advance
-# independently; each constant names the template version dispatched now.
+# Each constant names the prompt version that its dispatch renders.
 CALL1_PROMPT_VERSION = "authoring-call1-v1"
 CALL2_PROMPT_VERSION = "authoring-call2-v1"
-# Corrections share one template family; the plan and artifact stages advance apart.
+# The plan and artifact corrections are separate prompts with separate names.
 PLAN_CORRECTION_PROMPT_VERSION = "authoring-plan-correction-v1"
 ARTIFACT_CORRECTION_PROMPT_VERSION = "authoring-artifact-correction-v1"
 # Semantic-review roles.  Each review is a separate provider request recorded
 # beside the author dispatches; the reviewer contract is the small closed
 # decision/summary/findings shape parsed by ``parse_review_response``.
-PLAN_REVIEW_PROMPT_VERSION_V30 = "authoring-plan-review-v1"
-ARTIFACT_REVIEW_PROMPT_VERSION_V31 = "authoring-artifact-review-v1"
-PLAN_REVIEW_PROMPT_VERSION = PLAN_REVIEW_PROMPT_VERSION_V30
-ARTIFACT_REVIEW_PROMPT_VERSION = ARTIFACT_REVIEW_PROMPT_VERSION_V31
+PLAN_REVIEW_PROMPT_VERSION = "authoring-plan-review-v1"
+ARTIFACT_REVIEW_PROMPT_VERSION = "authoring-artifact-review-v1"
 _REVIEW_STAGES = frozenset({"plan_review", "artifact_review"})
 
 

@@ -50,7 +50,7 @@ def test_handoff_view_preserves_source_hash_and_authoritative_content() -> None:
         ),
     ],
 )
-def test_a_document_that_is_not_a_v6_handoff_is_rejected_with_the_shared_codes(
+def test_a_document_that_is_not_a_handoff_is_rejected_with_the_shared_codes(
     tmp_path: Path, name: str, text: str, codes: tuple[str, ...]
 ) -> None:
     source_path = tmp_path / name

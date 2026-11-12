@@ -981,10 +981,10 @@ def test_gate_fails_on_an_output_or_exit_code_difference(
 OLDER_CALL1_ENTRY = replay_gate.ExpectedPromptDifference(
     stage="call1",
     template="authoring-call1",
-    from_prompt_version="authoring-call1-v26",
+    from_prompt_version="authoring-call1-v0",
     to_prompt_version=CALL1_PROMPT_VERSION,
     bead="item-a",
-    reason="the older recording carries authoring-call1-v26",
+    reason="the older recording carries authoring-call1-v0",
 )
 
 
@@ -1004,9 +1004,9 @@ def _declare(monkeypatch: pytest.MonkeyPatch) -> replay_gate.ExpectedPromptDiffe
 @pytest.mark.parametrize(
     ("version", "template"),
     [
-        ("authoring-call1-v27", "authoring-call1"),
-        ("authoring-plan-review-v26", "authoring-plan-review"),
-        ("authoring-correction-v46", "authoring-correction"),
+        ("authoring-call1-v0", "authoring-call1"),
+        ("authoring-plan-review-v1", "authoring-plan-review"),
+        ("authoring-correction-v0", "authoring-correction"),
         ("unversioned", "unversioned"),
         ("authoring-call1-v", "authoring-call1-v"),
     ],
@@ -1044,14 +1044,14 @@ def test_replay_client_refuses_a_prompt_difference_no_entry_lists(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     entry = _declare(monkeypatch)
-    client = ReplayChatClient([_call(prompt_version="authoring-call1-v25")])
+    client = ReplayChatClient([_call(prompt_version="authoring-call1-v3")])
     client.prompt = replay_gate.PromptIdentity(entry.stage, entry.to_prompt_version)
 
     with pytest.raises(ConnectionError, match="prompt mismatch"):
         client.chat.completions.create(**_request(user="an older prompt no entry names"))
 
     assert client.declared == [] and client.served == 0
-    assert client.mismatches[0]["prompt_version"] == "authoring-call1-v25"
+    assert client.mismatches[0]["prompt_version"] == "authoring-call1-v3"
     assert client.mismatches[0]["detail"] == "user message differs from the recording"
 
 
@@ -1073,7 +1073,7 @@ def test_replay_client_refuses_a_difference_after_the_version_its_entry_names(
 ) -> None:
     entry = _declare(monkeypatch)
     client = ReplayChatClient([_call(prompt_version=entry.from_prompt_version)])
-    client.prompt = replay_gate.PromptIdentity(entry.stage, "authoring-call1-v32")
+    client.prompt = replay_gate.PromptIdentity(entry.stage, "authoring-call1-v2")
 
     with pytest.raises(ConnectionError, match="prompt mismatch"):
         client.chat.completions.create(**_request(user="a later prompt"))
@@ -1135,7 +1135,7 @@ def test_replay_client_leaves_an_undeclared_version_move_unmatched(
     """
 
     _declare(monkeypatch)
-    client = ReplayChatClient([_call(prompt_version="authoring-call1-v29")])
+    client = ReplayChatClient([_call(prompt_version="authoring-call1-v4")])
     client.prompt = replay_gate.PromptIdentity("call1", CALL1_PROMPT_VERSION)
 
     client.chat.completions.create(**_request())
@@ -1189,18 +1189,18 @@ def test_a_declared_review_dispatch_keeps_the_recorded_prompt_pins(tmp_path: Pat
     recorded = {
         "attempts": [
             _prompt_attempt(
-                "authoring-plan-review-v23",
+                "authoring-plan-review-v0",
                 "older prompt",
-                review={"prompt_version": "authoring-plan-review-v23", "prompt_sha256": "a" * 64},
+                review={"prompt_version": "authoring-plan-review-v0", "prompt_sha256": "a" * 64},
             )
         ]
     }
     replayed = {
         "attempts": [
             _prompt_attempt(
-                "authoring-plan-review-v26",
+                "authoring-plan-review-v1",
                 "current prompt",
-                review={"prompt_version": "authoring-plan-review-v26", "prompt_sha256": "b" * 64},
+                review={"prompt_version": "authoring-plan-review-v1", "prompt_sha256": "b" * 64},
             )
         ]
     }
@@ -1208,8 +1208,8 @@ def test_a_declared_review_dispatch_keeps_the_recorded_prompt_pins(tmp_path: Pat
         {
             "dispatch_index": 1,
             "stage": "plan_review",
-            "from_prompt_version": "authoring-plan-review-v23",
-            "to_prompt_version": "authoring-plan-review-v26",
+            "from_prompt_version": "authoring-plan-review-v0",
+            "to_prompt_version": "authoring-plan-review-v1",
         }
     ]
 
@@ -1248,11 +1248,11 @@ def test_a_declared_version_pair_masks_the_review_digest_of_the_prompt(tmp_path:
     recorded = {
         "attempts": [
             _digest_attempt(
-                "authoring-plan-review-v23",
+                "authoring-plan-review-v0",
                 "a" * 64,
                 reviewed_input_sha256="c" * 64,
                 review={
-                    "prompt_version": "authoring-plan-review-v23",
+                    "prompt_version": "authoring-plan-review-v0",
                     "prompt_sha256": "a" * 64,
                     "reviewed_input_sha256": "c" * 64,
                 },
@@ -1262,11 +1262,11 @@ def test_a_declared_version_pair_masks_the_review_digest_of_the_prompt(tmp_path:
     replayed = {
         "attempts": [
             _digest_attempt(
-                "authoring-plan-review-v26",
+                "authoring-plan-review-v1",
                 "b" * 64,
                 reviewed_input_sha256="d" * 64,
                 review={
-                    "prompt_version": "authoring-plan-review-v26",
+                    "prompt_version": "authoring-plan-review-v1",
                     "prompt_sha256": "b" * 64,
                     "reviewed_input_sha256": "d" * 64,
                 },
@@ -1275,8 +1275,8 @@ def test_a_declared_version_pair_masks_the_review_digest_of_the_prompt(tmp_path:
     }
     declared = [
         {
-            "from_prompt_version": "authoring-plan-review-v23",
-            "to_prompt_version": "authoring-plan-review-v26",
+            "from_prompt_version": "authoring-plan-review-v0",
+            "to_prompt_version": "authoring-plan-review-v1",
         }
     ]
 
@@ -1287,7 +1287,7 @@ def test_a_declared_version_pair_masks_the_review_digest_of_the_prompt(tmp_path:
 
 def test_a_dispatch_outside_a_declared_version_pair_is_reported(tmp_path: Path) -> None:
     entry = _ff36f1c_entry()
-    recorded = {"attempts": [_digest_attempt("authoring-call1-v25", "a" * 64)]}
+    recorded = {"attempts": [_digest_attempt("authoring-call1-v3", "a" * 64)]}
     replayed = {"attempts": [_digest_attempt(entry.to_prompt_version, "b" * 64)]}
     declared = [
         {
@@ -1324,7 +1324,7 @@ def test_an_entry_the_recording_does_not_carry_is_not_stale(
 ) -> None:
     _declare(monkeypatch)
 
-    assert replay_gate._stale_entries({("call1", "authoring-call1-v25")}, []) == []
+    assert replay_gate._stale_entries({("call1", "authoring-call1-v3")}, []) == []
 
 
 def test_gate_declares_a_listed_prompt_difference_and_passes(
@@ -1359,7 +1359,7 @@ def test_gate_fails_a_prompt_difference_no_entry_lists(
     unresolved_stage: Path, tmp_path: Path
 ) -> None:
     _rewrite_prompt(
-        unresolved_stage, 1, user="a prompt no entry names", version="authoring-call1-v25"
+        unresolved_stage, 1, user="a prompt no entry names", version="authoring-call1-v3"
     )
 
     result = run_gate(unresolved_stage, work=tmp_path / "work")
@@ -1384,8 +1384,8 @@ def test_gate_fails_an_entry_the_recording_carries_but_matches_nothing(
     entry = replay_gate.ExpectedPromptDifference(
         stage="call1",
         template="authoring-call1",
-        from_prompt_version="authoring-call1-v26",
-        to_prompt_version="authoring-call1-v32",
+        from_prompt_version="authoring-call1-v0",
+        to_prompt_version="authoring-call1-v2",
         bead="item-a",
         reason="an entry whose to-version the code does not render",
     )
@@ -1484,7 +1484,7 @@ def test_gate_matches_a_superseded_item_a_declared_difference_covered(
     mismatch, and every recorded dispatch before the pinned one served.
     """
 
-    from_version = "authoring-call1-v29"
+    from_version = "authoring-call1-v4"
     _rewrite_prompt(unresolved_stage, 1, user="the prompt ff36f1c recorded", version=from_version)
     entry = _superseded(
         prompt_version=from_version,
@@ -1605,7 +1605,7 @@ def test_stage_report_names_each_superseded_item() -> None:
         item="SCN-008",
         dispatch_index=5,
         stage="correction",
-        prompt_version="authoring-correction-v48",
+        prompt_version="authoring-correction-v0",
         reason="fd0de5a adds the binding_in_fixed_turn finding",
     )
     item = _item(
@@ -1619,7 +1619,7 @@ def test_stage_report_names_each_superseded_item() -> None:
             {
                 "dispatch_index": 5,
                 "stage": "correction",
-                "prompt_version": "authoring-correction-v48",
+                "prompt_version": "authoring-correction-v0",
                 "detail": "user message differs from the recording",
             }
         ],
@@ -1639,7 +1639,7 @@ def test_stage_report_names_each_superseded_item() -> None:
     assert "superseded: 1 declared superseded items" in report
     assert (
         "  superseded: gsx7-author-klarna SCN-008 dispatch 5"
-        " (correction, authoring-correction-v48): bead item-b:"
+        " (correction, authoring-correction-v0): bead item-b:"
         " fd0de5a adds the binding_in_fixed_turn finding"
     ) in report
 
@@ -1900,8 +1900,7 @@ def test_main_uses_the_declared_superseded_items(
     assert code == 0
     output = capsys.readouterr().out
     assert (
-        "  superseded: run-test SCN-901 dispatch 1"
-        f" (call1, {CALL1_PROMPT_VERSION}): bead item-b:"
+        f"  superseded: run-test SCN-901 dispatch 1 (call1, {CALL1_PROMPT_VERSION}): bead item-b:"
     ) in output
     assert "superseded:      1" in output
     assert output.splitlines()[-1] == "PASS"

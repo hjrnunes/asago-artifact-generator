@@ -268,7 +268,11 @@ def test_an_allowing_session_is_asked_once_per_physical_request() -> None:
 
 def _plan_then_artifact(*first: object) -> FakeOpenAI:
     return scripted_client(
-        [*first, chat_completion(json.dumps(_authoring_plan())), chat_completion(_framed().decode())]
+        [
+            *first,
+            chat_completion(json.dumps(_authoring_plan())),
+            chat_completion(_framed().decode()),
+        ]
     )
 
 
