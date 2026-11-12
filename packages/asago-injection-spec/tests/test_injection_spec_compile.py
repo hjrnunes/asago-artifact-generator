@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
+import injection_spec_cases
 import jsonschema
 import pytest
 from injection_spec_cases import (
@@ -32,6 +35,7 @@ from injection_spec_cases import (
     SPEC,
     TARGET,
     TOOLS,
+    compile_case,
     history_binding_options,
     planted_stimulus,
     seed_document,
@@ -115,6 +119,31 @@ def test_the_same_package_compiles_to_the_same_bytes(tmp_path: Path, case: str) 
     compiled(package, tmp_path / "second")
 
     assert written(tmp_path / "first") == written(tmp_path / "second")
+
+
+def test_the_case_builder_s_entry_point_compiles_every_case(tmp_path: Path) -> None:
+    """``injection_spec_cases`` as a script writes each case's spec under ``<out>/<case>``.
+
+    The episode generator documents that entry as the way to produce the compiled documents
+    it runs, so it must compile through the library into the directory shape it names, with
+    each case's own write disposition.
+    """
+
+    builder = Path(injection_spec_cases.__file__ or "").resolve()
+    completed = subprocess.run(
+        [sys.executable, str(builder), str(tmp_path / "out")],
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert sorted(path.name for path in (tmp_path / "out").iterdir()) == sorted(CASES)
+    for case in CASES:
+        entry_document = json.loads(
+            (tmp_path / "out" / case / INJECTION_SPEC_FILE).read_text(encoding="utf-8")
+        )
+        library_document = compile_case(tmp_path / "packages", case, tmp_path / case)
+        assert entry_document == library_document
 
 
 def test_the_returned_document_is_the_one_written(tmp_path: Path) -> None:

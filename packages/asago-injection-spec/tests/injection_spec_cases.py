@@ -6,8 +6,8 @@ case is one package; the Garak adapter's fixture generator
 (``tools/fixture-generators/garak_ipi.py``) compiles the same cases for the same target, and
 ``tools/fixture-generators/episode.py`` runs each compiled episode with MiDojo's host
 interceptor in front of it. The packages hold the list slot and the three tools they were
-sealed with, not the fixture target's ``read_note`` and its slot. To write the cases'
-packages into an empty directory:
+sealed with, not the fixture target's ``read_note`` and its slot. To compile every case's
+injection spec into an empty directory:
 
     uv run python packages/asago-injection-spec/tests/injection_spec_cases.py <empty dir>
 """
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -233,6 +234,26 @@ def write_case_package(root: Path, case: str) -> Path:
     return write_planted_package(root / case, **CASES[case])
 
 
+def compile_case(root: Path, case: str, out: Path) -> dict[str, Any]:
+    """Compile ``case``'s package for the fixture target into ``out``."""
+
+    from asago_injection_spec.injection_spec_compile import compile_injection_spec
+
+    return compile_injection_spec(
+        write_case_package(root, case),
+        out,
+        target=TARGET,
+        write_disposition=DISPOSITIONS.get(case),
+    )
+
+
+def compile_cases(packages: Path, out: Path) -> None:
+    """Compile every case's package into ``out/<case>``."""
+
+    for case in CASES:
+        compile_case(packages, case, out / case)
+
+
 def _json(value: Any) -> bytes:
     return (json.dumps(value, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
@@ -241,5 +262,4 @@ if __name__ == "__main__":
     import tempfile
 
     with tempfile.TemporaryDirectory() as packages:
-        for case in CASES:
-            write_case_package(Path(packages), case)
+        compile_cases(Path(packages), Path(sys.argv[1]))
