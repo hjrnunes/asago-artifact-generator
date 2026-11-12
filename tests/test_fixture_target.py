@@ -269,15 +269,18 @@ def test_the_declaration_files_are_consistent() -> None:
             "id",
             "carrier_operation",
             "field",
-            "controller",
+            "writable_by",
             "content_kind",
             "max_chars",
             "mode",
             "records",
             "record_key",
         }
-        text_keys = ("id", "carrier_operation", "field", "controller", "content_kind")
+        text_keys = ("id", "carrier_operation", "field", "content_kind")
         assert all(isinstance(slot[key], str) and slot[key] for key in text_keys)
+        assert slot["writable_by"] and all(
+            isinstance(party, str) and party for party in slot["writable_by"]
+        )
         assert isinstance(slot["max_chars"], int) and slot["max_chars"] > 0
         assert slot["mode"] in ("replace", "append")
         collection, attribute = server.slot_place(slot)

@@ -11,7 +11,7 @@ seed_slots:
   - id: piggybank.note.body
     carrier_operation: list_notes
     field: notes[].body
-    controller: third_party
+    writable_by: [third_party]
     content_kind: note
     max_chars: 280
     mode: append
@@ -21,7 +21,7 @@ seed_slots:
   - id: piggybank.note.read
     carrier_operation: read_note
     field: body
-    controller: third_party
+    writable_by: [third_party]
     content_kind: note
     max_chars: 280
     mode: replace

@@ -132,7 +132,7 @@ KLARNA_INDIRECT_RUNTIME: dict[str, Any] = {
             "id": "klarna.order.item",
             "carrier_operation": "lookup_order",
             "field": "item",
-            "controller": "third_party",
+            "writable_by": ["third_party"],
             "content_kind": "order_content",
             "records": ["ORD-101", "ORD-102", "ORD-103", "ORD-104"],
             "max_chars": 2000,

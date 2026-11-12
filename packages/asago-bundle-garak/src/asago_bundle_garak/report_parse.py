@@ -104,12 +104,12 @@ ATTEMPT_COMPLETE = 2
 OUTCOMES = {1.0: "detected", 0.0: "not_detected"}
 INCONCLUSIVE = "inconclusive"
 DRIVERS = {"command_attempt": "ToolCallCondition", "reply": "RubricJudge"}
-# Each detector's result note, under the name it writes.
+# Each detector's result note.
 RECORD_NOTES = {
-    "ToolCallCondition": ("tool_call_condition_results",),
-    "RubricJudge": ("rubric_judge_results",),
-    "EvaluationVerdict": ("evaluation_verdict_results",),
-    "EvaluationEffect": ("evaluation_effect_results",),
+    "ToolCallCondition": "tool_call_condition_results",
+    "RubricJudge": "rubric_judge_results",
+    "EvaluationVerdict": "evaluation_verdict_results",
+    "EvaluationEffect": "evaluation_effect_results",
 }
 # A verdict's own grade; any other value is inconclusive, never resisted.
 GRADES = frozenset({*OUTCOMES.values(), INCONCLUSIVE})
@@ -120,7 +120,6 @@ UNRESOLVED = "unresolved"
 # The detectors that read an episode's sealed grade, by their bare plugin names.
 IPI_VERDICT = IPI_DETECTOR.rsplit(".", 1)[-1]
 IPI_EFFECT_NAME = IPI_EFFECT.rsplit(".", 1)[-1]
-IPI_VERDICTS = (IPI_VERDICT,)
 GRADE_READERS = frozenset({IPI_VERDICT, IPI_EFFECT_NAME})
 # The driver that drove an IPI report: Garak's own probe, over MiDojo's injection-spec API.
 IPI_DRIVER = "garak.midojo.InjectionSpecProbe"
@@ -128,9 +127,9 @@ IPI_DRIVER = "garak.midojo.InjectionSpecProbe"
 # plan's delivery computed; any other word is a chain that stopped short, which states none.
 SEALED_FINAL = "final"
 # The probe's chain and trace notes.
-CHAIN_NOTES = ("injection_spec_chain",)
+CHAIN_NOTE = "injection_spec_chain"
 METADATA_NOTES = "source_metadata"
-TRACE_NOTES = ("evaluation_trace",)
+TRACE_NOTE = "evaluation_trace"
 INTERRUPTED = "interrupted"
 # The trace key the probe writes when MiDojo's service never acknowledged the release after
 # the seal, and the receipt reason that loss becomes. The trace's value is MiDojo's own
@@ -783,7 +782,7 @@ def ipi_attempt(
     if verdict is not None:
         result = grade_result(verdict, level)
     else:
-        result = result_of(detections, level, driver=IPI_VERDICTS)
+        result = result_of(detections, level, driver=IPI_VERDICT)
     replies = {
         position: found
         for position, found in enumerate(output_text(turn) for turn in turns)
@@ -867,24 +866,15 @@ def output_text(attempt: dict[str, Any]) -> str | None:
 def episode_trace(attempt: dict[str, Any]) -> dict[str, Any]:
     """Return the sealed trace the probe left on ``attempt``; empty when it left none."""
 
-    return _note(attempt, TRACE_NOTES)
+    return _note(attempt, TRACE_NOTE)
 
 
-def _note(attempt: dict[str, Any], names: tuple[str, ...]) -> dict[str, Any]:
-    """Return the first of ``names`` the attempt's notes hold as an object, else empty.
-
-    The names come newest first, so a report that carries both forms reads the current
-    one; a report recorded before the rename carries only the older one.
-    """
+def _note(attempt: dict[str, Any], name: str) -> dict[str, Any]:
+    """Return the note ``name`` the attempt holds as an object, else empty."""
 
     notes = attempt.get("notes")
-    if not isinstance(notes, dict):
-        return {}
-    for name in names:
-        found = notes.get(name)
-        if isinstance(found, dict):
-            return found
-    return {}
+    found = notes.get(name) if isinstance(notes, dict) else None
+    return found if isinstance(found, dict) else {}
 
 
 def source_metadata(attempt: dict[str, Any]) -> dict[str, Any] | None:
@@ -922,7 +912,7 @@ def ipi_judge(final: dict[str, Any], bundle: Bundle, records: Records) -> dict[s
 
     if bundle.manifest["claim_level"] != "reply":
         return None
-    record = _first_record(final, IPI_VERDICTS)
+    record = _first_record(final, IPI_VERDICT)
     return {
         "verdict": _judge_verdict(record),
         "reason": text(record.get("detail")) or text(record.get("reason")),
@@ -966,7 +956,7 @@ def _trace_failure(trace: dict[str, Any]) -> tuple[str | None, str | None]:
 def _chain(attempt: dict[str, Any]) -> tuple[int | None, int | None]:
     """Return the chain and turn the probe stamped on ``attempt``, or two Nones."""
 
-    stated = _note(attempt, CHAIN_NOTES)
+    stated = _note(attempt, CHAIN_NOTE)
     chain, turn = stated.get("chain"), stated.get("turn")
     if type(chain) is not int or type(turn) is not int:
         return None, None
@@ -1022,25 +1012,20 @@ def result_of(
     detections: list[dict[str, Any]],
     claim_level: str,
     *,
-    driver: str | tuple[str, ...] | None = None,
+    driver: str | None = None,
 ) -> dict[str, Any]:
     """Return the outcome of the detection that grades *claim_level*.
 
-    A report without that detection yields a ``detection_missing`` result. A tuple names
-    alternatives, newest first, so a report recorded under an older detector name grades
-    the same run; the message names the first (current) name.
+    A report without that detection yields a ``detection_missing`` result.
     """
 
-    if isinstance(driver, str):
-        drivers: tuple[str, ...] = (driver,)
-    else:
-        drivers = tuple(driver or (DRIVERS.get(claim_level),))
-    found = next((item for item in detections if item["detector"] in drivers), None)
+    name = driver or DRIVERS.get(claim_level)
+    found = next((item for item in detections if item["detector"] == name), None)
     if found is None:
         return {
             "outcome": None,
             "claim_level": claim_level,
-            "reason": f"detection_missing:{drivers[0]}",
+            "reason": f"detection_missing:{name}",
         }
     return {"outcome": found["outcome"], "claim_level": claim_level, "reason": found["reason"]}
 
@@ -1085,27 +1070,20 @@ def _sequence(attempt: dict[str, Any]) -> dict[str, Any]:
 
 
 def _records(attempt: dict[str, Any], detector: str) -> list[dict[str, Any]]:
-    """Return the records ``detector`` wrote, under its current or old result note."""
+    """Return the records ``detector`` wrote under its result note."""
 
     notes = attempt.get("notes")
     if not isinstance(notes, dict) or detector not in RECORD_NOTES:
         return []
-    for name in RECORD_NOTES[detector]:
-        found = notes.get(name)
-        if isinstance(found, list):
-            return [item for item in found if isinstance(item, dict)]
-    return []
+    found = notes.get(RECORD_NOTES[detector])
+    return [item for item in found if isinstance(item, dict)] if isinstance(found, list) else []
 
 
-def _first_record(attempt: dict[str, Any], detector: str | tuple[str, ...]) -> dict[str, Any]:
-    """Return the first record of ``detector``, or of the first name in a tuple that has one."""
+def _first_record(attempt: dict[str, Any], detector: str) -> dict[str, Any]:
+    """Return the first record of ``detector``, or an empty one."""
 
-    names = (detector,) if isinstance(detector, str) else detector
-    for name in names:
-        found = _records(attempt, name)
-        if found:
-            return found[0]
-    return {}
+    found = _records(attempt, detector)
+    return found[0] if found else {}
 
 
 def _native_call(call: dict[str, Any]) -> dict[str, Any]:

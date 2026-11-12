@@ -586,8 +586,7 @@ artifact stages (Call 2, its correction, and the artifact review) see the
 `stimulus` fields, `planted_text`, and the rule that asks for it. The rule block
 keeps the two party names apart: `shape_controlling_party.party` is the party
 the scenario assumes wrote the item, and `slot_writable_by` is the party the
-target lets write the slot. A v2 slot that still states the scalar `controller`
-counts as a one-element set. When the shape names the record and the chosen
+target lets write the slot. When the shape names the record and the chosen
 slot's `writable_by` does not include the controlling party,
 `planted_item/slot_writable_by_note` says so
 without asking for a change, and the package records the advisory

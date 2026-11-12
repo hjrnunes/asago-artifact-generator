@@ -313,7 +313,7 @@ def test_every_request_shows_the_seed_slots_without_their_limit_and_mode(
         "artifact_correction": correction("call2", plan),
     }
 
-    shown = {"id", "carrier_operation", "field", "controller", "content_kind", "records"}
+    shown = {"id", "carrier_operation", "field", "writable_by", "content_kind", "records"}
     for stage, packet in packets.items():
         lists = _seed_slot_lists(packet.user)
         assert lists, stage

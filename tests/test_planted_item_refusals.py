@@ -30,7 +30,7 @@ POLICY_SLOT = {
     "id": "airbnb.policy_doc.body",
     "carrier_operation": "retrieve_policy",
     "field": "documents[].body",
-    "controller": "operator_insider",
+    "writable_by": ["operator_insider"],
     "content_kind": "policy_document",
     "records": ["POL-MOD", "POL-OTHER"],
     "max_chars": 2000,
@@ -298,8 +298,8 @@ def _unknown_party_shape() -> dict[str, Any]:
 
 
 def test_a_slot_that_lists_the_controlling_party_wins_a_tie_of_the_same_kind() -> None:
-    other_party = {**LISTING_SLOT, "id": "airbnb.listing.other", "controller": "counterparty"}
-    party = {**LISTING_SLOT, "id": "airbnb.listing.party", "controller": "third_party"}
+    other_party = {**LISTING_SLOT, "id": "airbnb.listing.other", "writable_by": ["counterparty"]}
+    party = {**LISTING_SLOT, "id": "airbnb.listing.party", "writable_by": ["third_party"]}
 
     target = choose_planted_target(shape_of(LISTING), with_slots(other_party, party))
 
@@ -309,15 +309,11 @@ def test_a_slot_that_lists_the_controlling_party_wins_a_tie_of_the_same_kind() -
 def test_a_slot_several_parties_can_write_matches_whichever_one_controls_the_item() -> None:
     """term.7's one-element-set shim becomes real set logic: any listed party matches."""
 
-    other_party = {**LISTING_SLOT, "id": "airbnb.listing.other", "controller": "counterparty"}
+    other_party = {**LISTING_SLOT, "id": "airbnb.listing.other", "writable_by": ["counterparty"]}
     several = {
-        key: value
-        for key, value in {
-            **LISTING_SLOT,
-            "id": "airbnb.listing.several",
-            "writable_by": ["counterparty", "third_party"],
-        }.items()
-        if key != "controller"
+        **LISTING_SLOT,
+        "id": "airbnb.listing.several",
+        "writable_by": ["counterparty", "third_party"],
     }
 
     target = choose_planted_target(shape_of(LISTING), with_slots(other_party, several))
@@ -333,10 +329,10 @@ def test_a_content_kind_match_wins_over_a_party_match_of_another_kind() -> None:
     party = {
         **LISTING_SLOT,
         "id": "airbnb.listing.party",
-        "controller": "third_party",
+        "writable_by": ["third_party"],
         "content_kind": "review_content",
     }
-    kind = {**LISTING_SLOT, "id": "airbnb.listing.kind", "controller": "counterparty"}
+    kind = {**LISTING_SLOT, "id": "airbnb.listing.kind", "writable_by": ["counterparty"]}
 
     target = choose_planted_target(shape_of(LISTING), with_slots(party, kind))
 
@@ -344,8 +340,8 @@ def test_a_content_kind_match_wins_over_a_party_match_of_another_kind() -> None:
 
 
 def test_an_unknown_controlling_party_gets_no_preference_and_no_finding() -> None:
-    first = {**LISTING_SLOT, "id": "airbnb.listing.first", "controller": "counterparty"}
-    second = {**LISTING_SLOT, "id": "airbnb.listing.second", "controller": "unknown"}
+    first = {**LISTING_SLOT, "id": "airbnb.listing.first", "writable_by": ["counterparty"]}
+    second = {**LISTING_SLOT, "id": "airbnb.listing.second", "writable_by": ["unknown"]}
     runtime = with_slots(first, second)
 
     target = choose_planted_target(_unknown_party_shape(), runtime)
@@ -354,13 +350,13 @@ def test_an_unknown_controlling_party_gets_no_preference_and_no_finding() -> Non
     assert slot_party_findings(_unknown_party_shape(), runtime) == []
 
 
-def test_a_scalar_controller_equal_to_the_controlling_party_is_a_match() -> None:
-    slot = {**LISTING_SLOT, "controller": "third_party"}
+def test_a_writers_list_that_names_the_controlling_party_is_a_match() -> None:
+    slot = {**LISTING_SLOT, "writable_by": ["third_party"]}
 
     assert slot_party_findings(shape_of(LISTING), with_slots(slot)) == []
 
 
-def test_a_scalar_controller_that_differs_is_an_advisory_finding() -> None:
+def test_a_writers_list_that_differs_is_an_advisory_finding() -> None:
     [finding] = slot_party_findings(shape_of(LISTING), RUNTIME)
 
     assert finding.code == "slot_party_mismatch"

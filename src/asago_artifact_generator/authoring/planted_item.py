@@ -149,20 +149,17 @@ def controlling_party(shape: dict[str, Any]) -> str:
 
 
 def _slot_parties(slot: dict[str, Any]) -> tuple[str, ...]:
-    """Return the parties a slot lists as writers, reading v2's scalar as one party."""
+    """Return the non-empty party names a slot's ``writable_by`` list names."""
 
     parties = slot.get("writable_by")
     if isinstance(parties, list):
         return tuple(party for party in parties if isinstance(party, str) and party)
-    legacy = slot.get("controller")
-    return (legacy,) if isinstance(legacy, str) and legacy else ()
+    return ()
 
 
-def writable_by(parties: Iterable[str] | str | None) -> frozenset[str]:
-    """Return the set of parties a slot's writers name; a v2 scalar is a one-party set."""
+def writable_by(parties: Iterable[str] | None) -> frozenset[str]:
+    """Return the set of parties a slot's writers name, dropping each non-text entry."""
 
-    if isinstance(parties, str):
-        return frozenset({parties}) if parties else frozenset()
     return frozenset(party for party in parties or () if isinstance(party, str) and party)
 
 

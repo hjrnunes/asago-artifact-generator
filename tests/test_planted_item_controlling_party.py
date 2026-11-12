@@ -33,7 +33,7 @@ def test_the_accessor_reads_the_current_field_name() -> None:
 
 
 def test_the_advisory_finding_names_the_current_field() -> None:
-    slot = {**CARRIER_SLOT, "controller": "counterparty"}
+    slot = {**CARRIER_SLOT, "writable_by": ["counterparty"]}
 
     [finding] = slot_party_findings(indirect_shape(), {**_RUNTIME, "seed_slots": [slot]})
 

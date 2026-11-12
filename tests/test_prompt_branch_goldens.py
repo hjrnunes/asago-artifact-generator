@@ -51,9 +51,7 @@ def _section(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
-def _indirect_view(
-    directory: Path, controller: str, record_ref: str | None = "ORD-101"
-) -> InputView:
+def _indirect_view(directory: Path, party: str, record_ref: str | None = "ORD-101") -> InputView:
     """Return a four-turn indirect handoff whose benign turns use every purpose but one."""
 
     payload = json.loads(HANDOFF.read_text(encoding="utf-8"))
@@ -63,17 +61,17 @@ def _indirect_view(
         {"position": position, "speaker": "benign_user", "purpose": purpose}
         for position, purpose in enumerate(purposes, start=1)
     ]
-    shape["indirect"]["party_relation"]["controlling_party"] = controller
+    shape["indirect"]["party_relation"]["controlling_party"] = party
     payload["attack_shape"] = shape
-    path = directory / f"indirect-{controller}-{record_ref}.json"
+    path = directory / f"indirect-{party}-{record_ref}.json"
     path.write_text(json.dumps(signed(payload)), encoding="utf-8")
     return load_input(path)
 
 
-def _indirect_case(controller: str) -> Callable[[Path], str]:
+def _indirect_case(party: str) -> Callable[[Path], str]:
     def render(directory: Path) -> str:
         runtime = indirect_runtime(world("refund")["runtime_contract"])
-        return _section(indirect_block(_indirect_view(directory, controller), runtime))
+        return _section(indirect_block(_indirect_view(directory, party), runtime))
 
     return render
 

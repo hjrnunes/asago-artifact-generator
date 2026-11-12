@@ -24,8 +24,8 @@ keyword arguments `open_evaluation(episode=...)` and
 one cycle; its parent `adb4c0d` removed the pre-rename `episode` names (see "M9: the
 pre-rename names are gone" below). Before it, `24b0b23`
 renamed the sealed outcome's, the delivery fact's and the exposure item's `probe_key` to
-`slot_key` and keeps a reader for the old key; `InjectionInstruction.probe_key` (the
-plan's own field) stays. Before that, `162233f` moved the rubric
+`slot_key` and kept a reader for the old key, which the 2026-11-12 entry below removes;
+`InjectionInstruction.probe_key` (the plan's own field) stays. Before that, `162233f` moved the rubric
 judge into the SDK (its `rubric_judge` module, stdlib only; the consumer's
 `authoring/rubric_judge.py` re-exported it until that shim was removed) and pinned the
 console goldens to a fixed height, `9e1f90f` retired the tool-call-condition v1 fixtures
@@ -60,21 +60,23 @@ adapter's own `cli.py` and the tests imported them. `cli.py` and the tests now i
 `asago_injection_spec.<module>` directly. Import the library module of the same name; no
 name changed.
 
-Readers of recorded data stay indefinitely: `midojo-episode-v1` and `midojo-episode-v2`
-documents, the envelope's `episode` member, the filename `episode.json`,
-the `episode_trace` and `ipi_episode` notes in a sealed
-trace, and `seed.delivery` `start`.
+**2026-11-12: the readers of recorded older forms are removed** by owner decision (the v1
+reset); M9 had kept them. The library reads one envelope (`asago-midojo-package-v1`) and one
+MiDojo document (`midojo-injection-spec-v1`), and compile and parse use the filename
+`injection-spec.json` alone. A version other than those is refused, naming the version the
+file states. Removed:
 
-The recorded fixtures under `packages/asago-bundle-midojo/tests/fixtures/` are not
-regenerated at M9. They were compiled at `8e8208f` and later recompiled, so a rerun of a
-generator at the revision its `recording.json` names does not reproduce them: the
-recorded `command-single/episode.json` carries `schema_version`, `environment_type`,
-`interception`, `tools` and `verifiers`, which the `3824922` writer does not emit (the
-drift m2-fix-oldnames-lint measured, mission evidence
-`evidence/m2-injection-spec-rename/consumer-midojo/VAL-RENAME-021-generator-equivalence.txt`).
-Re-recording them is an owner decision, not a side effect of removing an alias, so they
-keep their bytes, their document ID and their `>=8e8208f` range, and the tests normalize
-the range and the document ID back when they compare a new compile.
+- the readers of the two earlier wrapper and document IDs, including the deprecation warning
+  that came with one of them;
+- the `episode.json` filename;
+- the `probe_key` name in a sealed outcome, delivery fact or exposure item (the plan's own
+  `probe_key` field stays), so a record that names its slot that way is refused;
+- the verdict without a `schema_version`: a verdict states `midojo-verdict-v1`, and one that
+  states another version fails the Garak route by name, as it already failed the sealed route.
+
+The envelope's `episode` member stays: it is the current key. The fixtures that recorded the
+older forms are deleted with their readers; the compiled fixtures under
+`packages/asago-injection-spec/tests/fixtures/compiled/` are the current form.
 
 ## Adapter notes
 
@@ -107,13 +109,10 @@ the range and the document ID back when they compare a new compile.
   interceptor the target's `endpoint.mcp_url`; the agent gets only the interceptor's
   endpoint and token, and neither it nor the target sees a MiDojo session), the allowed
   `tools` and their write disposition (`forward` by default), `verifiers` `[]`, and
-  `InjectionSpec`'s fields as plain data with no environment. `read_envelope` also reads the
-  older `midojo-episode-v2` wrapper, the bare episode with `tools` and `placements` at the
-  top level, and it reads a document that keeps the old ID `midojo-episode-v1`, warning that
-  it is deprecated; it refuses any other version, naming it. `parse` reads a directory
-  compiled before the rename, which holds `episode.json`. Those readers of recorded data
-  stay: the M9 alias removal takes code names away, never a document a run already wrote.
-  The pre-rename modules `episode_compile` and `episode` are gone; their importers name
+  `InjectionSpec`'s fields as plain data with no environment. `read_envelope` reads the one
+  envelope and document version and refuses any other, naming it (an earlier revision of this
+  adapter also read the older forms; the 2026-11-12 entry above removes those readers). The
+  pre-rename modules `episode_compile` and `episode` are gone; their importers name
   `asago_injection_spec.injection_spec_compile` and `.injection_spec`. Each seed item
   becomes one strict `tool_output` instruction from its runtime contract slot
   (`placement.py`): carrier, field path, mode, `max_chars`, and the record by the slot's
@@ -209,8 +208,7 @@ the range and the document ID back when they compare a new compile.
   records the delivery, graded `contradicted`: `parse` reads it `not_detected`
   (`tools/fixture-generators/reply_judge_delivered.py`).
   `tests/fixtures/midojo/` holds byte copies of MiDojo's own files
-  (`injection_spec_document/`, `snapshot_digest/vectors.json`, and the documents MiDojo
-  files under `legacy_documents/` and `verdict_document/`), and
+  (`injection_spec_document/`), and
   `tests/fixtures/midojo.lock` pins their sha256 and the SDK revision the copies come
   from, so a diverging copy fails.
   `tests/fixtures/inconclusive_vectors/` holds the sealed runs MiDojo owns, with its

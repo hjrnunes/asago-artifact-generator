@@ -37,7 +37,6 @@ def test_the_lock_pins_every_kit_file_and_names_v2() -> None:
 
     assert lock["version"] == _V2
     assert lock["files"] == files
-    assert _V2 in (_KIT / "VERSIONING.md").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("vector", _EVALUATE, ids=[v["id"] for v in _EVALUATE])
