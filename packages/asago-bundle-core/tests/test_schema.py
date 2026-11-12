@@ -41,9 +41,7 @@ def garak_manifest(version: str = SCHEMA_VERSION) -> dict[str, Any]:
         "native_outputs": ["reports/SCN-001.report.jsonl"],
     }
     manifest["conversation_mode"] = "single"
-    manifest["values_required"] = [
-        "allowed_tools", "gateway_url", "mcp_url", "messages", "model"
-    ]
+    manifest["values_required"] = ["allowed_tools", "gateway_url", "mcp_url", "messages", "model"]
     return manifest
 
 

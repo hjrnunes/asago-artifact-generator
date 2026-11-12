@@ -15,7 +15,6 @@ import pytest
 from asago_contracts_core import write_envelope
 
 from asago_bundle_core.bundle_contract import installed_specs
-from asago_bundle_core.receipt_contract import write_receipt
 from asago_bundle_core.conformance import (
     AdapterUnderTest,
     _marker_failures,
@@ -28,6 +27,7 @@ from asago_bundle_core.conformance import (
 from asago_bundle_core.errors import BundleError
 from asago_bundle_core.gap import CapabilityGap, capability_gap_record
 from asago_bundle_core.manifest import values_required
+from asago_bundle_core.receipt_contract import write_receipt
 from asago_bundle_core.slots import BUNDLE, bundle_slot, fill, value_slot
 from asago_bundle_core.testing import write_test_package
 from asago_bundle_core.text import canonical_text
@@ -67,6 +67,7 @@ def is_text(value: Any) -> bool:
 
 
 CHECKS = {"mcp_url": is_url, "gateway_url": is_url, "model": is_text}
+
 
 def attempt() -> dict[str, Any]:
     """A receipt attempt with a completed response."""
@@ -128,7 +129,9 @@ class FakeAdapter:
             "claim_level": "command_attempt",
             "conversation_mode": "single",
             "plugins": ["fake.probe"],
-            "values_required": [*requires, "repeats"] if "repeats-native" in self.flaws else requires,
+            "values_required": [*requires, "repeats"]
+            if "repeats-native" in self.flaws
+            else requires,
             "environment": ["FAKE_API_KEY"],
             "templates": {
                 "conversation": "conversation.template.json",
@@ -138,7 +141,9 @@ class FakeAdapter:
             "native_outputs": ["reports/fake.report.jsonl"],
         }
         spec = installed_specs().spec("tool-bundle", "tool-bundle-v2")
-        manifest = write_envelope(manifest, spec, writer="tests.conformance", writer_version="0.1.0")
+        manifest = write_envelope(
+            manifest, spec, writer="tests.conformance", writer_version="0.1.0"
+        )
         for flaw in self.flaws:
             manifest.update(MANIFEST_FLAWS.get(flaw, {}))
         if "missing-envelope" in self.flaws:
@@ -310,7 +315,9 @@ def test_each_check_runs_on_its_own(tmp_path: Path, package: Path) -> None:
             "template file absent.template.json",
             id="compile-missing-template",
         ),
-        pytest.param("requires-lacks", "values_required lacks ['mcp_url']", id="compile-requires-lacks"),
+        pytest.param(
+            "requires-lacks", "values_required lacks ['mcp_url']", id="compile-requires-lacks"
+        ),
         pytest.param(
             "accepts-missing",
             "instantiate accepted values without gateway_url",

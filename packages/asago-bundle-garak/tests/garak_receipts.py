@@ -48,7 +48,11 @@ def garak_receipt(root: Path, case: str) -> dict[str, Any]:
         "conversation_mode": metadata["delivery"],
         "template": "garak-ipi-episode",
         "tool_revision_range": ">=968cc224",
-        "plugins": ["midojo.InjectionSpecProbe", "midojo.EvaluationVerdict", "midojo.EvaluationEffect"],
+        "plugins": [
+            "midojo.InjectionSpecProbe",
+            "midojo.EvaluationVerdict",
+            "midojo.EvaluationEffect",
+        ],
         "values_required": [],
         "environment": [],
         "templates": {},

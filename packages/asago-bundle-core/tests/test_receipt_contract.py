@@ -1,8 +1,9 @@
 """The installed ``execution-receipt`` contract: copy, identity, reader rules and cases.
 
 Both bundle adapters write ``execution-receipt.json`` and read it through
-``asago_bundle_core.receipt_contract``. These tests compare the installed copy with the authority, recompute its spec digest,
-read the receipts the Garak parser wrote, and assert the reader's refusals.
+``asago_bundle_core.receipt_contract``. These tests compare the installed copy with the
+authority, recompute its spec digest, read the receipts the Garak parser wrote, and assert
+the reader's refusals.
 """
 
 from __future__ import annotations
