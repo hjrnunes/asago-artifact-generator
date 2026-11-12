@@ -893,7 +893,7 @@ def expected_document(
         "reason": failure or verdict["reason"],
         "detector_reason": verdict["reason"],
         "detector_detail": verdict["detail"],
-        # A seal MiDojo's reader refuses states no attempt: its ``parse_sealed`` builds one
+        # A seal the reader refuses states no attempt: the route builds one
         # only for no failure or a turn failure. These cases seal only final chains, so no
         # other runtime failure can appear here.
         "attempt_count": 0 if failure and not failure.startswith(TURN_FAILED) else 1,

@@ -21,7 +21,7 @@ contracts and historical experiment details belong in their own documents.
 - **Planted item** — the lower-trust data item an indirect attack uses to carry
   the payload.
 - **Injection spec** (`InjectionSpec`) — the runtime description of one injection
-  test; the MiDojo adapter compiles a planted-item package into one.
+  test; the injection-spec library compiles a planted-item package into one.
 - **Slot** — a place in the target's data that can hold a payload;
   `slot_writable_by` names the parties that can write it.
 - **Controlling party** — the party the scenario assumes controls the planted
@@ -173,9 +173,8 @@ the group the module skips and names what it needs.
   `contracts/execution-receipt/` and `contracts/tool-bundle/` are the authorities, and a
   test refuses a copy that differs. `schema.manifest_errors` reads a manifest through
   `bundle_contract` before it applies the schema, and `check_round_trip` reads the receipt
-  it parses through that reader; both adapters' `parse` reads back the receipt it writes. A
-  new bundle adapter runs `check_round_trip` in its tests; the MiDojo adapter writes
-  injection specs, not bundles.
+  it parses through that reader; each adapter's `parse` reads back the receipt it writes. A
+  new bundle adapter runs `check_round_trip` in its tests.
   `preparation.prepare_package(package, call_target=...)` prepares a package for one run:
   it admits the setup and binding declarations against the package's inventory and runtime
   contract (no target call), runs setup through a target call (real writes, not graded,
@@ -263,38 +262,24 @@ the group the module skips and names what it needs.
   release MiDojo's service never acknowledged keeps its attempt and its verdict too, and
   fails as `release_lost`: the probe records the loss on its trace, so the receipt never
   reports a clean completion. Together the fixture
-  README and the parity test are the executable spec of that receipt:
+  README is the executable spec of that receipt:
   `packages/asago-bundle-garak/tests/fixtures/ipi/README.md` names each case's expected
-  outcome and what each sealed file holds, and
-  `packages/asago-bundle-garak/tests/test_bundle_garak_parity.py` reads all seven cases
-  through `bundle-garak parse` and `bundle-midojo parse --delivery`, requiring the same
-  `evaluation_id`, `snapshot_id`, `evidence_status`, `delivery`, `exposure`, `verdict` and
-  `call_injections`, the same `execution_status` and incomplete reason, and the same
-  attempts, with the tampered case stating no attempt on either route.
+  outcome and what each sealed file holds.
   `packages/asago-bundle-garak/tests/fixtures/ipi/` pins those seven sealed cases
   (delivered, undelivered, incomplete, blocked, sequential, reply-judged and a tampered
-  snapshot), each with the report, the snapshot, the verdict and the delivery document
+  snapshot), each with the report, the snapshot, the verdict and the delivery facts
   MiDojo produced, plus `expected.json` naming the outcome the route must state.
-  `tools/fixture-generators/garak_ipi.py` reseals them with the MiDojo interpreter;
-  `--check` compares the result with the pinned files. With the current MiDojo
-  interpreter, `--check` reports 14 stale files on both the base and this branch.
+  `tools/fixture-generators/garak_ipi.py` reseals them with an interpreter whose
+  `midojo_spec` is the revision `pyproject.toml` pins (a MiDojo checkout's environment at
+  that revision); `--check` compares its output with the pinned files and reports zero
+  stale at that revision.
   The fixture README says what each case is real evidence of and what the report composes.
 - `packages/asago-injection-spec/`: the injection-spec library workspace member
   (`asago_injection_spec`): the compiler from a `planted_item` package to one MiDojo
   injection spec, the consumer envelope, the placement and reachability checks, the
   sealed-result readers, and the judge-turn vocabulary compile and the judge service share.
-  `delivery_contract` ships the `midojo-delivery` reader and the writer a caller uses to
-  stamp a document the MiDojo interpreter produced.
-  Both adapters read it, so neither depends on the other; `bundle-garak`'s parity test is the
-  only test that also reads `bundle-midojo`, and it is marked `parity` because the MiDojo
-  adapter is a test-only dependency.
-- `packages/asago-bundle-midojo/`: the MiDojo adapter workspace member (the compile and
-  parse CLIs). Its sealed reply tests drive the Garak adapter's judge service. It imports
-  the injection-spec library directly and
-  holds no module that re-exports it: the former `declared`, `document`, `injection_spec`,
-  `injection_spec_compile`, `placement`, `reachable`, `route` and `sealed` alias modules
-  and the pre-rename `episode` modules are gone. Its revision history, fixture provenance
-  and implementation notes are in `docs/midojo-changelog.md`.
+  `sealed.delivery_shape` checks the raw delivery facts and exposure a trace states, with
+  the instruction's slot key read under either name it recorded.
 - Each `packages/*` member runs in its own pytest session, for example
   `uv run pytest packages/asago-bundle-core/tests -q` and
   `uv run pytest packages/asago-package/tests -q`.

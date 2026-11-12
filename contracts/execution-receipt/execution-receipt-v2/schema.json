@@ -348,7 +348,7 @@
     },
     "exposure_status": {"enum": ["exposed", "not_exposed", "unknown"]},
     "delivery_fact": {
-      "description": "What the interceptor did with one instruction on one recorded call, at its own boundary (contracts/midojo-delivery). selected, transformation and emitted are null when the interceptor did not report them.",
+      "description": "What the interceptor did with one instruction on one recorded call, at its own boundary. selected, transformation and emitted are null when the interceptor did not report them.",
       "type": "object",
       "additionalProperties": false,
       "required": [

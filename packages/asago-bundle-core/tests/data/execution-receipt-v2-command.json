@@ -76,7 +76,7 @@
       "writer_version": "0.1.0"
     },
     "requires": [],
-    "spec_digest": "sha256:741fa0b6164f4ca5a974b25ef3e366f96c60b39e690f2f024bd91e00fb49de6b",
+    "spec_digest": "sha256:da8e799b0b32fdbfdeb6b61887062f1d90dea91693f3f3274202efbf949b6973",
     "version": "execution-receipt-v2"
   },
   "execution_status": "completed",

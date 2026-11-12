@@ -1,8 +1,9 @@
 # MiDojo adapter changelog
 
-This page holds the MiDojo adapter's revision history, fixture provenance and
-implementation notes, moved out of the agent guide (`CLAUDE.md`) so that guide
-stays short.
+This page holds the retired MiDojo adapter's revision history, fixture provenance
+and implementation notes, moved out of the agent guide (`CLAUDE.md`) so that
+guide stays short. The adapter package is gone; the entries below record what
+existed, and where each surviving piece lives now.
 
 ## 2026-11-11: the Garak adapter owns the judge service and its exchange log
 

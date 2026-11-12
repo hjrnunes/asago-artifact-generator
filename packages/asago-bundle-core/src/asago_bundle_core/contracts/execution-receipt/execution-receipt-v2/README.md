@@ -68,7 +68,6 @@ changes no other rule:
 
 A reader of this contract accepts `execution-receipt-v1` and
 `execution-receipt-v2`, so a receipt recorded before the rename still reads.
-`midojo-delivery` carried the same two fields under the same new names.
 
 ## The split
 
