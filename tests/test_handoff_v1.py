@@ -16,7 +16,7 @@ from asago_artifact_generator import input_adapter
 from asago_artifact_generator.authoring.prompt_context import _case_meaning
 from asago_artifact_generator.authoring.templates import prose
 from asago_artifact_generator.input_adapter import (
-    V5_FIELDS,
+    HANDOFF_FIELDS,
     HandoffSchemaInvalid,
     InputKind,
     InputSourceError,
@@ -35,7 +35,7 @@ from tests.support import published
 from .prompt_support import STAGES, render_stage_packets
 from .support import KIT, json_section, signed
 
-_V6 = "scenario-handoff-v6"
+_V6 = "scenario-handoff-v1"
 _CONTRACT = CONTRACT_DIR
 _KIT = _CONTRACT / _V6 / "cases"
 _EXPECTED = json.loads((_KIT / "expected-violations.json").read_text(encoding="utf-8"))
@@ -78,7 +78,7 @@ def test_an_enveloped_v6_document_reads_with_the_renamed_party(tmp_path: Path) -
 
     view = load_input(_written(tmp_path, published(document)))
 
-    assert view.kind is InputKind.SCENARIO_HANDOFF_V6
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V1
     assert view.payload[ENVELOPE_FIELD]["version"] == _V6
     assert view.attack_shape["indirect"]["party_relation"] == {
         "controlling_party": relation["controlling_party"],
@@ -103,7 +103,7 @@ def test_every_valid_v6_case_reads_once_enveloped(tmp_path: Path, case: Path) ->
 
     view = load_input(_written(tmp_path, published(document)))
 
-    assert view.kind is InputKind.SCENARIO_HANDOFF_V6
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V1
     assert view.scenario_id == document["scenario_id"]
 
 
@@ -170,7 +170,7 @@ def test_a_lock_that_names_an_unpublished_version_refuses_the_current_handoff(
     lock["schema_version"] = "scenario-handoff-v9"
     (mirror / "CONTRACT.lock").write_text(json.dumps(lock), encoding="utf-8")
     monkeypatch.setattr(input_adapter, "_HANDOFF_ROOT", mirror)
-    with pytest.raises(InputSourceError, match="does not declare scenario-handoff-v6"):
+    with pytest.raises(InputSourceError, match="does not declare scenario-handoff-v1"):
         load_input(KIT / "valid" / "adversarial-direct-single.json")
 
 
@@ -184,7 +184,7 @@ def test_a_lock_missing_the_current_kit_refuses_it(
     }
     (mirror / "CONTRACT.lock").write_text(json.dumps(lock), encoding="utf-8")
     monkeypatch.setattr(input_adapter, "_HANDOFF_ROOT", mirror)
-    with pytest.raises(InputSourceError, match="does not declare scenario-handoff-v6"):
+    with pytest.raises(InputSourceError, match="does not declare scenario-handoff-v1"):
         input_adapter._validate_handoff_kit()
 
 
@@ -272,7 +272,7 @@ def test_the_taxonomy_block_is_accepted_but_stays_out_of_the_model_view() -> Non
     view = load_input(KIT / "valid" / "taxonomy-block.json")
 
     assert view.payload["taxonomy"]["atlas_release"] == "2026.05"
-    assert "taxonomy" not in V5_FIELDS
+    assert "taxonomy" not in HANDOFF_FIELDS
     projected = json.dumps(build_scenario_handoff_view(view))
     assert "taxonomy" not in projected
     assert "Excessive Agency" not in projected
@@ -351,7 +351,7 @@ def test_an_adversarial_meaning_carries_every_new_field() -> None:
 
     analysis = _case_meaning(view)["structured_analysis"]
 
-    assert analysis == {"note": _NOTE, **{key: view.payload[key] for key in V5_FIELDS}}
+    assert analysis == {"note": _NOTE, **{key: view.payload[key] for key in HANDOFF_FIELDS}}
     analysis["uca"]["type"] = "changed"
     assert view.payload["uca"]["type"] != "changed"
 
@@ -404,7 +404,7 @@ def test_a_stated_belief_and_its_variable_reach_the_structured_analysis(
 ) -> None:
     view = load_input(KIT / "valid" / name)
 
-    assert view.kind is InputKind.SCENARIO_HANDOFF_V6
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V1
     factors = _case_meaning(view)["structured_analysis"]["causal_factors"]
     assert factors == view.payload["causal_factors"]
     assert all(

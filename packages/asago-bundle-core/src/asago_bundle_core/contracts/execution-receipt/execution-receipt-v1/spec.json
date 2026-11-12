@@ -1,0 +1,12 @@
+{
+  "contract": "execution-receipt",
+  "version": "execution-receipt-v1",
+  "status": "published",
+  "envelope": "required",
+  "supports": [],
+  "extensions": [],
+  "schema": "schema.json",
+  "cases": "cases",
+  "docs": "README.md",
+  "spec_digest": "sha256:d4845cefbb0badbc31c0b5d19a4d10dbd0c28ee1f60c5795130bd87c2c2ce3e6"
+}

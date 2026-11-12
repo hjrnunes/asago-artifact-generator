@@ -12,10 +12,10 @@ from jsonschema import Draft202012Validator
 
 from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.checks import (
-    collect_artifact_findings_v2,
-    collect_plan_findings_v2,
+    collect_artifact_findings,
+    collect_plan_findings,
 )
-from asago_artifact_generator.authoring.contracts import _call2_contract_v2
+from asago_artifact_generator.authoring.contracts import _call2_contract
 from asago_artifact_generator.authoring.core import Finding, PromptPacket
 from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
@@ -33,8 +33,8 @@ from asago_artifact_generator.authoring.prompt_context import (
     build_plan_author_context,
 )
 from asago_artifact_generator.authoring.prompt_packets import (
-    build_call1_packet_v2,
-    build_call2_packet_v2,
+    build_call1_packet,
+    build_call2_packet,
 )
 from asago_artifact_generator.authoring.review import (
     build_artifact_review_packet,
@@ -250,7 +250,7 @@ def test_the_plan_check_rejects_a_plan_that_writes_planted_text(tmp_path: Path) 
     view, inventory, rt, plan, _ = setup(tmp_path)
     plan["planted_text"] = PLANTED
 
-    findings = collect_plan_findings_v2(plan, inventory, rt)
+    findings = collect_plan_findings(plan, inventory, rt)
 
     assert [(f.code, f.path) for f in findings] == [("unexpected_field", "planted_text")]
     assert sequential_plan_findings(view, plan, rt) == []
@@ -259,8 +259,8 @@ def test_the_plan_check_rejects_a_plan_that_writes_planted_text(tmp_path: Path) 
 def test_every_packet_of_an_indirect_handoff_carries_the_block(tmp_path: Path) -> None:
     view, inventory, rt, plan, metadata = setup(tmp_path)
     packets = {
-        "call1": build_call1_packet_v2(view, inventory, rt),
-        "call2": build_call2_packet_v2(view, plan, inventory, rt),
+        "call1": build_call1_packet(view, inventory, rt),
+        "call2": build_call2_packet(view, plan, inventory, rt),
         "plan_review": build_plan_review_packet(view, plan, inventory, rt),
         "artifact_review": build_artifact_review_packet(view, plan, metadata, inventory, rt),
     }
@@ -305,8 +305,8 @@ def test_every_request_shows_the_seed_slots_without_their_limit_and_mode(
         return _render_correction_packet(payload, correction_repair_inputs(view, inventory, rt))
 
     packets = {
-        "call1": build_call1_packet_v2(view, inventory, rt),
-        "call2": build_call2_packet_v2(view, plan, inventory, rt),
+        "call1": build_call1_packet(view, inventory, rt),
+        "call2": build_call2_packet(view, plan, inventory, rt),
         "plan_review": build_plan_review_packet(view, plan, inventory, rt),
         "artifact_review": build_artifact_review_packet(view, plan, metadata, inventory, rt),
         "plan_correction": correction("call1", None),
@@ -337,7 +337,7 @@ def test_the_block_and_the_plan_contract_name_the_planted_item_delivery(
 ) -> None:
     view, inventory, rt, _, _ = setup(tmp_path, turns=1)
 
-    packet = build_call1_packet_v2(view, inventory, rt)
+    packet = build_call1_packet(view, inventory, rt)
 
     properties = rendered_response_contract(packet)["schema"]["properties"]
     assert properties["stimulus_approach"]["properties"]["delivery"]["enum"] == [PLANTED_ITEM]
@@ -349,24 +349,24 @@ def test_the_artifact_contract_asks_for_planted_text_only_under_the_planted_item
     _, _, _, plan, _ = setup(tmp_path)
     plain = world("refund")["plan"]
 
-    contract = _call2_contract_v2(plan, planted_max_chars=120)
+    contract = _call2_contract(plan, planted_max_chars=120)
     assert "planted_text" in contract["fields"]
     assert "planted_text" in contract["schema"]["required"]
     text = contract["schema"]["properties"]["planted_text"]
     assert text["type"] == "string"
     assert text["maxLength"] == 120
     assert "at most 120 characters" in text["description"]
-    unchanged = _call2_contract_v2(plain, planted_max_chars=120)
+    unchanged = _call2_contract(plain, planted_max_chars=120)
     assert "planted_text" not in unchanged["fields"]
     assert "planted_text" not in unchanged["schema"]["properties"]
-    assert "planted_text" not in _call2_contract_v2(None)["fields"]
+    assert "planted_text" not in _call2_contract(None)["fields"]
 
 
 def test_the_slot_limit_reaches_the_artifact_request_and_its_correction(tmp_path: Path) -> None:
     view, inventory, _, plan, _ = setup(tmp_path)
     rt = runtime_with(max_chars=50)
 
-    packet = build_call2_packet_v2(view, plan, inventory, rt)
+    packet = build_call2_packet(view, plan, inventory, rt)
     correction = build_correction_context(
         failed_stage="call2",
         original_context={
@@ -394,14 +394,14 @@ def test_only_a_plan_that_plants_a_text_explains_the_stimulus_slots(tmp_path: Pa
     def slots(contract: dict[str, Any]) -> dict[str, Any]:
         return contract["schema"]["properties"]["stimulus"]["properties"]["slots"]
 
-    assert slots(_call2_contract_v2(plan, planted_max_chars=120)) == {
+    assert slots(_call2_contract(plan, planted_max_chars=120)) == {
         **untyped,
         "description": STIMULUS_SLOTS_MEANING,
     }
     assert "{{binding_name}}" in STIMULUS_SLOTS_MEANING
-    assert slots(_call2_contract_v2(plan)) == untyped
-    assert slots(_call2_contract_v2(plain, planted_max_chars=120)) == untyped
-    assert slots(_call2_contract_v2(None)) == untyped
+    assert slots(_call2_contract(plan)) == untyped
+    assert slots(_call2_contract(plain, planted_max_chars=120)) == untyped
+    assert slots(_call2_contract(None)) == untyped
 
 
 def test_the_slots_meaning_reaches_the_artifact_request_and_its_correction_once(
@@ -415,7 +415,7 @@ def test_the_slots_meaning_reaches_the_artifact_request_and_its_correction_once(
     correction = build_correction_context(
         failed_stage="call2", original_context=original, current_output=b"{}", findings=[]
     )
-    call2 = build_call2_packet_v2(view, plan, inventory, rt)
+    call2 = build_call2_packet(view, plan, inventory, rt)
     artifact_correction = _render_correction_packet(
         correction, correction_repair_inputs(view, inventory, rt)
     )
@@ -444,11 +444,11 @@ def test_no_other_prompt_carries_the_slots_meaning(tmp_path: Path) -> None:
         correction_repair_inputs(view, inventory, rt),
     )
     packets = [
-        build_call1_packet_v2(view, inventory, rt),
+        build_call1_packet(view, inventory, rt),
         build_plan_review_packet(view, plan, inventory, rt),
         build_artifact_review_packet(view, plan, metadata, inventory, rt),
         plan_correction,
-        build_call2_packet_v2(
+        build_call2_packet(
             refund["view"], refund["plan"], refund["inventory"], refund["runtime_contract"]
         ),
     ]
@@ -460,7 +460,7 @@ def test_no_other_prompt_carries_the_slots_meaning(tmp_path: Path) -> None:
 def test_a_planted_item_plan_without_a_slot_limit_plants_no_text(tmp_path: Path) -> None:
     _, _, _, plan, metadata = setup(tmp_path)
 
-    assert "planted_text" not in _call2_contract_v2(plan)["fields"]
+    assert "planted_text" not in _call2_contract(plan)["fields"]
     assert [f.code for f in planted_item_findings(metadata, plan, None)] == ["unexpected_field"]
     del metadata["planted_text"]
     assert planted_item_findings(metadata, plan, None) == []
@@ -488,8 +488,8 @@ def test_the_artifact_review_receives_the_planted_text_as_a_labelled_section(
 def test_a_direct_handoff_gets_no_indirect_block_and_no_planted_field() -> None:
     refund = world("refund")
     packets = [
-        build_call1_packet_v2(refund["view"], refund["inventory"], refund["runtime_contract"]),
-        build_call2_packet_v2(
+        build_call1_packet(refund["view"], refund["inventory"], refund["runtime_contract"]),
+        build_call2_packet(
             refund["view"], refund["plan"], refund["inventory"], refund["runtime_contract"]
         ),
     ]
@@ -534,9 +534,9 @@ def test_the_existing_checks_accept_the_indirect_plan_and_artifact(tmp_path: Pat
 
     assert sequential_plan_findings(view, plan) == []
     assert sequential_artifact_findings(view, metadata) == []
-    assert collect_plan_findings_v2(plan, inventory, rt) == []
+    assert collect_plan_findings(plan, inventory, rt) == []
     assert (
-        collect_artifact_findings_v2(metadata, plan, inventory, rt, planted_max_chars=LIMIT) == []
+        collect_artifact_findings(metadata, plan, inventory, rt, planted_max_chars=LIMIT) == []
     )
 
 
@@ -575,7 +575,7 @@ def test_a_direct_artifact_with_planted_text_is_found(tmp_path: Path) -> None:
     refund = world("refund")
     metadata = {**refund["metadata"], "planted_text": PLANTED}
 
-    findings = collect_artifact_findings_v2(
+    findings = collect_artifact_findings(
         metadata, refund["plan"], refund["inventory"], refund["runtime_contract"]
     )
 
@@ -586,7 +586,7 @@ def test_an_indirect_artifact_without_planted_text_is_found(tmp_path: Path) -> N
     _, inventory, rt, plan, metadata = setup(tmp_path)
     del metadata["planted_text"]
 
-    findings = collect_artifact_findings_v2(metadata, plan, inventory, rt, planted_max_chars=LIMIT)
+    findings = collect_artifact_findings(metadata, plan, inventory, rt, planted_max_chars=LIMIT)
 
     assert [(f.code, f.path) for f in findings] == [("missing_field", "planted_text")]
 
@@ -722,7 +722,7 @@ def test_benign_turns_are_user_messages_only(tmp_path: Path) -> None:
     view, inventory, rt, plan, metadata = setup(tmp_path)
     metadata["stimulus"]["history"][0]["role"] = "assistant"
 
-    findings = collect_artifact_findings_v2(metadata, plan, inventory, rt, planted_max_chars=LIMIT)
+    findings = collect_artifact_findings(metadata, plan, inventory, rt, planted_max_chars=LIMIT)
 
     assert "non_user_history" in {finding.code for finding in findings}
 
@@ -781,7 +781,7 @@ def test_an_indirect_handoff_becomes_a_v5_package_with_a_seed_that_follows_the_s
     assert PLANTED not in json.dumps(stimulus)
     assert "planted_text" not in json.dumps(stimulus)
     loaded = load_package(package)
-    assert loaded.manifest.schema_version == "artifact-package-v5"
+    assert loaded.manifest.schema_version == "artifact-package-v1"
     assert "seed.json" in loaded.members
 
 
@@ -875,4 +875,4 @@ def test_an_unknown_controlling_party_packages_without_a_finding(tmp_path: Path)
 
     assert result.status == "accepted", result.findings
     checks = json.loads((tmp_path / "package" / "checks.json").read_text(encoding="utf-8"))
-    assert checks == {"interface": "artifact-authoring-v2", "status": "structurally_valid"}
+    assert checks == {"interface": "artifact-authoring-v1", "status": "structurally_valid"}

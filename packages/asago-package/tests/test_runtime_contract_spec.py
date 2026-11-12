@@ -42,8 +42,8 @@ _STATUS = ("published", "required")
 _DATA = Path(__file__).resolve().parent / "data"
 #: Contracts the declared-target builder wrote for a target with no seed slot and with one.
 _WRITTEN_CONTRACTS = (
-    "runtime-contract-v3-no-slots.json",
-    "runtime-contract-v3-planted-item.json",
+    "runtime-contract-v1-no-slots.json",
+    "runtime-contract-v1-planted-item.json",
 )
 
 
@@ -88,7 +88,7 @@ _INVALID_CASES = _invalid_cases()
 def test_the_version_directory_holds_the_spec_the_cases_and_the_docs() -> None:
     root = _ROOT / VERSION
     assert CONTRACTS_DIR / CONTRACT == _ROOT
-    assert (CONTRACT, VERSION) == ("runtime-contract", "artifact-runtime-contract-v3")
+    assert (CONTRACT, VERSION) == ("runtime-contract", "artifact-runtime-contract-v1")
     for relative in ("spec.json", "schema.json", "README.md", "cases/expected-violations.json"):
         assert (root / relative).is_file(), relative
     assert _valid_cases()
@@ -194,9 +194,9 @@ def test_an_unknown_requires_entry_is_rejected() -> None:
     case = _json(_valid_cases()[0])
 
     with pytest.raises(UnknownRequirementError) as raised:
-        installed_specs().read(_enveloped(_spec(), case, requires=["runtime-contract-v3"]))
+        installed_specs().read(_enveloped(_spec(), case, requires=["runtime-contract-v1"]))
 
-    assert "runtime-contract-v3" in str(raised.value)
+    assert "runtime-contract-v1" in str(raised.value)
 
 
 def test_an_unknown_field_outside_an_extension_is_rejected() -> None:

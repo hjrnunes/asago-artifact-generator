@@ -1,4 +1,4 @@
-schema_version: target-v2
+schema_version: target-v1
 target: piggybank
 # A made-up target for the adapter tests: tools-list.json and runtime-spec.yaml
 # beside this file describe it, and server.py serves it on localhost.

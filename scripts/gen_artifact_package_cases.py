@@ -10,7 +10,7 @@ metadata the closed policy accepts, and rejected metadata with the exact
 violation paths.
 
 The cases live in the ``asago-package`` member's ``contracts/artifact-package/``.
-``artifact-package-v5/`` holds the cases of the package version the writer writes.
+``artifact-package-v1/`` holds the cases of the package version the writer writes.
 
 ``artifact-seed-v1/`` holds the cases of the seed member's schema, each one
 seed document: ``valid/`` cases pass its ``schema.json``, and each
@@ -38,9 +38,9 @@ from typing import Any
 from asago_package.contract_kit import contract_dir
 
 CONTRACT_ROOT = contract_dir("artifact-package")
-V5 = "artifact-package-v5"
+V5 = "artifact-package-v1"
 BINDING_CASES = "binding-cases"
-_HANDOFF = "scenario-handoff-v6"
+_HANDOFF = "scenario-handoff-v1"
 SEED = "artifact-seed-v1"
 _SEED_ITEM = {
     "slot": "records.note",
@@ -376,7 +376,7 @@ def _metadata_policy() -> dict[str, Any]:
         (
             "captured-provider-usage",
             {
-                "interface": "artifact-authoring-v2",
+                "interface": "artifact-authoring-v1",
                 "usage": [
                     {
                         "availability": "available",
@@ -423,7 +423,7 @@ def _metadata_policy() -> dict[str, Any]:
         (
             "model-controls",
             {
-                "interface": "artifact-authoring-v2",
+                "interface": "artifact-authoring-v1",
                 "context_window_tokens": 32768,
                 "max_completion_tokens": 8192,
             },

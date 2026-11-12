@@ -15,7 +15,7 @@ from ..package_io import (
     tool_call_condition_bytes,
 )
 from .checks import _plan_claim_level, slot_party_findings
-from .core import AUTHORING_INTERFACE_VERSION_V2, _json_bytes
+from .core import AUTHORING_INTERFACE_VERSION, _json_bytes
 from .inventory import _expected_authoring_input_pins, _resolved_judge_spec
 from .planted_item import PLANTED_TEXT_FIELD, seed_members
 from .prompt_safety import assert_no_secrets
@@ -39,7 +39,7 @@ def _package_from_responses(
 
     claim_level = _plan_claim_level(plan)
     checks: dict[str, Any] = {
-        "interface": AUTHORING_INTERFACE_VERSION_V2,
+        "interface": AUTHORING_INTERFACE_VERSION,
         "status": "structurally_valid",
     }
     advisory = slot_party_findings(view.attack_shape, runtime_contract, plan)

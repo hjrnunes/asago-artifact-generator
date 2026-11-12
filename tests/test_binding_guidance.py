@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 
-from asago_artifact_generator.authoring.checks import collect_plan_findings_v2, normalize_plan_v2
+from asago_artifact_generator.authoring.checks import collect_plan_findings, normalize_plan
 from asago_artifact_generator.authoring.contracts import _binding_contract
 from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
 
@@ -67,7 +67,7 @@ def test_neutral_binding_example_uses_a_supplied_scalar_fact_without_setup() -> 
     plan = copy.deepcopy(_plan())
     plan["runtime_bindings"] = example["runtime_bindings"]
     plan["prerequisites"] = example["prerequisites"]
-    assert collect_plan_findings_v2(plan, _inventory(), runtime) == []
+    assert collect_plan_findings(plan, _inventory(), runtime) == []
 
 
 def test_plan_instruction_limits_bindings_to_values_that_exist_before_the_run() -> None:
@@ -111,9 +111,9 @@ def test_wildcard_prerequisite_consumer_gets_exact_binding_consumer() -> None:
         }
     ]
 
-    plan = normalize_plan_v2(plan, _inventory(), _no_setup_runtime()).plan
+    plan = normalize_plan(plan, _inventory(), _no_setup_runtime()).plan
 
-    assert collect_plan_findings_v2(plan, _inventory(), _no_setup_runtime()) == []
+    assert collect_plan_findings(plan, _inventory(), _no_setup_runtime()) == []
     assert plan["runtime_bindings"][0]["consumers"] == [
         "prerequisites.*",
         "prerequisites.status",
@@ -165,8 +165,8 @@ def test_plan_normalization_persists_canonical_keyed_binding_paths() -> None:
         }
     ]
     plan["stimulus_approach"]["request"] = "Show the orders for customer {{customer_id}}."
-    plan = normalize_plan_v2(plan, inventory, _runtime_contract()).plan
+    plan = normalize_plan(plan, inventory, _runtime_contract()).plan
 
-    assert collect_plan_findings_v2(plan, inventory, _runtime_contract()) == []
+    assert collect_plan_findings(plan, inventory, _runtime_contract()) == []
     assert plan["runtime_bindings"][0]["source_ref"] == "facts:state:orders"
     assert plan["runtime_bindings"][0]["selector"] == "value.ORD-1.customer_id"

@@ -6,7 +6,7 @@ import pytest
 
 from asago_artifact_generator.authoring.checks import (
     _artifact_stimulus_findings,
-    collect_plan_findings_v2,
+    collect_plan_findings,
 )
 from asago_artifact_generator.authoring.placeholder import placeholder_findings
 
@@ -94,7 +94,7 @@ def test_plan_request_and_history_are_checked_where_the_model_can_repair_them() 
 
     findings = [
         finding
-        for finding in collect_plan_findings_v2(plan, _INVENTORY, _RUNTIME)
+        for finding in collect_plan_findings(plan, _INVENTORY, _RUNTIME)
         if finding.code == "placeholder_stimulus"
     ]
 
@@ -108,7 +108,7 @@ def test_plan_request_and_history_are_checked_where_the_model_can_repair_them() 
 def test_a_plan_without_a_placeholder_has_no_such_finding() -> None:
     plan = _plan("Ask about reservation RES-201.")
 
-    codes = [finding.code for finding in collect_plan_findings_v2(plan, _INVENTORY, _RUNTIME)]
+    codes = [finding.code for finding in collect_plan_findings(plan, _INVENTORY, _RUNTIME)]
 
     assert "placeholder_stimulus" not in codes
 

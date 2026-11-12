@@ -10,8 +10,8 @@ import pytest
 
 from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.checks import (
-    collect_artifact_findings_v2,
-    collect_plan_findings_v2,
+    collect_artifact_findings,
+    collect_plan_findings,
 )
 from asago_artifact_generator.authoring.core import MAX_RENDERED_PROMPT_BYTES, Finding
 from asago_artifact_generator.authoring.correction import (
@@ -24,8 +24,8 @@ from asago_artifact_generator.authoring.prompt_context import (
     build_plan_author_context,
 )
 from asago_artifact_generator.authoring.prompt_packets import (
-    build_call1_packet_v2,
-    build_call2_packet_v2,
+    build_call1_packet,
+    build_call2_packet,
 )
 from asago_artifact_generator.authoring.review import (
     build_artifact_review_packet,
@@ -69,8 +69,8 @@ from .turn_support import (
 def _packets(view: InputView, refund: dict[str, Any], plan: dict, metadata: dict):
     inventory, rt = refund["inventory"], sequential_runtime(refund["runtime_contract"])
     return {
-        "call1": build_call1_packet_v2(view, inventory, rt),
-        "call2": build_call2_packet_v2(view, plan, inventory, rt),
+        "call1": build_call1_packet(view, inventory, rt),
+        "call2": build_call2_packet(view, plan, inventory, rt),
         "plan_review": build_plan_review_packet(view, plan, inventory, rt),
         "artifact_review": build_artifact_review_packet(view, plan, metadata, inventory, rt),
     }
@@ -136,7 +136,7 @@ def test_the_rule_block_is_absent_for_one_turn(tmp_path: Path) -> None:
 
 def test_a_multi_turn_plan_contract_names_the_sequential_delivery(tmp_path: Path) -> None:
     refund = world("refund")
-    packet = build_call1_packet_v2(
+    packet = build_call1_packet(
         direct_view(tmp_path, 3),
         refund["inventory"],
         sequential_runtime(refund["runtime_contract"]),
@@ -245,8 +245,8 @@ def test_the_existing_checks_accept_the_sequential_plan_and_artifact(tmp_path: P
     plan = sequential_plan(refund["plan"], 3)
     metadata = sequential_metadata(refund["metadata"], 3)
 
-    assert collect_plan_findings_v2(plan, refund["inventory"], rt) == []
-    assert collect_artifact_findings_v2(metadata, plan, refund["inventory"], rt) == []
+    assert collect_plan_findings(plan, refund["inventory"], rt) == []
+    assert collect_artifact_findings(metadata, plan, refund["inventory"], rt) == []
 
 
 @pytest.mark.parametrize("turns", [1, 3])

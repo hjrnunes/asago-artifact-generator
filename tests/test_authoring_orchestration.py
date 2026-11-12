@@ -8,14 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from asago_artifact_generator.authoring.contracts import _call2_contract_v2
+from asago_artifact_generator.authoring.contracts import _call2_contract
 from asago_artifact_generator.authoring.core import (
     PromptOverflowError,
     TransportResponse,
 )
 from asago_artifact_generator.authoring.policy import AuthoringBudget, AuthoringResult
 from asago_artifact_generator.authoring.prompt_packets import (
-    build_call1_packet_v2,
+    build_call1_packet,
 )
 from asago_artifact_generator.authoring.sequential_turns import (
     plan_response_contract,
@@ -30,7 +30,7 @@ from .support import (
     world_builders,
 )
 
-_framed, _metadata, _inventory_v2, _plan_v2, _runtime_contract_v2 = world_builders(
+_framed, _metadata, _authoring_inventory, _authoring_plan, _authoring_runtime_contract = world_builders(
     "refund", "framed", "metadata", "inventory", "plan", "runtime_contract"
 )
 
@@ -61,7 +61,7 @@ def test_stage_correction_contains_complete_contract_and_all_findings(
         package_dir=tmp_path / "package",
         task_id="complete-correction",
     )
-    result = orchestrator.run(_view(), _inventory_v2(), _runtime_contract_v2())
+    result = orchestrator.run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert result.status == "unresolved"
     assert len(result.ledger) == 2
@@ -83,12 +83,12 @@ def test_stage_correction_contains_complete_contract_and_all_findings(
 
 
 def test_two_calls_build_an_immutable_package_without_detector_code(tmp_path: Path) -> None:
-    transport = ScriptedAuthoringTransport([json.dumps(_plan_v2()), _framed()])
+    transport = ScriptedAuthoringTransport([json.dumps(_authoring_plan()), _framed()])
     result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="refund-task",
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert isinstance(result, AuthoringResult)
     assert result.status == "accepted"
@@ -104,9 +104,9 @@ def test_two_calls_build_an_immutable_package_without_detector_code(tmp_path: Pa
     assert [record["stage"] for record in result.ledger] == ["call1", "call2"]
     evidence = load_failure_evidence(tmp_path / "package.failure-evidence.json")
     first = evidence["attempts"][0]
-    assert base64.b64decode(first["raw_response"]["base64"]) == json.dumps(_plan_v2()).encode()
+    assert base64.b64decode(first["raw_response"]["base64"]) == json.dumps(_authoring_plan()).encode()
     assert first["usage"]["availability"] == "unavailable"
-    assert result.raw_responses["call1"] == json.dumps(_plan_v2()).encode()
+    assert result.raw_responses["call1"] == json.dumps(_authoring_plan()).encode()
     assert result.raw_responses["call2"] == _framed()
     assert transport.max_retries == 0
 
@@ -118,13 +118,13 @@ def test_package_write_failure_fails_with_the_write_finding(
         raise OSError("disk full")
 
     monkeypatch.setattr("asago_artifact_generator.authoring.orchestrator.write_package", disk_full)
-    transport = ScriptedAuthoringTransport([json.dumps(_plan_v2()), _framed()])
+    transport = ScriptedAuthoringTransport([json.dumps(_authoring_plan()), _framed()])
 
     result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="refund-task",
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert result.status == "failed"
     assert result.package_path is None
@@ -137,7 +137,7 @@ def test_package_write_failure_fails_with_the_write_finding(
 def test_structural_unknown_reference_blocks_call2_without_prose_classification(
     tmp_path: Path,
 ) -> None:
-    plan = _plan_v2()
+    plan = _authoring_plan()
     plan["selected_evidence"] = [{"ref": "missing:record", "role": "record", "source": "facts"}]
     transport = ScriptedAuthoringTransport([json.dumps(plan), json.dumps(plan)])
 
@@ -145,7 +145,7 @@ def test_structural_unknown_reference_blocks_call2_without_prose_classification(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="bad-reference",
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert result.status == "unresolved"
     assert result.package is None
@@ -154,7 +154,7 @@ def test_structural_unknown_reference_blocks_call2_without_prose_classification(
 
 
 def test_essential_missing_information_is_retained_as_blocked_plan(tmp_path: Path) -> None:
-    plan = _plan_v2()
+    plan = _authoring_plan()
     plan["unresolved_requirements"] = [
         {"name": "fresh_order", "essential": True, "reason": "not supplied"}
     ]
@@ -165,7 +165,7 @@ def test_essential_missing_information_is_retained_as_blocked_plan(tmp_path: Pat
         package_dir=tmp_path / "package",
         task_id="blocked",
     )
-    result = orchestrator.run(_view(), _inventory_v2(), _runtime_contract_v2())
+    result = orchestrator.run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert result.status == "blocked"
     assert orchestrator._decoded_responses["call1"] == plan
@@ -178,16 +178,16 @@ def test_stage_correction_contains_exact_failure_and_never_fourth_request(
     tmp_path: Path, failed_stage: str
 ) -> None:
     if failed_stage == "call1":
-        invalid_plan = _plan_v2()
+        invalid_plan = _authoring_plan()
         invalid_plan["selected_evidence"] = [{"ref": "missing", "role": "x"}]
         responses: list[object] = [
             json.dumps(invalid_plan).encode(),
-            json.dumps(_plan_v2()).encode(),
+            json.dumps(_authoring_plan()).encode(),
             _framed(),
         ]
     else:
         responses = [
-            json.dumps(_plan_v2()).encode(),
+            json.dumps(_authoring_plan()).encode(),
             _framed(_metadata() | {"setup_recipe": []}),
             _framed(),
         ]
@@ -197,7 +197,7 @@ def test_stage_correction_contains_exact_failure_and_never_fourth_request(
         transport=transport,
         package_dir=tmp_path / failed_stage,
         task_id=failed_stage,
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert result.status == "accepted"
     assert len(transport.requests) == 3
@@ -209,7 +209,7 @@ def test_stage_correction_contains_exact_failure_and_never_fourth_request(
     assert correction["payload"]["response_contract"] == (
         plan_response_contract(turn_count(_view()), shape_delivery(_view()))
         if failed_stage == "call1"
-        else _call2_contract_v2(_plan_v2())
+        else _call2_contract(_authoring_plan())
     )
     assert not {"original_request", "failed_response", "failed_response_encoding"} & set(
         correction["payload"]
@@ -218,9 +218,9 @@ def test_stage_correction_contains_exact_failure_and_never_fourth_request(
 
 
 def test_failed_correction_stops_with_two_dispatches(tmp_path: Path) -> None:
-    first = _plan_v2()
+    first = _authoring_plan()
     first["selected_evidence"] = [{"ref": "missing", "role": "x"}]
-    second = _plan_v2()
+    second = _authoring_plan()
     second["selected_evidence"] = [{"ref": "still-missing", "role": "x", "source": "facts"}]
     transport = ScriptedAuthoringTransport([json.dumps(first), json.dumps(second)])
 
@@ -228,7 +228,7 @@ def test_failed_correction_stops_with_two_dispatches(tmp_path: Path) -> None:
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="exhausted",
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert result.status == "unresolved"
     assert len(transport.requests) == 2
@@ -243,7 +243,7 @@ def test_transport_failure_is_recorded_before_dispatch_and_contains_no_endpoint(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="transport",
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert result.status == "transport_failure"
     assert result.ledger[0]["dispatch_index"] == 1
@@ -255,7 +255,7 @@ def test_transport_failure_is_recorded_before_dispatch_and_contains_no_endpoint(
     ("responses", "expected_stages"),
     [
         ([TimeoutError("Request timed out.")], ["call1"]),
-        ([json.dumps(_plan_v2()), TimeoutError("Request timed out.")], ["call1", "call2"]),
+        ([json.dumps(_authoring_plan()), TimeoutError("Request timed out.")], ["call1", "call2"]),
     ],
     ids=["call1", "call2"],
 )
@@ -270,7 +270,7 @@ def test_transport_failure_is_not_eligible_for_normal_correction(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="transport-gate",
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert result.status == "transport_failure"
     assert [request["stage"] for request in transport.requests] == expected_stages
@@ -282,9 +282,9 @@ def test_transport_failure_is_not_eligible_for_normal_correction(
 @pytest.mark.parametrize(
     ("responses", "expected_stages"),
     [
-        ([b"", json.dumps(_plan_v2()), _framed()], ["call1", "correction", "call2"]),
+        ([b"", json.dumps(_authoring_plan()), _framed()], ["call1", "correction", "call2"]),
         (
-            [json.dumps(_plan_v2()), b"```json\n{broken}\n```\n", _framed()],
+            [json.dumps(_authoring_plan()), b"```json\n{broken}\n```\n", _framed()],
             ["call1", "call2", "correction"],
         ),
     ],
@@ -301,7 +301,7 @@ def test_response_bearing_failure_remains_eligible_for_correction(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="response-bearing-correction",
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert result.status == "accepted"
     assert [request["stage"] for request in transport.requests] == expected_stages
@@ -316,19 +316,19 @@ def test_call2_rejects_fabricated_assistant_or_tool_history(tmp_path: Path) -> N
         "history": [{"role": "assistant", "content": "Sure"}],
         "slots": [],
     }
-    transport = ScriptedAuthoringTransport([json.dumps(_plan_v2()), _framed(bad), _framed(bad)])
+    transport = ScriptedAuthoringTransport([json.dumps(_authoring_plan()), _framed(bad), _framed(bad)])
     result = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "package",
         task_id="history",
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert result.status == "unresolved"
     assert any(finding.code == "non_user_history" for finding in result.findings)
 
 
 def test_blocked_plan_is_retained_outside_the_immutable_package(tmp_path: Path) -> None:
-    plan = _plan_v2()
+    plan = _authoring_plan()
     plan["unresolved_requirements"] = [
         {"name": "fresh_order", "essential": True, "reason": "not supplied"}
     ]
@@ -336,7 +336,7 @@ def test_blocked_plan_is_retained_outside_the_immutable_package(tmp_path: Path) 
         transport=ScriptedAuthoringTransport([json.dumps(plan)]),
         package_dir=tmp_path / "package",
         task_id="blocked-persisted",
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert result.status == "blocked"
     retained = tmp_path / "package.blocked.json"
@@ -350,7 +350,7 @@ def test_blocked_plan_is_retained_outside_the_immutable_package(tmp_path: Path) 
 def test_setup_argument_schema_mismatch_is_structural_and_uses_stage_correction(
     tmp_path: Path,
 ) -> None:
-    plan = _plan_v2()
+    plan = _authoring_plan()
     plan["setup_recipe"] = [
         {
             "operation": "process_refund",
@@ -363,8 +363,8 @@ def test_setup_argument_schema_mismatch_is_structural_and_uses_stage_correction(
         task_id="schema-mismatch",
     ).run(
         _view(),
-        _inventory_v2(),
-        {**_runtime_contract_v2(), "setup_permissions": ["process_refund"]},
+        _authoring_inventory(),
+        {**_authoring_runtime_contract(), "setup_permissions": ["process_refund"]},
     )
 
     assert result.status == "unresolved"
@@ -384,13 +384,13 @@ def test_budget_reserves_before_transport_failure_without_correction(
         package_dir=tmp_path / "one",
         task_id="one",
         budget=budget,
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
     second = stage_local_orchestrator(
         transport=transport,
         package_dir=tmp_path / "two",
         task_id="two",
         budget=budget,
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert first.status == "transport_failure"
     assert second.status == "transport_failure"
@@ -416,7 +416,7 @@ def test_response_capture_is_persisted_separately_from_final_answer(
         package_dir=tmp_path / "package",
         task_id="capture-separation",
         budget=AuthoringBudget(aggregate_limit=1, task_limit=1),
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert result.status == "budget_exhausted"
     saved = load_failure_evidence(tmp_path / "package.failure-evidence.json")
@@ -429,6 +429,6 @@ def test_response_capture_is_persisted_separately_from_final_answer(
 
 def test_prompt_overflow_is_reported_without_silent_truncation() -> None:
     with pytest.raises(PromptOverflowError, match="explicitly scoped"):
-        build_call1_packet_v2(
-            _view(), _inventory_v2(), _runtime_contract_v2(), max_prompt_bytes=10
+        build_call1_packet(
+            _view(), _authoring_inventory(), _authoring_runtime_contract(), max_prompt_bytes=10
         )

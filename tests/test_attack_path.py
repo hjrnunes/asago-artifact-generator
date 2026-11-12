@@ -32,7 +32,7 @@ from asago_artifact_generator.authoring.prompt_context import (
     build_plan_author_context,
     scenario_provenance_ids,
 )
-from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
+from asago_artifact_generator.authoring.prompt_packets import build_call1_packet
 from asago_artifact_generator.authoring.sequential_turns import plan_response_contract
 
 from .attack_path_support import SCN_027_PATH, functional_path, path_view, real_view
@@ -172,7 +172,7 @@ def test_the_note_explains_the_numbering_the_line_format_and_citation() -> None:
 def test_provenance_lists_node_and_source_ids_with_locations_and_the_scenario_id() -> None:
     view = path_view()
     ids = json_section(
-        build_call1_packet_v2(view, _inventory(), _runtime_contract()).user,
+        build_call1_packet(view, _inventory(), _runtime_contract()).user,
         "EVIDENCE REFERENCES",
     )["provenance_ids"]["ids"]
 
@@ -257,7 +257,7 @@ def test_the_path_replaces_the_tree_wording_in_every_plan_text() -> None:
 def test_a_functional_path_uses_the_functional_attack_path_rule() -> None:
     view = path_view(functional_path(), kind="functional")
     design = json_section(
-        build_call1_packet_v2(view, _inventory(), _runtime_contract()).user, "SCENARIO DESIGN"
+        build_call1_packet(view, _inventory(), _runtime_contract()).user, "SCENARIO DESIGN"
     )
 
     assert design["stimulus_rule"] == _prose(
@@ -329,7 +329,7 @@ def test_reference_repair_options_name_the_attack_path(failed_stage: str) -> Non
 def test_a_v6_path_handoff_loads_without_a_tree() -> None:
     view = real_view("027")
 
-    assert view.kind.value == "scenario-handoff-v6"
+    assert view.kind.value == "scenario-handoff-v1"
     assert "attack_tree" not in view.payload
     assert view.payload["attack_path"] == SCN_027_PATH
 
@@ -363,7 +363,7 @@ def test_a_real_functional_path_has_no_attacker_key_and_an_empty_steps_list() ->
     )
     assert not any("attacker" in line.split(":")[0] for line in outline)
     design = json_section(
-        build_call1_packet_v2(view, _inventory(), _runtime_contract()).user, "SCENARIO DESIGN"
+        build_call1_packet(view, _inventory(), _runtime_contract()).user, "SCENARIO DESIGN"
     )
     assert design["stimulus_rule"] == _prose(
         "prompt_context/scenario_kind_stimulus_rules/functional"

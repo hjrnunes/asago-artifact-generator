@@ -1,7 +1,7 @@
 """Garak adapter for authored artifact packages.
 
 The adapter turns a package into a Garak bundle and Garak's report into an
-``execution-receipt-v2``. It imports no Garak code: Garak runs in its own
+``execution-receipt-v1``. It imports no Garak code: Garak runs in its own
 interpreter from the bundle's entrypoint. ``compile``, ``instantiate`` and
 ``parse`` are its library entry points (``entry_points``); the command line
 calls them.

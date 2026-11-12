@@ -6,20 +6,20 @@ import json
 import pytest
 
 from asago_artifact_generator.authoring.checks import (
-    collect_artifact_findings_v2,
-    collect_plan_findings_v2,
-    normalize_artifact_v2,
-    normalize_plan_v2,
+    collect_artifact_findings,
+    collect_plan_findings,
+    normalize_artifact,
+    normalize_plan,
 )
 from asago_artifact_generator.authoring.contracts import neutral_artifact_response_without_source
 from asago_artifact_generator.authoring.core import (
-    AUTHORING_INTERFACE_VERSION_V2,
+    AUTHORING_INTERFACE_VERSION,
     Call2FramingError,
 )
 from asago_artifact_generator.authoring.prompt_context import _original_scenario_context
 from asago_artifact_generator.authoring.prompt_packets import (
-    build_call1_packet_v2,
-    build_call2_packet_v2,
+    build_call1_packet,
+    build_call2_packet,
 )
 from asago_artifact_generator.authoring.response_decode import _decode_stage_response
 from asago_artifact_generator.package_io import tool_call_condition_bytes
@@ -30,7 +30,7 @@ from .support import (
     assemble_refund_package,
     build_neutral_artifact_package,
     json_section,
-    neutral_call2_response_v2,
+    neutral_call2_response,
     rendered_response_contract,
     stage_local_orchestrator,
     unreviewed_policy,
@@ -81,7 +81,7 @@ def _rendered_scenario(packet) -> dict:
 
 
 def test_call1_v2_has_closed_root_and_reports_all_root_faults() -> None:
-    packet = build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
+    packet = build_call1_packet(_view(), _inventory(), _runtime_contract())
     fields = rendered_response_contract(packet)["fields"]
     assert fields == [
         "interpretation",
@@ -98,7 +98,7 @@ def test_call1_v2_has_closed_root_and_reports_all_root_faults() -> None:
     ]
 
     malformed = {"unexpected": True, "assumptions": "not-a-list"}
-    findings = collect_plan_findings_v2(malformed, _inventory(), _runtime_contract())
+    findings = collect_plan_findings(malformed, _inventory(), _runtime_contract())
     assert {finding.path for finding in findings} >= {
         "unexpected",
         "interpretation",
@@ -167,11 +167,11 @@ def test_v2_plan_adds_prerequisite_consumers_then_artifact_derives_slots() -> No
         "history": [],
         "slots": [],
     }
-    normalized_plan = normalize_plan_v2(plan, inventory, _runtime_contract())
+    normalized_plan = normalize_plan(plan, inventory, _runtime_contract())
     plan, plan_transformations = normalized_plan.plan, normalized_plan.transformations
-    metadata, artifact_transformations = normalize_artifact_v2(metadata, plan)
+    metadata, artifact_transformations = normalize_artifact(metadata, plan)
 
-    findings = collect_artifact_findings_v2(metadata, plan, inventory, _runtime_contract())
+    findings = collect_artifact_findings(metadata, plan, inventory, _runtime_contract())
 
     assert findings == []
     assert metadata["stimulus"]["slots"] == ["other", "owner"]
@@ -207,7 +207,7 @@ def test_v2_undeclared_placeholder_keeps_slot_failure_with_named_feedback() -> N
         "slots": [],
     }
 
-    findings = collect_artifact_findings_v2(
+    findings = collect_artifact_findings(
         metadata,
         plan,
         _inventory(),
@@ -538,8 +538,8 @@ def test_new_call2_rejects_plan_owned_resubmission_without_package(tmp_path) -> 
 def test_v2_prompt_has_typed_references_selected_schemas_and_measured_bytes() -> None:
     view = _view()
     plan = _plan()
-    call1 = build_call1_packet_v2(view, _inventory(), _runtime_contract())
-    call2 = build_call2_packet_v2(view, plan, _inventory(), _runtime_contract())
+    call1 = build_call1_packet(view, _inventory(), _runtime_contract())
+    call2 = build_call2_packet(view, plan, _inventory(), _runtime_contract())
 
     for packet in (call1, call2):
         assert packet.byte_size == len(packet.system.encode()) + len(packet.user.encode())
@@ -550,8 +550,8 @@ def test_v2_prompt_keeps_one_structured_copy_of_each_case_context(
     tmp_path,
 ) -> None:
     view = _view()
-    call1 = build_call1_packet_v2(view, _inventory(), _runtime_contract())
-    call2 = build_call2_packet_v2(view, _plan(), _inventory(), _runtime_contract())
+    call1 = build_call1_packet(view, _inventory(), _runtime_contract())
+    call2 = build_call2_packet(view, _plan(), _inventory(), _runtime_contract())
     expected_input_fields = {
         "kind",
         "scenario_id",
@@ -591,12 +591,12 @@ def test_neutral_v2_example_uses_real_framing_and_package_check(tmp_path) -> Non
     assert not destination.joinpath("detector.py").exists()
     assert destination.joinpath("tool_call_condition.json").is_file()
     assert json.loads(destination.joinpath("checks.json").read_text())["interface"] == (
-        AUTHORING_INTERFACE_VERSION_V2
+        AUTHORING_INTERFACE_VERSION
     )
 
 
 def test_neutral_artifact_response_without_source_matches_v2_metadata() -> None:
-    decoded, _ = _decode_stage_response("call2", neutral_call2_response_v2())
+    decoded, _ = _decode_stage_response("call2", neutral_call2_response())
 
     assert decoded == neutral_artifact_response_without_source()
 

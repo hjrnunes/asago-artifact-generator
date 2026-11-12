@@ -22,7 +22,7 @@ from .support import (
     world_builders,
 )
 
-_inventory_v2, _runtime_contract_v2 = world_builders("refund", "inventory", "runtime_contract")
+_authoring_inventory, _authoring_runtime_contract = world_builders("refund", "inventory", "runtime_contract")
 
 (_view,) = world_builders("refund-minimal", "view")
 
@@ -58,7 +58,7 @@ def test_failed_authoring_persists_reloadable_evidence_before_discarding_respons
         package_dir=package_dir,
         task_id="durable-failure",
         policy=unreviewed_policy(plan_max_corrections=0),
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert result.status == expected_status
     assert len(transport.requests) == 1
@@ -112,7 +112,7 @@ def test_failure_evidence_redacts_endpoint_and_secret_metadata_without_losing_co
         package_dir=package_dir,
         task_id="safe-failure",
         policy=unreviewed_policy(plan_max_corrections=0),
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     assert result.status == "unresolved"
     evidence_path = package_dir.with_name("package.failure-evidence.json")

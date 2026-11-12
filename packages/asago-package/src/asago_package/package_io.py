@@ -28,7 +28,7 @@ from .contract_kit import (
 from .metadata_policy import secret_metadata_paths
 from .value_checks import is_sha256_hex
 
-PACKAGE_SCHEMA_VERSION = "artifact-package-v5"
+PACKAGE_SCHEMA_VERSION = "artifact-package-v1"
 TOOL_CALL_CONDITION_MEMBER = "tool_call_condition.json"
 JUDGE_MEMBER = "judge.json"
 SEED_MEMBER = "seed.json"
@@ -55,8 +55,8 @@ _CLAIM_LEVEL_MEMBERS = {
     ClaimLevel.REPLY.value: JUDGE_MEMBER,
 }
 _CONTRACT_ROOT = contract_dir("artifact-package")
-# The handoff version a package may come from; the artifact-package-v5 schema lists it.
-_INPUT_KINDS = frozenset({"scenario-handoff-v6"})
+# The handoff version a package may come from; the artifact-package-v1 schema lists it.
+_INPUT_KINDS = frozenset({"scenario-handoff-v1"})
 
 
 class PackagePathError(ValueError):
@@ -246,7 +246,7 @@ def _remove_path(path: Path) -> None:
 def load_package(path: str | Path) -> ArtifactPackage:
     """Load and verify every package member before returning any content.
 
-    The loader reads only ``artifact-package-v5``. It resolves the root (``~``,
+    The loader reads only ``artifact-package-v1``. It resolves the root (``~``,
     relative segments and symlinks) so every member path is checked against the
     directory it actually read. A package that declares a retired or unknown
     other version fails with an error that names

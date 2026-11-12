@@ -5,9 +5,9 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from asago_artifact_generator.authoring.checks import collect_artifact_findings_v2
+from asago_artifact_generator.authoring.checks import collect_artifact_findings
 from asago_artifact_generator.authoring.contracts import (
-    neutral_artifact_plan_v2,
+    neutral_artifact_plan,
     neutral_artifact_response_without_source,
 )
 from asago_artifact_generator.authoring.core import Finding
@@ -57,9 +57,9 @@ def artifact_findings(
 ) -> list[Finding]:
     """Run the artifact checks on the neutral plan and inventory."""
 
-    return collect_artifact_findings_v2(
+    return collect_artifact_findings(
         document,
-        plan or neutral_artifact_plan_v2(),
+        plan or neutral_artifact_plan(),
         deepcopy(NEUTRAL_INVENTORY),
         RUNTIME,
         **kwargs,

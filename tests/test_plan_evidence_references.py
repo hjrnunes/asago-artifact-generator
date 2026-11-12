@@ -4,7 +4,7 @@ import copy
 import json
 
 from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
-from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
+from asago_artifact_generator.authoring.checks import collect_plan_findings
 from asago_artifact_generator.authoring.core import (
     Finding,
 )
@@ -17,7 +17,7 @@ from asago_artifact_generator.authoring.prompt_context import (
     build_plan_author_context,
     scenario_provenance_ids,
 )
-from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
+from asago_artifact_generator.authoring.prompt_packets import build_call1_packet
 
 from .support import json_section, world_builders
 
@@ -27,7 +27,7 @@ _inventory, _plan, _runtime_contract, _view = world_builders(
 
 
 def test_call1_renders_evidence_references_with_lineage_provenance() -> None:
-    packet = build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
+    packet = build_call1_packet(_view(), _inventory(), _runtime_contract())
 
     section = json_section(packet.user, "EVIDENCE REFERENCES")
     assert section["citable_references"] == {
@@ -48,7 +48,7 @@ def test_call1_renders_evidence_references_with_lineage_provenance() -> None:
 def test_attack_path_node_ids_are_citable_provenance_with_plain_locations() -> None:
     provenance = scenario_provenance_ids(_view())
     section = json_section(
-        build_call1_packet_v2(_view(), _inventory(), _runtime_contract()).user,
+        build_call1_packet(_view(), _inventory(), _runtime_contract()).user,
         "EVIDENCE REFERENCES",
     )
 
@@ -104,10 +104,10 @@ def test_provenance_ids_are_valid_in_source_refs_and_assumptions() -> None:
     plan["assumptions"] = [{"ref": "SC-1", "reason": "lineage is not a supplied fact"}]
     provenance = scenario_provenance_ids(_view())
 
-    accepted = collect_plan_findings_v2(
+    accepted = collect_plan_findings(
         plan, _inventory(), _runtime_contract(), provenance_ids=provenance
     )
-    strict = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
+    strict = collect_plan_findings(plan, _inventory(), _runtime_contract())
 
     assert _codes_at(accepted, "interpretation.source_refs") == []
     assert _codes_at(accepted, "assumptions[0].ref") == []
@@ -121,7 +121,7 @@ def test_observation_scopes_stay_invalid_as_selected_evidence() -> None:
     plan = copy.deepcopy(_plan())
     plan["selected_evidence"] = [{"ref": "tool_calls", "role": "capture", "source": "runtime"}]
 
-    findings = collect_plan_findings_v2(
+    findings = collect_plan_findings(
         plan,
         _inventory(),
         _runtime_contract(),
@@ -144,7 +144,7 @@ def test_plan_correction_explains_each_unknown_reference() -> None:
         {"ref": "assistant_messages", "role": "reply", "source": "runtime"}
     )
     candidate["interpretation"]["source_refs"] = ["scenario:narrative"]
-    findings = collect_plan_findings_v2(
+    findings = collect_plan_findings(
         candidate,
         _inventory(),
         _runtime_contract(),

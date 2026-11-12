@@ -1,4 +1,4 @@
-"""The tool-call-condition-v2 evaluator, re-exported from the shared ``asago_handoff``.
+"""The tool-call-condition-v1 evaluator, re-exported from the shared ``asago_handoff``.
 
 The one definition lives in ``asago_handoff.condition_eval``, the producer's package, where
 authoring, the adapters, the injection-spec compiler and the orchestrator's probe read it.

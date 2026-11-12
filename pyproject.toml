@@ -61,7 +61,7 @@ members = ["packages/*"]
 # packages below are the runtime dependencies the lock always resolves; the
 # producer app itself sits in the ``producer-pair`` group.
 asago-contracts-core = { path = "../asago-scenario-generator/packages/asago-contracts-core", editable = true }
-# The producer-owned handoff contract: one validator and one condition-v2 evaluator
+# The producer-owned handoff contract: one validator and one condition-v1 evaluator
 # shared by the producer, this repository and the orchestrator.
 asago-handoff = { path = "../asago-scenario-generator/packages/asago-handoff", editable = true }
 asago-bundle-core = { workspace = true }

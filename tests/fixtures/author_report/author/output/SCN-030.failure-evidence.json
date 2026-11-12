@@ -162,7 +162,7 @@
     "configuration_sha256": "b719838f59601034e2211ed5d24cf18a7f30b835b73b48f3bab70d2531ba104b",
     "contract_sha256": "5775652f8b137fad5e230a2c18e230516f30d4c12a5f0adbe84fae9865912f5d",
     "prompt_sha256": "4e714473f5ff554519fb0cc94ea17011bb32660aa4f53136f4ac0c8379e74709",
-    "prompt_version": "authoring-plan-review-v20",
+    "prompt_version": "authoring-plan-review-v1",
     "raw_response_bytes": 10899,
     "raw_response_key": "dispatch:3",
     "raw_response_sha256": "37273eb8b10b6fa6c1f39a8d1b0d0ee8f17eec823a1a22f0fa1a7bf365585e90",
@@ -234,7 +234,7 @@
   "artifact": "not_requested",
   "plan": "unavailable"
  },
- "schema_version": "authoring-failure-evidence-v2",
+ "schema_version": "authoring-failure-evidence-v1",
  "status": "review_unavailable",
  "task_id": "SCN-030",
  "terminal": {

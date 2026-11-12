@@ -23,7 +23,7 @@ from asago_artifact_generator.authoring.core import (
     AUTHORING_CONTEXT_WINDOW_TOKENS,
     AUTHORING_MAX_COMPLETION_TOKENS,
 )
-from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
+from asago_artifact_generator.authoring.prompt_packets import build_call1_packet
 from asago_artifact_generator.contract_kit import parse_document
 from asago_artifact_generator.input_adapter import load_input
 from asago_artifact_generator.target_inputs import load_target_inputs
@@ -63,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     print("scenario\tschema\testimated_prompt_tokens\tremaining_input_budget\theadroom")
     for path in args.scenarios:
         view = load_input(path)
-        packet = build_call1_packet_v2(view, inventory, runtime_contract)
+        packet = build_call1_packet(view, inventory, runtime_contract)
         estimate = _context_budget_estimate(packet)
         tokens = int(estimate["estimated_prompt_tokens"])
         flag = "  OVER" if tokens > remaining else ""

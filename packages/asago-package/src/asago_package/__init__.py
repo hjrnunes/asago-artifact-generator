@@ -1,4 +1,4 @@
-"""The artifact-package-v5 values, the contained writer and the strict reader.
+"""The artifact-package-v1 values, the contained writer and the strict reader.
 
 This library declares only pydantic, jsonschema and ``asago-contracts-core``, and it
 imports nothing from the authoring application, so a downstream tool can read or write
@@ -11,7 +11,7 @@ builds a declared target's contract from a shared base.
 :mod:`asago_package.binding_rules` owns the binding and slot rules, and
 :mod:`asago_package.bindings` adds authoring's canonical paths and wording, so package
 preparation and the adapters validate declarations from the same engine.
-The tool-call-condition-v2 validator and evaluator come from ``asago_handoff``, the
+The tool-call-condition-v1 validator and evaluator come from ``asago_handoff``, the
 producer's package, so this library stays free of the condition rules.
 """
 

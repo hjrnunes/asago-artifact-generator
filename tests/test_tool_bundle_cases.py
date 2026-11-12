@@ -32,8 +32,8 @@ from asago_artifact_generator.contract_kit import verify_contract_lock
 
 _ROOT = Path(__file__).resolve().parents[1] / "contracts" / "tool-bundle"
 _CONTRACTS = _ROOT.parent
-_VERSIONS = ("tool-bundle-v2",)
-_VERSION = "tool-bundle-v2"
+_VERSIONS = ("tool-bundle-v1",)
+_VERSION = "tool-bundle-v1"
 
 
 def _json(path: Path) -> Any:
@@ -178,7 +178,7 @@ def test_an_unsupported_version_names_the_supported_versions(version: str) -> No
         _specs().read(_enveloped(_spec(version), case, version="tool-bundle-v9"))
 
     assert "tool-bundle-v9" in str(raised.value)
-    assert "tool-bundle-v2" in str(raised.value)
+    assert "tool-bundle-v1" in str(raised.value)
 
 
 @pytest.mark.parametrize("version", _VERSIONS)

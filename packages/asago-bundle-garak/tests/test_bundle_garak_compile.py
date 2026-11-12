@@ -40,9 +40,9 @@ def test_command_attempt_bundle_manifest(command_package: Path, tmp_path: Path) 
     manifest = compile_package(command_package, out)
 
     assert manifest == read(out / "bundle.json")
-    assert manifest["schema_version"] == "tool-bundle-v2"
+    assert manifest["schema_version"] == "tool-bundle-v1"
     assert manifest["contract"]["id"] == "tool-bundle"
-    assert manifest["contract"]["version"] == "tool-bundle-v2"
+    assert manifest["contract"]["version"] == "tool-bundle-v1"
     assert manifest["contract"]["spec_digest"].startswith("sha256:")
     assert manifest["contract"]["requires"] == []
     assert manifest["contract"]["provenance"]["writer"] == "asago_bundle_garak.compiler"

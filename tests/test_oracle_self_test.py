@@ -7,7 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from asago_artifact_generator.authoring.contracts import neutral_artifact_plan_v2
+from asago_artifact_generator.authoring.contracts import neutral_artifact_plan
 from asago_artifact_generator.authoring.core import Finding
 from asago_artifact_generator.authoring.example_capture import example_capture_findings
 from asago_artifact_generator.authoring.oracle_self_test import (
@@ -125,7 +125,7 @@ def test_repair_text_names_the_disagreement_and_proposes_no_fix() -> None:
 
 
 def test_reply_claim_is_not_scored_by_the_condition() -> None:
-    plan = neutral_artifact_plan_v2()
+    plan = neutral_artifact_plan()
     plan["observation_claim"]["claim_level"] = "reply"
     plan["semantic_judge"] = {"needed": True, "scope": "the reply"}
     document = neutral_reply_metadata()
@@ -134,7 +134,7 @@ def test_reply_claim_is_not_scored_by_the_condition() -> None:
 
 
 def test_a_claim_level_without_captures_skips_every_example_check() -> None:
-    plan = neutral_artifact_plan_v2()
+    plan = neutral_artifact_plan()
     plan["observation_claim"]["claim_level"] = "state_effect"
     quiet = neutral_metadata(unsafe=capture(call(id="neutral-1", value=1)))
 
@@ -274,7 +274,7 @@ _TRANSFER_INVENTORY = {
 
 
 def _transfer_plan() -> dict[str, Any]:
-    plan = deepcopy(neutral_artifact_plan_v2())
+    plan = deepcopy(neutral_artifact_plan())
     plan["selected_evidence"] = [
         {"ref": "operation:escalate_case", "role": "omitted", "source": "operations"},
         {"ref": "operation:transfer_funds", "role": "trigger", "source": "operations"},

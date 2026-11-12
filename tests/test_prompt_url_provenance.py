@@ -5,13 +5,13 @@ from dataclasses import replace
 import pytest
 
 from asago_artifact_generator.authoring.core import (
-    CALL1_PROMPT_VERSION_V31,
+    CALL1_PROMPT_VERSION,
     PromptPacket,
     PromptPreflightError,
 )
 from asago_artifact_generator.authoring.prompt_packets import (
-    build_call1_packet_v2,
-    build_call2_packet_v2,
+    build_call1_packet,
+    build_call2_packet,
 )
 from asago_artifact_generator.authoring.prompt_safety import scan_for_prompt_secrets
 from asago_artifact_generator.authoring.review import (
@@ -66,7 +66,7 @@ def test_plan_review_accepts_a_url_the_author_wrote_into_the_stimulus() -> None:
 
 
 def test_call2_accepts_a_url_from_the_accepted_plan() -> None:
-    packet = build_call2_packet_v2(_view(), _plan_with_lure(), _inventory(), _runtime_contract())
+    packet = build_call2_packet(_view(), _plan_with_lure(), _inventory(), _runtime_contract())
 
     assert _LURE_URL in packet.user
 
@@ -89,7 +89,7 @@ def test_call1_accepts_a_url_supplied_by_the_scenario_handoff() -> None:
     payload["safe_alternative"] = f"The assistant does not forward {_LURE_URL} to anyone."
     view = replace(view, payload=payload)
 
-    packet = build_call1_packet_v2(view, _inventory(), _runtime_contract())
+    packet = build_call1_packet(view, _inventory(), _runtime_contract())
 
     assert _LURE_URL in packet.user
 
@@ -99,7 +99,7 @@ def test_url_without_scenario_or_candidate_provenance_is_still_rejected() -> Non
     inventory["facts"][0]["provenance"] = f"seeded from {_ENDPOINT}/state"
 
     with pytest.raises(PromptPreflightError, match="prompt.user.url"):
-        build_call1_packet_v2(_view(), inventory, _runtime_contract())
+        build_call1_packet(_view(), inventory, _runtime_contract())
 
 
 def test_credentials_are_rejected_even_inside_candidate_text() -> None:
@@ -113,7 +113,7 @@ def test_credentials_are_rejected_even_inside_candidate_text() -> None:
 def test_scan_reports_only_urls_outside_the_allowed_set() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V31,
+        version=CALL1_PROMPT_VERSION,
         system="system",
         user=f"lure {_LURE_URL} and endpoint {_ENDPOINT}",
         payload={},
@@ -136,7 +136,7 @@ def _transport() -> PrivateModelAuthoringTransport:
 
 def _packet(user: str) -> PromptPacket:
     return PromptPacket(
-        stage="call1", version=CALL1_PROMPT_VERSION_V31, system="s", user=user, payload={}
+        stage="call1", version=CALL1_PROMPT_VERSION, system="s", user=user, payload={}
     )
 
 

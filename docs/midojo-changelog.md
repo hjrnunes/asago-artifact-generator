@@ -145,7 +145,7 @@ older forms are deleted with their readers; the compiled fixtures under
   claims and a seed the interceptor cannot place in an MCP tool result are capability gaps
   (exit 3). `parse_sealed` (`sealed.py`, CLI `parse --snapshot --verdict
   [--delivery] [--driver]`) reads the snapshot (`GET .../snapshot`) and the verdict (`evaluation_id`,
-  `snapshot_id`, `grade`) into `execution-receipt-v2`, after recomputing the snapshot ID,
+  `snapshot_id`, `grade`) into `execution-receipt-v1`, after recomputing the snapshot ID,
   MiDojo's digest of the content (the SDK's `snapshot` module, `verified`), and requiring every
   call to be the
   interceptor's record: security true/false/null is detected/not_detected/inconclusive,

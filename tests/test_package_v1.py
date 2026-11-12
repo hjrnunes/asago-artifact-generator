@@ -1,4 +1,4 @@
-"""A v6 handoff yields an artifact-package-v5 whose stimulus states its turns."""
+"""A v6 handoff yields an artifact-package-v1 whose stimulus states its turns."""
 
 from __future__ import annotations
 
@@ -53,8 +53,8 @@ def test_a_three_turn_handoff_becomes_a_sequential_v5_package(tmp_path: Path) ->
     assert result.status == "accepted", result.findings
     assert [request["stage"] for request in transport.requests] == ["call1", "call2"]
     manifest = _manifest(tmp_path)
-    assert manifest["schema_version"] == "artifact-package-v5"
-    assert manifest["input_kind"] == "scenario-handoff-v6"
+    assert manifest["schema_version"] == "artifact-package-v1"
+    assert manifest["input_kind"] == "scenario-handoff-v1"
     stimulus = _stimulus(tmp_path)
     assert stimulus["mode"] == "sequential"
     assert stimulus["turn_count"] == 3
@@ -63,10 +63,10 @@ def test_a_three_turn_handoff_becomes_a_sequential_v5_package(tmp_path: Path) ->
     assert {item["role"] for item in stimulus["history"]} == {"user"}
     assert stimulus["user_text"]
     schema = json.loads(
-        (_SCHEMAS / "artifact-package-v5" / "schema.json").read_text(encoding="utf-8")
+        (_SCHEMAS / "artifact-package-v1" / "schema.json").read_text(encoding="utf-8")
     )
     jsonschema.validate(manifest, schema)
-    assert load_package(tmp_path / "package").manifest.schema_version == "artifact-package-v5"
+    assert load_package(tmp_path / "package").manifest.schema_version == "artifact-package-v1"
 
 
 def test_a_one_turn_handoff_costs_the_same_requests_and_states_a_single_turn(
@@ -80,7 +80,7 @@ def test_a_one_turn_handoff_costs_the_same_requests_and_states_a_single_turn(
     assert stimulus["mode"] == "single"
     assert stimulus["turn_count"] == 1
     assert stimulus["history"] == []
-    assert _manifest(tmp_path)["schema_version"] == "artifact-package-v5"
+    assert _manifest(tmp_path)["schema_version"] == "artifact-package-v1"
 
 
 def _build(input_kind: str, **changes: Any):
@@ -95,7 +95,7 @@ def _build(input_kind: str, **changes: Any):
 
 
 def test_a_v6_input_builds_a_v5_package() -> None:
-    assert _build("scenario-handoff-v6").manifest.schema_version == "artifact-package-v5"
+    assert _build("scenario-handoff-v1").manifest.schema_version == "artifact-package-v1"
 
 
 @pytest.mark.parametrize("input_kind", ["scenario-handoff-v9"])
@@ -105,7 +105,7 @@ def test_an_unknown_input_kind_is_refused(input_kind: str) -> None:
 
 
 def test_a_v5_package_round_trips_and_a_version_swap_is_caught(tmp_path: Path) -> None:
-    package = _build("scenario-handoff-v6")
+    package = _build("scenario-handoff-v1")
     destination = write_package(tmp_path / "out", package)
 
     assert load_package(destination).manifest.to_dict() == package.manifest.to_dict()

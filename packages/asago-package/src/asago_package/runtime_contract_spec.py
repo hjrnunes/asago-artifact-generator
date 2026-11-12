@@ -20,7 +20,7 @@ from asago_contracts_core import ContractSpec, SpecSet, load_specs, write_envelo
 
 CONTRACTS_DIR = Path(__file__).resolve().parent / "contracts"
 CONTRACT = "runtime-contract"
-VERSION = "artifact-runtime-contract-v3"
+VERSION = "artifact-runtime-contract-v1"
 
 
 @cache

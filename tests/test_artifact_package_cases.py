@@ -1,4 +1,4 @@
-"""The consumer reader runs every artifact-package-v5 contract case.
+"""The consumer reader runs every artifact-package-v1 contract case.
 
 The cases live in the ``asago-package`` member's ``contracts/artifact-package/`` and the
 orchestrator reads the same files through that library. Each invalid case names a stable code;
@@ -33,8 +33,8 @@ from asago_package.contract_kit import contract_dir
 
 _REPO = Path(__file__).resolve().parents[1]
 _ROOT = contract_dir("artifact-package")
-_VERSIONS = ("artifact-package-v5",)
-_READABLE_VERSIONS = ("artifact-package-v5",)
+_VERSIONS = ("artifact-package-v1",)
+_READABLE_VERSIONS = ("artifact-package-v1",)
 _SEED = "artifact-seed-v1"
 _MESSAGES = {
     "manifest_not_object": r"^package manifest must be an object$",
@@ -66,7 +66,7 @@ _MESSAGES = {
 # The v5 schema lists the member names, so it rejects any other path before the path checks run.
 _V5_MEMBER_PATH = r"^package manifest schema invalid at members\.\d+\.path: .* is not one of "
 _VERSION_MESSAGES = {
-    "artifact-package-v5": {
+    "artifact-package-v1": {
         "member_path_invalid": _V5_MEMBER_PATH,
         "member_path_escapes": _V5_MEMBER_PATH,
         "member_path_non_canonical": _V5_MEMBER_PATH,
@@ -227,7 +227,7 @@ def _package_with(metadata: dict[str, Any]) -> ArtifactPackage:
     return build_package(
         package_id="usage-policy",
         scenario_id="usage-policy",
-        input_kind="scenario-handoff-v6",
+        input_kind="scenario-handoff-v1",
         source_digests={"input": "a" * 64},
         members={"explanation.json": b"{}\n"},
         runtime_capabilities=metadata,

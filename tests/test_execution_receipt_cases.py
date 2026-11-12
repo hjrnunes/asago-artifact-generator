@@ -34,7 +34,7 @@ from asago_artifact_generator.contract_kit import verify_contract_lock
 
 _ROOT = Path(__file__).resolve().parents[1] / "contracts" / "execution-receipt"
 _CONTRACTS = _ROOT.parent
-_VERSIONS = ("execution-receipt-v2",)
+_VERSIONS = ("execution-receipt-v1",)
 _LATEST = _VERSIONS[-1]
 
 

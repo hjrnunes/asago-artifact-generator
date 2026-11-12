@@ -22,10 +22,10 @@ from .checks import (
     NormalizedPlan,
     _is_blocked_plan,
     _plan_claim_level,
-    collect_artifact_findings_v2,
-    collect_plan_findings_v2,
-    normalize_artifact_v2,
-    normalize_plan_v2,
+    collect_artifact_findings,
+    collect_plan_findings,
+    normalize_artifact,
+    normalize_plan,
 )
 from .condition_types import operand_type_findings
 from .context_budget import _enforce_prompt_size
@@ -104,7 +104,7 @@ from .prompt_context import (
     build_plan_author_context,
     scenario_provenance_ids,
 )
-from .prompt_packets import build_call1_packet_v2, build_call2_packet_v2
+from .prompt_packets import build_call1_packet, build_call2_packet
 from .prompt_safety import assert_no_secrets, prompt_data_urls
 from .response_decode import (
     _decode_stage_response,
@@ -703,7 +703,7 @@ class AuthoringOrchestrator:
             )
         )
 
-    def _correction_v2(
+    def _correction(
         self,
         stage: _Stage,
         *,
@@ -961,11 +961,11 @@ class AuthoringOrchestrator:
         self, view: InputView, inventory: dict[str, Any], runtime_contract: dict[str, Any]
     ) -> _Stage:
         def normalize(decoded: Any) -> tuple[Any, list[Any], NormalizedPlan]:
-            normalized = normalize_plan_v2(decoded, inventory, runtime_contract)
+            normalized = normalize_plan(decoded, inventory, runtime_contract)
             return normalized.plan, normalized.transformations, normalized
 
         def checks(normalized: NormalizedPlan) -> list[Finding]:
-            return collect_plan_findings_v2(
+            return collect_plan_findings(
                 normalized.plan,
                 inventory,
                 runtime_contract,
@@ -979,7 +979,7 @@ class AuthoringOrchestrator:
         return _Stage(
             key="plan",
             author="call1",
-            author_packet=lambda: build_call1_packet_v2(view, inventory, runtime_contract),
+            author_packet=lambda: build_call1_packet(view, inventory, runtime_contract),
             normalize=normalize,
             checks=checks,
             missing=_staged(Finding("call1_failed", "Call 1 did not return a plan", "call1")),
@@ -1011,11 +1011,11 @@ class AuthoringOrchestrator:
         planted_max_chars = planted_text_limit(view, runtime_contract, plan)
 
         def normalize(decoded: Any) -> tuple[Any, list[Any], Any]:
-            candidate, changes = normalize_artifact_v2(decoded, plan)
+            candidate, changes = normalize_artifact(decoded, plan)
             return candidate, changes, candidate
 
         def checks(decoded: Any) -> list[Finding]:
-            findings = collect_artifact_findings_v2(
+            findings = collect_artifact_findings(
                 decoded,
                 plan,
                 inventory,
@@ -1028,7 +1028,7 @@ class AuthoringOrchestrator:
         return _Stage(
             key="artifact",
             author="call2",
-            author_packet=lambda: build_call2_packet_v2(view, plan, inventory, runtime_contract),
+            author_packet=lambda: build_call2_packet(view, plan, inventory, runtime_contract),
             normalize=normalize,
             checks=checks,
             missing=_staged(
@@ -1141,7 +1141,7 @@ class AuthoringOrchestrator:
                 ),
             )
         self._record_allowances()
-        corrected = self._correction_v2(
+        corrected = self._correction(
             stage,
             failed_response=raw,
             findings=list(pending),

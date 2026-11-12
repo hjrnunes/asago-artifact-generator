@@ -35,11 +35,11 @@ from asago_artifact_generator.input_adapter import InputKind, load_input
 from tests.support import HANDOFFS
 
 CONTRACT = "scenario-handoff"
-V6 = "scenario-handoff-v6"
+V6 = "scenario-handoff-v1"
 VERSION = V6
 VERSIONS = (V6,)
 _ENVELOPE = {V6: "required"}
-_KIND = {V6: InputKind.SCENARIO_HANDOFF_V6}
+_KIND = {V6: InputKind.SCENARIO_HANDOFF_V1}
 _CONTRACT_DIR = CONTRACT_DIR
 #: The producer-written handoffs checked in beside the tests, as JSON or YAML.
 _PRODUCER_HANDOFFS = sorted([*HANDOFFS.glob("*.json"), *HANDOFFS.glob("*.yaml")])

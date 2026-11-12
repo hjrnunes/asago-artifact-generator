@@ -91,7 +91,7 @@ def read_errors(manifest: dict[str, Any]) -> list[str]:
 def test_the_installed_schema_loads() -> None:
     current = load_schema()
 
-    assert current["$id"] == SCHEMA_VERSION == VERSION == "tool-bundle-v2"
+    assert current["$id"] == SCHEMA_VERSION == VERSION == "tool-bundle-v1"
     assert {"conversation_mode", "values_required"} <= current["properties"].keys()
     assert {"delivery", "requires"}.isdisjoint(current["properties"])
     jsonschema.Draft202012Validator.check_schema(current)

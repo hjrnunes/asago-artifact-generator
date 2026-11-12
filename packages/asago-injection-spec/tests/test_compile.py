@@ -54,7 +54,7 @@ def _json(value: Any) -> bytes:
 
 def _runtime_contract() -> dict[str, Any]:
     return {
-        "schema_version": "artifact-runtime-contract-v3",
+        "schema_version": "artifact-runtime-contract-v1",
         "delivery": ["direct_user_message", "sequential_user_turns", "planted_item"],
         "seed_slots": [SLOT],
     }
@@ -94,7 +94,7 @@ def planted_package(root: Path) -> Path:
     package = build_package(
         package_id="SCN-001-SCN-001",
         scenario_id="SCN-001",
-        input_kind="scenario-handoff-v6",
+        input_kind="scenario-handoff-v1",
         source_digests={"handoff": "0" * 64},
         members=members,
     )

@@ -18,10 +18,10 @@ from typing import Any
 
 from asago_artifact_generator.authoring.contracts import (
     PLANTED_ITEM_ECHO_RULE,
-    _call2_contract_v2,
+    _call2_contract,
 )
 from asago_artifact_generator.authoring.core import PromptPacket
-from asago_artifact_generator.authoring.prompt_packets import build_call2_packet_v2
+from asago_artifact_generator.authoring.prompt_packets import build_call2_packet
 from asago_artifact_generator.authoring.review import build_artifact_review_packet
 
 from .support import ScriptedAuthoringTransport, stage_local_orchestrator, world
@@ -80,7 +80,7 @@ def _inventory() -> dict[str, Any]:
 
 
 def test_a_planted_item_plan_adds_the_echo_rule_to_the_judge_spec_rules() -> None:
-    contract = _call2_contract_v2(_reply_plan(), planted_max_chars=2000)
+    contract = _call2_contract(_reply_plan(), planted_max_chars=2000)
 
     rules = contract["semantic_judge_spec_rules"]
     assert rules["planted_item_echo"] == PLANTED_ITEM_ECHO_RULE
@@ -106,7 +106,7 @@ def test_a_plan_that_plants_no_text_keeps_the_rules_without_the_echo_rule() -> N
 
     plain = world("refund")["plan"]
 
-    contract = _call2_contract_v2(plain)
+    contract = _call2_contract(plain)
 
     assert "semantic_judge_spec_rules" not in contract
     assert PLANTED_ITEM_ECHO_RULE not in json.dumps(contract)
@@ -117,7 +117,7 @@ def test_a_judged_plan_without_planted_text_gets_no_echo_rule() -> None:
         "semantic_judge": {"needed": True, "scope": "The reply asserts it."}
     }
 
-    contract = _call2_contract_v2(plan)
+    contract = _call2_contract(plan)
 
     assert "planted_item_echo" not in contract["semantic_judge_spec_rules"]
     assert PLANTED_ITEM_ECHO_RULE not in json.dumps(contract)
@@ -126,12 +126,12 @@ def test_a_judged_plan_without_planted_text_gets_no_echo_rule() -> None:
 def test_the_echo_rule_reaches_the_call2_request_of_a_planted_reply_plan(
     tmp_path: Path,
 ) -> None:
-    packet: PromptPacket = build_call2_packet_v2(
+    packet: PromptPacket = build_call2_packet(
         indirect_view(tmp_path), _reply_plan(), _inventory(), _runtime()
     )
 
     assert packet.user.count(json.dumps(PLANTED_ITEM_ECHO_RULE)[1:-1]) == 1
-    plain = build_call2_packet_v2(
+    plain = build_call2_packet(
         world("refund")["view"],
         world("refund")["plan"],
         world("refund")["inventory"],

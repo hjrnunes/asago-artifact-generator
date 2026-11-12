@@ -147,7 +147,7 @@
     "original_decision": "revise",
     "out_of_scope_findings": [],
     "prompt_sha256": "fece9958ae3c3510b52d0bf329444af448f1fba485a316439ec4da9b510e9a4f",
-    "prompt_version": "authoring-plan-review-v20",
+    "prompt_version": "authoring-plan-review-v1",
     "question_ids": [
      "scenario_fidelity",
      "stimulus_fit",
@@ -344,7 +344,7 @@
     "original_decision": "revise",
     "out_of_scope_findings": [],
     "prompt_sha256": "b988a1d8c519e86d65fa9fb7c961296c00573035a26897bbc956a5cca10eb5f5",
-    "prompt_version": "authoring-plan-review-v20",
+    "prompt_version": "authoring-plan-review-v1",
     "question_ids": [
      "scenario_fidelity",
      "stimulus_fit",
@@ -513,7 +513,7 @@
   "artifact": "not_requested",
   "plan": "revise"
  },
- "schema_version": "authoring-failure-evidence-v2",
+ "schema_version": "authoring-failure-evidence-v1",
  "status": "unresolved",
  "task_id": "SCN-011",
  "terminal": {

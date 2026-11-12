@@ -7,7 +7,7 @@ from typing import Any
 
 from ..binding_rules import BINDING_SPEC, JUDGE_CONSUMERS, PREREQUISITE_CONSUMERS
 from ..contract_kit import CLAIM_LEVELS, ClaimLevel
-from .core import AUTHORING_INTERFACE_VERSION_V2
+from .core import AUTHORING_INTERFACE_VERSION
 from .example_capture import CAPTURE_MEANING, CAPTURED_EXAMPLES, capture_schema
 from .planted_item import PLANTED_ITEM_DELIVERY, with_planted_text_field
 from .reply_examples import REPLY_MEANING, neutral_reply_examples, reply_example_schema
@@ -38,7 +38,7 @@ NEUTRAL_ESTABLISHED_OMISSION_OUTCOME_EXAMPLE = prose(
 )
 
 
-def _call1_contract_v2() -> dict[str, Any]:
+def _call1_contract() -> dict[str, Any]:
     """Return the closed root for the current model-facing plan wire."""
 
     binding_contract = _binding_contract()
@@ -156,7 +156,7 @@ def _call1_contract_v2() -> dict[str, Any]:
         },
         "selector_rule": binding_contract["selector_rule"],
         "semantic_judging": _semantic_judging_contract(),
-        "interface_version": AUTHORING_INTERFACE_VERSION_V2,
+        "interface_version": AUTHORING_INTERFACE_VERSION,
         "framing": {
             "accepted": [
                 "one bare JSON object",
@@ -266,7 +266,7 @@ def _semantic_judge_spec_schema(plan: dict[str, Any] | None = None) -> dict[str,
     }
 
 
-def _call2_contract_v2(
+def _call2_contract(
     plan: dict[str, Any] | None = None, *, planted_max_chars: int | None = None
 ) -> dict[str, Any]:
     """Return the strict contract for the single-object Call 2 wire.
@@ -276,7 +276,7 @@ def _call2_contract_v2(
     """
 
     contract = {
-        "interface_version": AUTHORING_INTERFACE_VERSION_V2,
+        "interface_version": AUTHORING_INTERFACE_VERSION,
         "framing": prose("contracts/call2_framing"),
         "fields": ["stimulus", "semantic_judge_spec", "examples", "explanation"],
         "schema": {
@@ -416,7 +416,7 @@ def neutral_artifact_response_without_source() -> dict[str, Any]:
     }
 
 
-def neutral_artifact_plan_v2() -> dict[str, Any]:
+def neutral_artifact_plan() -> dict[str, Any]:
     """Return a plan matching the neutral v2 example."""
 
     return {

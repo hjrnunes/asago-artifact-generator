@@ -13,8 +13,8 @@ from asago_artifact_generator.authoring.contracts import (
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
 )
 from asago_artifact_generator.authoring.prompt_packets import (
-    build_call1_packet_v2,
-    build_call2_packet_v2,
+    build_call1_packet,
+    build_call2_packet,
 )
 from asago_artifact_generator.authoring.review import (
     build_artifact_review_packet,
@@ -73,9 +73,9 @@ def test_condition_statement_reaches_plan_artifact_and_review_prompts() -> None:
     view = load_input(OBSERVED_HANDOFF)
     inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
     packets = {
-        "call1": build_call1_packet_v2(view, inventory, runtime),
+        "call1": build_call1_packet(view, inventory, runtime),
         "plan_review": build_plan_review_packet(view, plan, inventory, runtime),
-        "call2": build_call2_packet_v2(view, plan, inventory, runtime),
+        "call2": build_call2_packet(view, plan, inventory, runtime),
         "artifact_review": build_artifact_review_packet(
             view, plan, _metadata(), inventory, runtime
         ),
@@ -92,7 +92,7 @@ def test_condition_guidance_is_omitted_for_an_analytical_only_scenario() -> None
     view = load_input(KIT_VALID / "analytical-only.json")
     inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
     packets = (
-        build_call1_packet_v2(view, inventory, runtime),
+        build_call1_packet(view, inventory, runtime),
         build_plan_review_packet(view, plan, inventory, runtime),
         build_artifact_review_packet(view, plan, _metadata(), inventory, runtime),
     )
@@ -113,7 +113,7 @@ def test_condition_statement_stays_in_the_view_when_gherkin_omits_it(tmp_path: P
     view = load_input(path)
     statement = view.payload["discriminating_condition"]["statement"]
 
-    packet = build_call1_packet_v2(view, _inventory(), _runtime_contract())
+    packet = build_call1_packet(view, _inventory(), _runtime_contract())
 
     assert packet.user.count(statement) == 1
     assert "statement_location" not in packet.user
@@ -123,7 +123,7 @@ def test_condition_statement_stays_in_the_view_when_gherkin_omits_it(tmp_path: P
 def test_call1_renders_runtime_contract_and_binding_rules_once() -> None:
     view = load_input(OBSERVED_HANDOFF)
     runtime = _runtime_contract()
-    packet = build_call1_packet_v2(view, _inventory(), runtime)
+    packet = build_call1_packet(view, _inventory(), runtime)
     binding = rendered_response_contract(packet)["binding_declaration"]
 
     runtime_text = json.dumps(runtime, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
@@ -137,7 +137,7 @@ def test_not_called_condition_adds_the_omission_examples_to_plan_prompts() -> No
     view = load_input(NOT_CALLED_HANDOFF)
     inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
     packets = {
-        "call1": build_call1_packet_v2(view, inventory, runtime),
+        "call1": build_call1_packet(view, inventory, runtime),
         "plan_review": build_plan_review_packet(view, plan, inventory, runtime),
         "artifact_review": build_artifact_review_packet(
             view, plan, _metadata(), inventory, runtime
@@ -154,7 +154,7 @@ def test_the_omission_example_is_omitted_without_a_not_called_comparison(source:
     view = load_input(source)
     inventory, runtime, plan = _inventory(), _runtime_contract(), _plan()
     packets = (
-        build_call1_packet_v2(view, inventory, runtime),
+        build_call1_packet(view, inventory, runtime),
         build_plan_review_packet(view, plan, inventory, runtime),
     )
 

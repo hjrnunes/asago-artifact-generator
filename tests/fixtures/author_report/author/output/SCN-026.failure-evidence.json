@@ -152,7 +152,7 @@
   "artifact": "not_requested",
   "plan": "not_requested"
  },
- "schema_version": "authoring-failure-evidence-v2",
+ "schema_version": "authoring-failure-evidence-v1",
  "status": "unresolved",
  "task_id": "SCN-026",
  "terminal": {

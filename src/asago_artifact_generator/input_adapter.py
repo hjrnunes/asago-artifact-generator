@@ -47,11 +47,11 @@ _HANDOFF_ROOT = CONTRACT_DIR
 class InputKind(StrEnum):
     """The supported design-time input representations, recorded in package manifests."""
 
-    SCENARIO_HANDOFF_V6 = "scenario-handoff-v6"
+    SCENARIO_HANDOFF_V1 = "scenario-handoff-v1"
 
 
 # The structured-analysis fields of the current handoff, in the producer's order.
-V5_FIELDS = (
+HANDOFF_FIELDS = (
     "uca",
     "actor",
     "causal_factors",
@@ -59,7 +59,7 @@ V5_FIELDS = (
     "procedure",
     "worst_case_threat",
 )
-_HANDOFF_VERSION = InputKind.SCENARIO_HANDOFF_V6.value
+_HANDOFF_VERSION = InputKind.SCENARIO_HANDOFF_V1.value
 
 
 class InputSourceError(ValueError):
@@ -244,7 +244,7 @@ def _handoff_view(
     else:
         gherkin_text = _render_handoff_gherkin(gherkin)
     return InputView(
-        kind=InputKind.SCENARIO_HANDOFF_V6,
+        kind=InputKind.SCENARIO_HANDOFF_V1,
         scenario_id=payload["scenario_id"],
         payload=payload,
         source=source,
@@ -420,6 +420,6 @@ __all__ = [
     "InputView",
     "ShapeVersionMalformed",
     "SourceSnapshot",
-    "V5_FIELDS",
+    "HANDOFF_FIELDS",
     "load_input",
 ]

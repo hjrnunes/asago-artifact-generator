@@ -1,4 +1,4 @@
-schema_version: scenario-handoff-v6
+schema_version: scenario-handoff-v1
 scenario_id: SCN-027
 scenario_version: 1
 kind: adversarial
@@ -166,7 +166,7 @@ sourced_facts:
   authority: derived_proposed_constraint
 - statement: The unsafe outcome condition is expressed semantically; the executable
     check is derived downstream.
-  source: producer handoff contract scenario-handoff-v6
+  source: producer handoff contract scenario-handoff-v1
   authority: producer_contract
 assumptions_and_unknowns:
 - The execution-time target state is captured fresh by the consumer; no producer-supplied
@@ -328,8 +328,8 @@ worst_case_threat: Unauthorized or incorrect modification of customer payment sc
   (installments), causing financial distress or plan misalignment.
 contract:
   id: scenario-handoff
-  version: scenario-handoff-v6
-  spec_digest: sha256:eaa141e8e726dc425a84143cea04b13ce1fc690c0b6c710c4d2f608e9411cf38
+  version: scenario-handoff-v1
+  spec_digest: sha256:c9e6e401ca6f1448ebb0031a9479127e43fcd7c9d7b83132352276c06a3e7c6e
   requires: []
   provenance:
     writer: asago_scenario_generator.stpa.scenario_prod.handoff

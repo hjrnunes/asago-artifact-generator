@@ -225,17 +225,17 @@ def test_read_template_refuses_an_unsupported_version_before_the_shape_check(
     message = str(raised.value)
     assert "is not a tool-bundle template" in message
     assert "tool-bundle-v9" in message
-    assert "tool-bundle-v2" in message
+    assert "tool-bundle-v1" in message
 
 
 def test_read_template_reports_the_readers_unknown_requires_message(tmp_path: Path) -> None:
     template = _write_manifest(
         tmp_path / "template",
         {
-            "schema_version": "tool-bundle-v2",
+            "schema_version": "tool-bundle-v1",
             "contract": {
                 "id": "tool-bundle",
-                "version": "tool-bundle-v2",
+                "version": "tool-bundle-v1",
                 "spec_digest": "sha256:" + "0" * 64,
                 "requires": ["x-unknown"],
                 "provenance": {

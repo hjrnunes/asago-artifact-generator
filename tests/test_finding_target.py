@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from asago_artifact_generator.authoring.checks import (
-    collect_artifact_findings_v2,
-    collect_plan_findings_v2,
+    collect_artifact_findings,
+    collect_plan_findings,
 )
 from asago_artifact_generator.authoring.core import (
     Finding,
@@ -66,14 +66,14 @@ def test_finding_stage_stays_out_of_equality_repr_and_serialization() -> None:
 
 
 def test_check_collectors_mark_their_findings_with_the_stage() -> None:
-    v2_findings = collect_plan_findings_v2({}, {}, {})
-    artifact_findings = collect_artifact_findings_v2({}, {}, {}, {})
+    v2_findings = collect_plan_findings({}, {}, {})
+    artifact_findings = collect_artifact_findings({}, {}, {}, {})
 
     assert v2_findings
     assert artifact_findings
     assert {finding.stage for finding in v2_findings} == {"plan"}
     assert {finding.stage for finding in artifact_findings} == {"artifact"}
-    assert collect_plan_findings_v2("plan", {}, {})[0].stage == "plan"
+    assert collect_plan_findings("plan", {}, {})[0].stage == "plan"
 
 
 @pytest.mark.parametrize("stage", ["plan", "artifact"])

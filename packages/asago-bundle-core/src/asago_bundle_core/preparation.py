@@ -73,7 +73,7 @@ class TargetCallFailed(RuntimeError):
 # The category of every setup ledger record, which a setup binding's provenance names.
 SETUP_LEDGER_CATEGORY = "setup_capture"
 # A checks.json with this interface makes every prerequisite take the canonical shape.
-CANONICAL_CHECKS_INTERFACE = "artifact-authoring-v2"
+CANONICAL_CHECKS_INTERFACE = "artifact-authoring-v1"
 BINDING_REASONS = frozenset({"binding_invalid", "binding_missing", "binding_mistyped"})
 PREREQUISITE_REASONS = frozenset(
     {

@@ -43,7 +43,7 @@ _INSTALLED = Path(__file__).resolve().parents[1] / "src/asago_bundle_core/contra
 _VERSIONS = (VERSION,)
 _DATA = Path(__file__).resolve().parent / "data"
 #: Receipts the Garak parser wrote for a command-attempt and a reply package.
-_WRITTEN_RECEIPTS = ("execution-receipt-v2-command.json", "execution-receipt-v2-reply.json")
+_WRITTEN_RECEIPTS = ("execution-receipt-v1-command.json", "execution-receipt-v1-reply.json")
 
 
 def _json(path: Path) -> Any:

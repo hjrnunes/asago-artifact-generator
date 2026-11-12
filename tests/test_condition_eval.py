@@ -15,7 +15,7 @@ from asago_artifact_generator.authoring.condition_eval import (
 )
 
 _KIT = Path(__file__).resolve().parents[1] / "contracts/tool-call-condition"
-_V2 = "tool-call-condition-v2"
+_V2 = "tool-call-condition-v1"
 
 
 def _vectors(version: str, name: str) -> list[dict[str, Any]]:

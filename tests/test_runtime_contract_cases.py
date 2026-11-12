@@ -229,7 +229,7 @@ def test_the_loader_refuses_an_unknown_requires_entry(tmp_path: Path) -> None:
     written = _enveloped(
         _spec(),
         _json(_SPEC_ROOT / "cases" / "valid" / "minimal.json"),
-        requires=["runtime-contract-v3"],
+        requires=["runtime-contract-v1"],
     )
     path = tmp_path / "runtime-contract.json"
     path.write_text(json.dumps(written), encoding="utf-8")
@@ -237,7 +237,7 @@ def test_the_loader_refuses_an_unknown_requires_entry(tmp_path: Path) -> None:
     with pytest.raises(RuntimeContractError) as raised:
         load_runtime_contract(path)
 
-    assert "'runtime-contract-v3'" in str(raised.value)
+    assert "'runtime-contract-v1'" in str(raised.value)
     assert "the spec supports: none" in str(raised.value)
 
 

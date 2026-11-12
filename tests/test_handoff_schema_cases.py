@@ -31,7 +31,7 @@ from asago_artifact_generator.input_adapter import (
 from .support import KIT
 
 _CONTRACT = CONTRACT_DIR
-_KIT = _CONTRACT / "scenario-handoff-v6" / "cases"
+_KIT = _CONTRACT / "scenario-handoff-v1" / "cases"
 # The kit holds bare payloads; the reader needs the envelope v6 requires, so it loads
 # these enveloped copies of the same cases.
 _PUBLISHED = KIT
@@ -102,7 +102,7 @@ def _conformance_case_holds(tmp_path: Path, kind: str, valid: bool, relative: st
             return not valid and str(raised).startswith("Gherkin companion does not match")
         return valid and view.gherkin_text == text
     if valid:
-        return load_input(_PUBLISHED / relative).kind is InputKind.SCENARIO_HANDOFF_V6
+        return load_input(_PUBLISHED / relative).kind is InputKind.SCENARIO_HANDOFF_V1
     with pytest.raises(HandoffSchemaInvalid) as raised:
         load_input(_PUBLISHED / relative)
     return raised.value.codes == tuple(_EXPECTED[relative])
@@ -160,7 +160,7 @@ def test_the_kit_carries_a_case_for_each_of_the_five_rules() -> None:
     rules = _MANIFEST["rules"]
 
     assert _MANIFEST["contract"] == "scenario-handoff"
-    assert _MANIFEST["kit"] == "scenario-handoff-v6"
+    assert _MANIFEST["kit"] == "scenario-handoff-v1"
     assert {rule["name"] for rule in rules} == RULE_NAMES
     assert len(rules) == len(RULE_NAMES)
     for rule in rules:
@@ -179,7 +179,7 @@ def test_every_named_case_is_a_file_in_the_kit() -> None:
 def test_the_reader_accepts_each_valid_rule_case(relative: str) -> None:
     view = load_input(_PUBLISHED / relative)
 
-    assert view.kind is InputKind.SCENARIO_HANDOFF_V6
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V1
 
 
 @pytest.mark.parametrize("relative", _cases("invalid", "handoff"))

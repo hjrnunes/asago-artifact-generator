@@ -23,7 +23,7 @@ from asago_contracts_core import ContractSpec, SpecSet, load_specs, write_envelo
 
 CONTRACTS_DIR = Path(__file__).resolve().parent / "contracts"
 CONTRACT = "tool-bundle"
-VERSION = "tool-bundle-v2"
+VERSION = "tool-bundle-v1"
 
 
 @cache

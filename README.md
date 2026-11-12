@@ -63,7 +63,7 @@ field. `examples.json` holds the examples as written, except that in a reply
 package the `unsafe` and `safe` `description` is the example's `reply`, the
 text downstream tooling hands the judge as the assistant's reply, and the
 author's summary moves to `summary`; the package has no `reply` field.
-`artifact-package-v5` constrains only the member's manifest entry, so a package
+`artifact-package-v1` constrains only the member's manifest entry, so a package
 written before, whose reply examples hold only a description, still loads.
 Each v2 prompt carries the selected case meaning once under `case_meaning`;
 the input projection retains scenario/reference identities and narrative/Gherkin
@@ -416,7 +416,7 @@ remain distinct, and reasoning is never parsed as the final answer.
 
 The producer owns scenario meaning. From the producer repository root, run the
 normal producer command and then hand the resulting scenario handoff
-(`scenario-handoff-v6`) to
+(`scenario-handoff-v1`) to
 `generate`:
 
 ```bash
@@ -481,12 +481,12 @@ credential from the named profile passed to `generate --profile`.
 The authoring path accepts producer-owned discovery outputs and one scenario
 handoff:
 
-- `scenario-handoff-v6` JSON or YAML for scenario meaning. The producer's `generate`
+- `scenario-handoff-v1` JSON or YAML for scenario meaning. The producer's `generate`
   writes v6, which names the party `party_relation.controlling_party` and carries the
-  contract envelope. A package records `scenario-handoff-v6` as `input_kind`.
+  contract envelope. A package records `scenario-handoff-v1` as `input_kind`.
 - `execution-target-profile-v1` JSON for the observed target inventory.
 - Optional `runtime-context.json` (`runtime-context-v1`, written by the orchestrator's discover stage) for state and read observations.
-- A target-free runtime contract (`artifact-runtime-contract-v3`). `generate` reads it through the
+- A target-free runtime contract (`artifact-runtime-contract-v1`). `generate` reads it through the
   installed spec set in the `asago-package` member
   (`contracts/runtime-contract/`) and its lock before any model request, and
   stops at the first fault in path order:
@@ -497,7 +497,7 @@ Use `asago_artifact_generator.input_adapter.load_input` to validate the
 installed handoff kit, preserve authoritative narrative and Gherkin bytes, and
 record SHA-256 source pins. The shared core ships the kit as package data and
 `input_adapter` reads it there; its `CONTRACT.lock` declares
-the current version, `scenario-handoff-v6`. The adapter checks the digest in this domain.
+the current version, `scenario-handoff-v1`. The adapter checks the digest in this domain.
 A handoff that states another version, such as `scenario-handoff-v9`, is refused
 with `schema_violation:schema_version`. The shared validator checks missing versions; a
 document that is not a JSON object gets `schema_violation:<root>`.
@@ -540,7 +540,7 @@ scenario's OWASP LLM and Agentic Top 10 2026 entries. Each reference has
 `name`. The schema states that the references hold no exact duplicate; the
 adapter checks the order it cannot state: the references are sorted by scheme
 and id, each scheme and id once, and a break reports
-`schema_violation:taxonomy`. The block is outside `V5_FIELDS` and the model
+`schema_violation:taxonomy`. The block is outside `HANDOFF_FIELDS` and the model
 view, so it never enters a prompt; it stays in the package's source record. A
 handoff without it is valid and keeps its digest.
 
@@ -552,7 +552,7 @@ shapes, and `indirect` shapes when the runtime contract lists the
 shape with more than one turn is authored as sequential user turns: the plan
 states one intent per turn, Call 2 writes the earlier turns as `history` and the
 last as `user_text`, and code checks `1 + len(history) == turn_count`. The
-package is `artifact-package-v5`, and its `stimulus.json` states `mode`
+package is `artifact-package-v1`, and its `stimulus.json` states `mode`
 (`single` or `sequential`) and `turn_count`; a functional handoff's stimulus
 stays as authored. Before any model request, a shape the consumer cannot
 author stops with a typed finding: `shape_channel_unsupported` (the runtime
@@ -648,7 +648,7 @@ validated against the vendored schema of its version:
   no such call in an incomplete capture it is unknown); with `same_argument`,
   only an earlier call with an equal value for that argument counts. The
   authoritative semantics are
-  in `contracts/tool-call-condition/tool-call-condition-v2/README.md`, which the
+  in `contracts/tool-call-condition/tool-call-condition-v1/README.md`, which the
   producer's `packages/asago-handoff` member (`asago_handoff.condition_eval`)
   implements, the one evaluator this repository and the orchestrator also use;
   the v1 kit stays mirrored beside it. The
@@ -750,7 +750,7 @@ lists the unknown keys (sorted, at most 10, each cut to 64 characters). Three ch
 answers, or hand-built inventories.
 
 The consumer-owned artifact-package contract lives in the `asago-package` member at
-`packages/asago-package/src/asago_package/contracts/artifact-package/artifact-package-v5/`,
+`packages/asago-package/src/asago_package/contracts/artifact-package/artifact-package-v1/`,
 which the member ships as package data. `asago_package.package_io.write_package`
 writes a complete directory atomically, and `load_package` verifies its
 manifest, member paths, lengths, and digests before returning content. A
@@ -763,10 +763,10 @@ The v5 schema lists the member names (`plan.json`, `stimulus.json`,
 `review_status.artifact`), and requires an empty `creation_model`. The loader
 refuses a v5 package with any other member or manifest field.
 
-The loader reads only `artifact-package-v5`. It refuses any other version,
+The loader reads only `artifact-package-v1`. It refuses any other version,
 such as `artifact-package-v9`, naming the unsupported value.
 
-The writer writes only `artifact-package-v5`. The lock's
+The writer writes only `artifact-package-v1`. The lock's
 `package_schema_version` and `digest_domain` name v5. The manifest digest is
 the SHA-256 of the canonical manifest without `manifest_digest`.
 
@@ -869,7 +869,7 @@ each exact rendered prompt, available raw response bytes, provider usage,
 controls, transformations, and findings. Missing responses or usage use an
 explicit `unavailable` marker. Provider endpoint and secret metadata are
 redacted from the sidecar. The sidecar uses
-`authoring-failure-evidence-v2`.
+`authoring-failure-evidence-v1`.
 `attempts` retains the full history, while top-level `findings` contains only
 the findings that caused the terminal status. Each finding record names the
 logical stage that raised it (`plan` or `artifact`) in `stage`. The `terminal`
@@ -1152,7 +1152,7 @@ document, and `injection_spec_document` builds it against `midojo_spec.injection
   picks the one item whose key field is the record. The key is the slot's `record_key`,
   used as declared: the name whose value is the record's ID, here a list item property.
   A slot declares it in the target's `runtime-spec.yaml` (`record_key: note_id`), in the
-  package's runtime contract (`artifact-runtime-contract-v3` allows the optional field),
+  package's runtime contract (`artifact-runtime-contract-v1` allows the optional field),
   or both, and the two must agree. Compile checks that the carrier's output schema
   declares the key as a text property of the list's items. A field outside any list
   (`body`) is placed only when the carrier returns one record: the carrier's output
@@ -1491,7 +1491,7 @@ must match.
 
 ```
 ├── src/asago_artifact_generator/    # authoring, packages, CLI
-├── packages/asago-package/          # package library (workspace member): artifact-package-v5 writer and loader, binding rules, tool-call-condition evaluator, contract kit, and the authority copies of artifact-package, runtime-contract and capability-gap
+├── packages/asago-package/          # package library (workspace member): artifact-package-v1 writer and loader, binding rules, tool-call-condition evaluator, contract kit, and the authority copies of artifact-package, runtime-contract and capability-gap
 ├── packages/asago-bundle-core/      # shared adapter core (workspace member): the installed tool-bundle and execution-receipt specs, slots, package preparation, target config, conformance helper
 ├── packages/asago-bundle-garak/     # Garak adapter (workspace member): compile, instantiate, parse and the judge service
 ├── packages/asago-injection-spec/   # injection-spec library (workspace member): a planted_item package to one MiDojo injection spec and a sealed result to evidence

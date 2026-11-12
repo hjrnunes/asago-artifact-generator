@@ -250,7 +250,7 @@ def test_the_declaration_files_are_consistent() -> None:
         for tool in json.loads((TARGET / "tools-list.json").read_text())["tools"]
     }
 
-    assert target["schema_version"] == "target-v2" and target["kind"] == "declared"
+    assert target["schema_version"] == "target-v1" and target["kind"] == "declared"
     assert set(target["endpoint"]) == {"agent_url", "mcp_url", "start", "health", "seed", "reset"}
     assert target["endpoint"]["seed"][-1] == "{seed_file}"
     assert spec["schema_version"] == "declared-runtime-v1"

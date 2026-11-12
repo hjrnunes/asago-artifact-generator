@@ -87,10 +87,10 @@ def seed_document(*items: dict[str, Any], carrier: str = "list_notes") -> dict[s
 
 
 def runtime_contract(slots: list[dict[str, Any]]) -> dict[str, Any]:
-    """The part of an ``artifact-runtime-contract-v3`` contract a seed is placed from."""
+    """The part of an ``artifact-runtime-contract-v1`` contract a seed is placed from."""
 
     return {
-        "schema_version": "artifact-runtime-contract-v3",
+        "schema_version": "artifact-runtime-contract-v1",
         "delivery": ["direct_user_message", "sequential_user_turns", "planted_item"],
         "seed_slots": slots,
     }
@@ -185,7 +185,7 @@ def write_planted_package(
     package = build_package(
         package_id=f"{scenario_id}-{scenario_id}",
         scenario_id=scenario_id,
-        input_kind="scenario-handoff-v6",
+        input_kind="scenario-handoff-v1",
         source_digests={"handoff": "0" * 64},
         members=members,
     )

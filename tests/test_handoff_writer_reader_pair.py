@@ -56,7 +56,7 @@ except ModuleNotFoundError:
     )
 
 from asago_scenario_generator.stpa.scenario_prod.handoff import (  # noqa: E402
-    ScenarioHandoffV6,
+    ScenarioHandoff,
     finalize_handoff,
     write_scenario_handoff,
 )
@@ -66,14 +66,14 @@ HANDOFFS = Path(__file__).resolve().parent / "fixtures" / "handoffs"
 PRODUCER_FILE = HANDOFFS / "klarna-attack-path-SCN-027.yaml"
 # The installed v6 kit's indirect case, which states the controlling party.
 V6_CASE = (
-    CONTRACT_DIR / "scenario-handoff-v6" / "cases" / "valid" / "adversarial-indirect-listing.json"
+    CONTRACT_DIR / "scenario-handoff-v1" / "cases" / "valid" / "adversarial-indirect-listing.json"
 )
 
 
 def _hand_built_payload() -> dict[str, Any]:
     """A complete v6 handoff dict, written by hand rather than published by the producer."""
     return {
-        "schema_version": "scenario-handoff-v6",
+        "schema_version": "scenario-handoff-v1",
         "scenario_id": "SCN-907",
         "scenario_version": 1,
         "kind": "adversarial",
@@ -238,7 +238,7 @@ def _hand_built_payload() -> dict[str, Any]:
 def _publish(
     payload: dict[str, Any],
     directory: Path,
-    model: type[ScenarioHandoffV6] = ScenarioHandoffV6,
+    model: type[ScenarioHandoff] = ScenarioHandoff,
 ) -> tuple[Path, Path]:
     """Validate, finalize, and write a payload with the producer's own writer."""
     handoff = finalize_handoff(model.model_validate(payload))
@@ -251,7 +251,7 @@ def test_a_hand_built_dict_passes_the_writer_and_the_reader(tmp_path: Path) -> N
     handoff_path, feature_path = _publish(payload, tmp_path)
 
     view = load_input(handoff_path)
-    assert view.kind is InputKind.SCENARIO_HANDOFF_V6
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V1
     assert view.scenario_id == payload["scenario_id"]
     assert view.narrative == payload["narrative"]
     assert view.tool_call_condition_status == payload["tool_call_condition_status"]
@@ -269,9 +269,9 @@ def test_a_v6_handoff_publishes_the_envelope_and_the_reader_reads_it(
     handoff_path, feature_path = _publish(payload, tmp_path)
 
     view = load_input(handoff_path)
-    assert view.kind is InputKind.SCENARIO_HANDOFF_V6
-    assert view.payload["schema_version"] == "scenario-handoff-v6"
-    assert view.payload["contract"]["version"] == "scenario-handoff-v6"
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V1
+    assert view.payload["schema_version"] == "scenario-handoff-v1"
+    assert view.payload["contract"]["version"] == "scenario-handoff-v1"
     assert view.attack_shape["indirect"]["party_relation"] == {
         "controlling_party": relation["controlling_party"],
         "benign_user_actor_ref": relation["benign_user_actor_ref"],
@@ -301,7 +301,7 @@ def test_the_writer_refuses_and_the_reader_rejects_artifact_design_content(
     payload["stimulus"] = {"turns": []}
 
     with pytest.raises(ValidationError):
-        ScenarioHandoffV6.model_validate(payload)
+        ScenarioHandoff.model_validate(payload)
 
     handoff_path = tmp_path / f"{payload['scenario_id']}.yaml"
     handoff_path.write_text(yaml.safe_dump(published(payload), sort_keys=False), encoding="utf-8")
@@ -318,7 +318,7 @@ def test_the_writer_refuses_and_the_reader_rejects_a_missing_required_field(
     del payload["safe_alternative"]
 
     with pytest.raises(ValidationError):
-        ScenarioHandoffV6.model_validate(payload)
+        ScenarioHandoff.model_validate(payload)
 
     handoff_path = tmp_path / f"{payload['scenario_id']}.yaml"
     handoff_path.write_text(yaml.safe_dump(published(payload), sort_keys=False), encoding="utf-8")
@@ -346,7 +346,7 @@ def test_the_reader_rejects_a_writer_file_rewritten_to_a_foreign_schema_version(
     text = handoff_path.read_text(encoding="utf-8")
     handoff_path.write_text(
         text.replace(
-            "schema_version: scenario-handoff-v6", "schema_version: scenario-handoff-v9", 1
+            "schema_version: scenario-handoff-v1", "schema_version: scenario-handoff-v9", 1
         ),
         encoding="utf-8",
     )

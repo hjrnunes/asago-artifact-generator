@@ -1,4 +1,4 @@
-"""The artifact-package-v5 values, writer and reader, exercised with hand-built data.
+"""The artifact-package-v1 values, writer and reader, exercised with hand-built data.
 
 Every case writes the manifest and member bytes itself: the writer takes a hand-built
 ``PackageManifest`` and the reader takes a hand-built package directory, so the cases come
@@ -28,7 +28,7 @@ from asago_package.package_io import (
     write_package,
 )
 
-V5 = "artifact-package-v5"
+V5 = "artifact-package-v1"
 EXPLANATION = b'{"text":"hand built"}\n'
 REPLY_PLAN = b'{"observation_claim":{"claim_level":"reply"}}\n'
 
@@ -60,7 +60,7 @@ def _manifest(**changes: Any) -> dict[str, Any]:
         "schema_version": V5,
         "package_id": "pkg-hand-built",
         "scenario_id": "SCN-HAND-1",
-        "input_kind": "scenario-handoff-v6",
+        "input_kind": "scenario-handoff-v1",
         "source_digests": {"handoff.json": "a" * 64},
         "members": [_record("explanation.json", EXPLANATION)],
         "authoring": {"status": "produced"},
@@ -140,7 +140,7 @@ def test_build_package_seals_the_same_manifest_the_hand_built_case_states() -> N
     package = build_package(
         package_id="pkg-hand-built",
         scenario_id="SCN-HAND-1",
-        input_kind="scenario-handoff-v6",
+        input_kind="scenario-handoff-v1",
         source_digests={"handoff.json": "a" * 64},
         members={"explanation.json": EXPLANATION},
         authoring={"status": "produced"},
@@ -185,7 +185,7 @@ def test_the_writer_refuses_a_hand_built_member_path_it_does_not_own(
             build_package(
                 package_id="pkg-hand-built",
                 scenario_id="SCN-HAND-1",
-                input_kind="scenario-handoff-v6",
+                input_kind="scenario-handoff-v1",
                 source_digests={"handoff.json": "a" * 64},
                 members={"explanation.json": EXPLANATION, name: b"{}\n"},
             ),
@@ -197,7 +197,7 @@ def test_the_writer_refuses_a_hand_built_member_that_is_not_bytes(tmp_path: Path
         build_package(
             package_id="pkg-hand-built",
             scenario_id="SCN-HAND-1",
-            input_kind="scenario-handoff-v6",
+            input_kind="scenario-handoff-v1",
             source_digests={"handoff.json": "a" * 64},
             members={"explanation.json": "text"},  # type: ignore[dict-item]
         )
@@ -307,7 +307,7 @@ def test_the_writer_refuses_a_reply_plan_without_its_judge_member(tmp_path: Path
     package = build_package(
         package_id="pkg-hand-built",
         scenario_id="SCN-HAND-1",
-        input_kind="scenario-handoff-v6",
+        input_kind="scenario-handoff-v1",
         source_digests={"handoff.json": "a" * 64},
         members={"plan.json": REPLY_PLAN},
     )

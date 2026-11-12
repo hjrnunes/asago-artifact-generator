@@ -22,7 +22,7 @@ from conftest import receipt_payload
 
 RECEIPT_SCHEMA = (
     Path(__file__).resolve().parents[3]
-    / "contracts/execution-receipt/execution-receipt-v2/schema.json"
+    / "contracts/execution-receipt/execution-receipt-v1/schema.json"
 )
 TEXTS = ["Hello.", "Show PAT-201.", "Now PAT-104."]
 ORDERS = {"type": "mcp_call", "name": "get_orders", "arguments": "{}", "output": '{"n": 1}'}

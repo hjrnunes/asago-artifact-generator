@@ -1,4 +1,4 @@
-"""parse: turn Garak's report for one concrete bundle into ``execution-receipt-v2``.
+"""parse: turn Garak's report for one concrete bundle into ``execution-receipt-v1``.
 
 A usable report holds exactly one finished attempt (status 2) with one output
 whose response completed. Anything else yields a ``failed`` receipt whose
@@ -94,7 +94,7 @@ from .compiler import (
     TOOL,
 )
 
-SCHEMA_VERSION = "execution-receipt-v2"
+SCHEMA_VERSION = "execution-receipt-v1"
 # What this parser writes, and the writer its envelope names: the module and the package's
 # version (``asago-bundle-garak``).
 WRITER = "asago_bundle_garak.report_parse"
@@ -150,7 +150,7 @@ class ParseError(BundleError):
 def _read_back(receipt: dict[str, Any], out: Path) -> None:
     """Read the receipt through its installed contract before this writer hands it on.
 
-    Every document this parser writes is an ``execution-receipt-v2`` document with its
+    Every document this parser writes is an ``execution-receipt-v1`` document with its
     envelope, so the installed spec accepts it. A document the reader refuses is a defect
     here, not a saved outcome: the error names the path and the spec's own reason.
     """

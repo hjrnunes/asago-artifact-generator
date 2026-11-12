@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from asago_artifact_generator.authoring.checks import (
-    collect_plan_findings_v2,
+    collect_plan_findings,
 )
 
 from .support import world_builders
@@ -47,7 +47,7 @@ def test_plan_claim_level_outside_downstream_support_is_rejected(level: str) -> 
 
     findings = [
         finding
-        for finding in collect_plan_findings_v2(plan, _inventory(), _contract())
+        for finding in collect_plan_findings(plan, _inventory(), _contract())
         if finding.path == "observation_claim.claim_level"
     ]
 
@@ -64,17 +64,17 @@ def test_plan_claim_level_outside_downstream_support_is_rejected(level: str) -> 
 def test_plan_claim_levels_supported_downstream_are_accepted(level: str) -> None:
     plan = _claim_plan(level)
 
-    assert collect_plan_findings_v2(plan, _inventory(), _contract()) == []
+    assert collect_plan_findings(plan, _inventory(), _contract()) == []
 
 
 def test_runtime_contract_declared_claim_levels_extend_support() -> None:
     contract = _contract()
     contract["observation"]["claim_levels"] = ["command_attempt", "returned_result"]
 
-    returned = collect_plan_findings_v2(
+    returned = collect_plan_findings(
         _plan(observation_claim=_claim("returned_result")), _inventory(), contract
     )
-    reply = collect_plan_findings_v2(_claim_plan("reply"), _inventory(), contract)
+    reply = collect_plan_findings(_claim_plan("reply"), _inventory(), contract)
 
     assert returned == []
     assert [finding.code for finding in reply] == ["unsupported_claim_level"]
@@ -84,6 +84,6 @@ def test_runtime_contract_declared_claim_levels_extend_support() -> None:
 def test_v2_plan_validation_rejects_unsupported_claim_level() -> None:
     plan = _plan(observation_claim=_claim("returned_result"))
 
-    findings = collect_plan_findings_v2(plan, _inventory(), _contract())
+    findings = collect_plan_findings(plan, _inventory(), _contract())
 
     assert "unsupported_claim_level" in {finding.code for finding in findings}

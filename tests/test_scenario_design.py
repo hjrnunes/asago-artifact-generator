@@ -5,7 +5,7 @@ import dataclasses
 import json
 
 from asago_artifact_generator.authoring.prompt_context import build_plan_author_context
-from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
+from asago_artifact_generator.authoring.prompt_packets import build_call1_packet
 
 from .support import json_section, world_builders
 
@@ -26,7 +26,7 @@ def _view_with(**changes):
 
 
 def test_call1_projects_kind_attack_path_and_unavailable_classification() -> None:
-    packet = build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
+    packet = build_call1_packet(_view(), _inventory(), _runtime_contract())
 
     user = packet.user
     assert user.startswith("TASK\n")
@@ -49,13 +49,13 @@ def test_call1_projects_kind_attack_path_and_unavailable_classification() -> Non
 
 def test_functional_and_missing_kinds_get_their_own_stimulus_rules() -> None:
     functional = json_section(
-        build_call1_packet_v2(
+        build_call1_packet(
             _view_with(kind="functional"), _inventory(), _runtime_contract()
         ).user,
         "SCENARIO DESIGN",
     )
     missing = json_section(
-        build_call1_packet_v2(_view_with(kind=None), _inventory(), _runtime_contract()).user,
+        build_call1_packet(_view_with(kind=None), _inventory(), _runtime_contract()).user,
         "SCENARIO DESIGN",
     )
 
@@ -71,7 +71,7 @@ def test_structured_classification_is_copied_when_supplied() -> None:
 
     assert (
         json_section(
-            build_call1_packet_v2(
+            build_call1_packet(
                 _view_with(classification=classification), _inventory(), _runtime_contract()
             ).user,
             "TASK",
@@ -81,7 +81,7 @@ def test_structured_classification_is_copied_when_supplied() -> None:
 
 
 def test_current_call1_lists_operations_once() -> None:
-    packet = build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
+    packet = build_call1_packet(_view(), _inventory(), _runtime_contract())
 
     capabilities = json_section(packet.user, "EXECUTION CAPABILITIES")
     assert "SOURCE CONTEXT operations" in capabilities["available_operations"]

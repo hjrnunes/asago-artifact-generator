@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
+from asago_artifact_generator.authoring.checks import collect_plan_findings
 from asago_artifact_generator.authoring.plan_triggers import uncited_trigger_observations
 from asago_artifact_generator.authoring.prompt_context import _gate_condition
 from asago_artifact_generator.authoring.prompt_packets import (
-    build_call1_packet_v2,
-    build_call2_packet_v2,
+    build_call1_packet,
+    build_call2_packet,
 )
 
 from .support import signed_derived_omission_view, signed_omission_view
@@ -118,7 +118,7 @@ _RUNTIME = {"delivery": ["direct_user_message"], "setup_permissions": []}
 def _trigger_findings(plan: dict, inventory: dict, condition: dict | None) -> list:
     return [
         finding
-        for finding in collect_plan_findings_v2(
+        for finding in collect_plan_findings(
             plan, {**inventory, "source_handles": []}, _RUNTIME, condition=condition
         )
         if finding.code == "omission_trigger_observation_uncited"
@@ -176,13 +176,13 @@ def test_omission_prompts_render_the_presence_and_citation_guidance(tmp_path: Pa
         "observation": {"tool_calls": {"availability": "captured_or_unavailable"}},
         "limits": {"max_turns": 2},
     }
-    call1 = build_call1_packet_v2(view, inventory, runtime)
+    call1 = build_call1_packet(view, inventory, runtime)
     assert "Only detected needs complete capture" in call1.user
     assert "cite that observation ref in selected_evidence" in call1.user
     assert "observation:check_widget:0 recording check_widget" in call1.user
 
     plan = _full_plan([_TARGET_REF, _TRIGGER_OBSERVATION_REF])
-    call2 = build_call2_packet_v2(view, plan, inventory, runtime)
+    call2 = build_call2_packet(view, plan, inventory, runtime)
     assert "OBSERVATION DECISION GUIDE" not in call2.user
 
 
@@ -199,7 +199,7 @@ def test_established_trigger_role_must_cite_a_supplied_observation() -> None:
 
     findings = [
         finding
-        for finding in collect_plan_findings_v2(
+        for finding in collect_plan_findings(
             plan, {**_inventory(), "source_handles": []}, _RUNTIME, condition=_OMISSION
         )
         if finding.code == "established_trigger_not_observation"
@@ -224,7 +224,7 @@ def test_omission_prompts_explain_the_established_trigger_role(tmp_path: Path) -
         "observation": {"tool_calls": {"availability": "captured_or_unavailable"}},
         "limits": {"max_turns": 2},
     }
-    call1 = build_call1_packet_v2(view, inventory, runtime)
+    call1 = build_call1_packet(view, inventory, runtime)
 
     assert 'role \\"established_trigger\\"' in call1.user
     assert "established before the run" in call1.user
@@ -237,7 +237,7 @@ def test_omission_prompts_explain_the_established_trigger_role(tmp_path: Path) -
 def _finding_codes(plan: dict, inventory: dict, condition: dict | None) -> list:
     return [
         finding.code
-        for finding in collect_plan_findings_v2(
+        for finding in collect_plan_findings(
             plan, {**inventory, "source_handles": []}, _RUNTIME, condition=condition
         )
     ]
@@ -313,7 +313,7 @@ def test_a_plan_without_a_not_called_needs_no_trigger() -> None:
 def _omission_findings(plan: dict, inventory: dict, condition: dict | None) -> list:
     return [
         finding
-        for finding in collect_plan_findings_v2(
+        for finding in collect_plan_findings(
             plan, {**inventory, "source_handles": []}, _RUNTIME, condition=condition
         )
         if finding.code == "omission_trigger_missing"
@@ -329,7 +329,7 @@ def test_the_author_prompt_states_the_required_citation(tmp_path: Path) -> None:
         "observation": {"tool_calls": {"availability": "captured_or_unavailable"}},
         "limits": {"max_turns": 2},
     }
-    call1 = build_call1_packet_v2(view, inventory, runtime)
+    call1 = build_call1_packet(view, inventory, runtime)
 
     assert (
         "The plan check refuses a plan that states no trigger: when the "
@@ -360,7 +360,7 @@ def test_a_dropped_condition_with_a_bound_bare_not_called_is_refused(tmp_path: P
 
     findings = [
         finding
-        for finding in collect_plan_findings_v2(
+        for finding in collect_plan_findings(
             plan, inventory, _RUNTIME, condition=_gate_condition(view)
         )
         if "omission" in finding.code
@@ -381,7 +381,7 @@ def test_the_omission_guidance_renders_for_a_dropped_condition(tmp_path: Path) -
         "observation": {"tool_calls": {"availability": "captured_or_unavailable"}},
         "limits": {"max_turns": 2},
     }
-    call1 = build_call1_packet_v2(view, inventory, runtime)
+    call1 = build_call1_packet(view, inventory, runtime)
 
     assert "Only detected needs complete capture" in call1.user
     assert "The plan check refuses a plan that states no trigger" in call1.user

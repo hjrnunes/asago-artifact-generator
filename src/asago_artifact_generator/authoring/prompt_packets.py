@@ -8,8 +8,8 @@ from typing import Any
 from ..input_adapter import InputView
 from .context_budget import _enforce_prompt_size
 from .core import (
-    CALL1_PROMPT_VERSION_V31,
-    CALL2_PROMPT_VERSION_V35,
+    CALL1_PROMPT_VERSION,
+    CALL2_PROMPT_VERSION,
     MAX_RENDERED_PROMPT_BYTES,
     PromptPacket,
 )
@@ -74,7 +74,7 @@ def _call1_response_contract_prompt_view(contract: dict[str, Any]) -> dict[str, 
     return result
 
 
-def build_call1_packet_v2(
+def build_call1_packet(
     view: InputView,
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
@@ -106,8 +106,8 @@ def build_call1_packet_v2(
     assert_no_prompt_secrets(dict(sections))
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V31,
-        system=_CALL1_SYSTEM_V3,
+        version=CALL1_PROMPT_VERSION,
+        system=_CALL1_SYSTEM,
         user=_render_sections(
             sections, compact_titles=frozenset({"FIELD GUIDE", "SOURCE CONTEXT"})
         ),
@@ -117,7 +117,7 @@ def build_call1_packet_v2(
     return packet
 
 
-def build_call2_packet_v2(
+def build_call2_packet(
     view: InputView,
     plan: dict[str, Any],
     inventory: dict[str, Any],
@@ -166,7 +166,7 @@ def build_call2_packet_v2(
     assert_no_prompt_secrets(dict(sections))
     packet = PromptPacket(
         stage="call2",
-        version=CALL2_PROMPT_VERSION_V35,
+        version=CALL2_PROMPT_VERSION,
         system=_CALL2_SYSTEM,
         # Same fit as call1's SOURCE CONTEXT: compact JSON keeps every value and
         # drops only indentation, which otherwise pushes large inventories past
@@ -182,5 +182,5 @@ def build_call2_packet_v2(
     return packet
 
 
-_CALL1_SYSTEM_V3 = prose("prompt_packets/call1_system_v3")
+_CALL1_SYSTEM = prose("prompt_packets/call1_system")
 _CALL2_SYSTEM = prose("prompt_packets/call2_system") + " " + _ARTIFACT_AUTHOR_GUIDANCE

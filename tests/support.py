@@ -20,15 +20,15 @@ from asago_contracts_core import CONTRACT_DIR
 from asago_handoff.envelope import ENVELOPE_FIELD, load_specs
 
 from asago_artifact_generator.authoring.checks import (
-    collect_artifact_findings_v2,
-    collect_plan_findings_v2,
+    collect_artifact_findings,
+    collect_plan_findings,
 )
 from asago_artifact_generator.authoring.contracts import (
-    neutral_artifact_plan_v2,
+    neutral_artifact_plan,
     neutral_artifact_response_without_source,
 )
 from asago_artifact_generator.authoring.core import (
-    AUTHORING_INTERFACE_VERSION_V2,
+    AUTHORING_INTERFACE_VERSION,
     Finding,
     PromptPacket,
     TransportResponse,
@@ -150,7 +150,7 @@ def published(document: dict[str, Any]) -> dict[str, Any]:
     reader's code walk.
     """
 
-    spec = load_specs(CONTRACT_DIR.parent).spec("scenario-handoff", "scenario-handoff-v6")
+    spec = load_specs(CONTRACT_DIR.parent).spec("scenario-handoff", "scenario-handoff-v1")
     envelope = {
         "id": spec.contract,
         "version": spec.version,
@@ -173,7 +173,7 @@ def signed(document: dict[str, Any]) -> dict[str, Any]:
         for key, value in document.items()
         if key not in ("content_digest", ENVELOPE_FIELD)
     }
-    body["content_digest"] = _framed_digest("scenario-handoff-v6", body)
+    body["content_digest"] = _framed_digest("scenario-handoff-v1", body)
     return published(body)
 
 
@@ -184,7 +184,7 @@ def _published_kit_cases() -> Path:
     atexit.register(shutil.rmtree, directory, ignore_errors=True)
     for kind in ("valid", "invalid"):
         (directory / kind).mkdir()
-        for case in sorted((CONTRACT_DIR / "scenario-handoff-v6/cases" / kind).glob("*.json")):
+        for case in sorted((CONTRACT_DIR / "scenario-handoff-v1/cases" / kind).glob("*.json")):
             document = json.loads(case.read_text(encoding="utf-8"))
             (directory / kind / case.name).write_text(
                 json.dumps(published(document), indent=2) + "\n", encoding="utf-8"
@@ -260,7 +260,7 @@ MINIMAL_TARGET_PROFILE = (
 )
 MINIMAL_RUNTIME_CONTRACT = (
     contract_dir("runtime-contract")
-    / "artifact-runtime-contract-v3"
+    / "artifact-runtime-contract-v1"
     / "cases"
     / "valid"
     / "minimal.json"
@@ -526,7 +526,7 @@ def stage_local_orchestrator(
     )
 
 
-def neutral_call2_response_v2() -> bytes:
+def neutral_call2_response() -> bytes:
     """Return the neutral Call 2 response as one fenced JSON object."""
 
     return b"```json\n" + _json_bytes(neutral_artifact_response_without_source()) + b"```\n"
@@ -535,13 +535,13 @@ def neutral_call2_response_v2() -> bytes:
 def validate_neutral_example() -> list[Finding]:
     """Validate the neutral example through the v2 response seams."""
 
-    plan = neutral_artifact_plan_v2()
+    plan = neutral_artifact_plan()
     metadata = neutral_artifact_response_without_source()
     inventory = deepcopy(NEUTRAL_INVENTORY)
     runtime_contract = {"delivery": ["direct_user_message"], "setup_permissions": []}
     return [
-        *collect_plan_findings_v2(plan, inventory, runtime_contract),
-        *collect_artifact_findings_v2(metadata, plan, inventory, runtime_contract),
+        *collect_plan_findings(plan, inventory, runtime_contract),
+        *collect_artifact_findings(metadata, plan, inventory, runtime_contract),
     ]
 
 
@@ -549,7 +549,7 @@ def build_neutral_artifact_package(destination: str | Path) -> Path:
     """Persist the neutral v2 example through the real package writer."""
 
     metadata = neutral_artifact_response_without_source()
-    plan = neutral_artifact_plan_v2()
+    plan = neutral_artifact_plan()
     findings = validate_neutral_example()
     if findings:
         raise ValueError(
@@ -562,7 +562,7 @@ def build_neutral_artifact_package(destination: str | Path) -> Path:
         "bindings.json": _json_bytes(plan["runtime_bindings"]),
         "prerequisites.json": _json_bytes(plan["prerequisites"]),
         "tool_call_condition.json": tool_call_condition_bytes(NEUTRAL_TOOL_CALL_CONDITION),
-        "checks.json": _json_bytes({"interface": AUTHORING_INTERFACE_VERSION_V2}),
+        "checks.json": _json_bytes({"interface": AUTHORING_INTERFACE_VERSION}),
         "inputs.json": _json_bytes({"neutral": True, "operation": "inspect_record"}),
         "observations.json": _json_bytes(plan["required_observations"]),
         "explanation.json": _json_bytes({"text": metadata["explanation"]}),
@@ -571,7 +571,7 @@ def build_neutral_artifact_package(destination: str | Path) -> Path:
     package = build_package(
         package_id="offline-neutral-example-v2",
         scenario_id="neutral-example",
-        input_kind="scenario-handoff-v6",
+        input_kind="scenario-handoff-v1",
         source_digests={"neutral": _sha256(b"neutral-example-v2")},
         members=members,
         authoring={"status": "scripted-offline-example"},

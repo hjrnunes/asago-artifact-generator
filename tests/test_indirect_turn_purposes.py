@@ -10,7 +10,7 @@ import pytest
 
 from asago_artifact_generator.attack_shape import attack_shape_violation
 from asago_artifact_generator.authoring.planted_item import _TURN_MEANINGS
-from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
+from asago_artifact_generator.authoring.prompt_packets import build_call1_packet
 from asago_artifact_generator.authoring.sequential_turns import (
     _PURPOSE_MEANINGS,
     multi_turn_block,
@@ -86,7 +86,7 @@ def test_the_indirect_plan_payload_builds_for_every_benign_turn_purpose(
     runtime = indirect_runtime(refund["runtime_contract"])
 
     block = multi_turn_block(view, runtime)
-    packet = build_call1_packet_v2(view, inventory, runtime)
+    packet = build_call1_packet(view, inventory, runtime)
 
     assert [turn["purpose"] for turn in block["turn_plan"]] == purposes
     assert all(turn["meaning"].strip() for turn in block["turn_plan"])

@@ -27,7 +27,7 @@ def test_handoff_view_preserves_source_hash_and_authoritative_content() -> None:
 
     view = load_input(CONTRACT_HANDOFF)
 
-    assert view.kind is InputKind.SCENARIO_HANDOFF_V6
+    assert view.kind is InputKind.SCENARIO_HANDOFF_V1
     assert view.source_sha256 == hashlib.sha256(source).hexdigest()
     assert view.narrative == yaml.safe_load(source)["narrative"]
     assert view.gherkin["scenario"] == "Refund command exceeds the remaining balance of the order"
@@ -627,11 +627,11 @@ def test_unreadable_vendored_handoff_schema_is_a_source_error(
 
     monkeypatch.setattr(input_adapter, "_HANDOFF_ROOT", tmp_path)
     if schema_text is not None:
-        schema = tmp_path / "scenario-handoff-v6" / "schema.json"
+        schema = tmp_path / "scenario-handoff-v1" / "schema.json"
         schema.parent.mkdir()
         schema.write_text(schema_text, encoding="utf-8")
 
     with pytest.raises(
-        InputSourceError, match="^cannot read vendored scenario-handoff-v6 schema: "
+        InputSourceError, match="^cannot read vendored scenario-handoff-v1 schema: "
     ):
         input_adapter._handoff_schema()

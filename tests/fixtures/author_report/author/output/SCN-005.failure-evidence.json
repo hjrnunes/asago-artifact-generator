@@ -68,7 +68,7 @@
     "original_decision": "revise",
     "out_of_scope_findings": [],
     "prompt_sha256": "df0f2138f1f68a04858969e591eb1e5c342175bd14d69e880e7fa46501258147",
-    "prompt_version": "authoring-plan-review-v20",
+    "prompt_version": "authoring-plan-review-v1",
     "question_ids": [
      "scenario_fidelity",
      "stimulus_fit",
@@ -235,7 +235,7 @@
     "configuration_sha256": "b719838f59601034e2211ed5d24cf18a7f30b835b73b48f3bab70d2531ba104b",
     "contract_sha256": "5775652f8b137fad5e230a2c18e230516f30d4c12a5f0adbe84fae9865912f5d",
     "prompt_sha256": "10f044ed2d01bcaecbea8976954d6bcf16775d71741932aa455ae526b9c46b3f",
-    "prompt_version": "authoring-plan-review-v20",
+    "prompt_version": "authoring-plan-review-v1",
     "raw_response_bytes": 1812,
     "raw_response_key": "dispatch:4",
     "raw_response_sha256": "a9c12e0a898f91c904be7bf83fe513c23d5c978efaf4d65d29608c8f0f947137",
@@ -307,7 +307,7 @@
   "artifact": "not_requested",
   "plan": "unavailable"
  },
- "schema_version": "authoring-failure-evidence-v2",
+ "schema_version": "authoring-failure-evidence-v1",
  "status": "review_unavailable",
  "task_id": "SCN-005",
  "terminal": {

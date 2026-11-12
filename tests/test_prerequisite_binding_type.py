@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
+from asago_artifact_generator.authoring.checks import collect_plan_findings
 
 from .policy_support import NO_REVIEW, ONE_PLAN_CORRECTION, run_refund
 from .support import ScriptedAuthoringTransport, world_builders
@@ -29,7 +29,7 @@ def _plan_with_prerequisite_binding(binding: Any) -> dict[str, Any]:
 
 @pytest.mark.parametrize("binding", _UNHASHABLE_NAMES, ids=_ids)
 def test_a_list_or_object_binding_name_gives_the_prerequisite_finding(binding: Any) -> None:
-    findings = collect_plan_findings_v2(
+    findings = collect_plan_findings(
         _plan_with_prerequisite_binding(binding), _inventory(), _runtime_contract()
     )
 
@@ -41,7 +41,7 @@ def test_a_list_or_object_binding_name_gives_the_prerequisite_finding(binding: A
 
 
 def test_the_reported_reproduction_returns_findings() -> None:
-    findings = collect_plan_findings_v2(
+    findings = collect_plan_findings(
         {"runtime_bindings": [], "prerequisites": [{"binding": []}]}, {}, {}
     )
 

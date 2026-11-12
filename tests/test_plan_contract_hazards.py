@@ -5,8 +5,8 @@ import copy
 from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
 from asago_artifact_generator.authoring.checks import (
     _is_blocked_plan,
-    collect_artifact_findings_v2,
-    collect_plan_findings_v2,
+    collect_artifact_findings,
+    collect_plan_findings,
 )
 from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
@@ -17,8 +17,8 @@ from asago_artifact_generator.authoring.prompt_context import (
     build_plan_author_context,
 )
 from asago_artifact_generator.authoring.prompt_packets import (
-    build_call1_packet_v2,
-    build_call2_packet_v2,
+    build_call1_packet,
+    build_call2_packet,
 )
 
 from .support import rendered_response_contract, world_builders
@@ -108,8 +108,8 @@ def test_current_call1_replaces_pseudo_empty_shapes_with_schema_guidance() -> No
         correction_repair_inputs(view, inventory, runtime_contract),
     )
     packets = (
-        build_call1_packet_v2(view, inventory, runtime_contract),
-        build_call2_packet_v2(view, plan, inventory, runtime_contract),
+        build_call1_packet(view, inventory, runtime_contract),
+        build_call2_packet(view, plan, inventory, runtime_contract),
         plan_correction,
         artifact_correction,
     )
@@ -140,10 +140,10 @@ def test_current_contract_guidance_fields_resolve_to_response_schema_properties(
     inventory = _inventory()
     runtime_contract = _runtime_contract()
     call1_contract = rendered_response_contract(
-        build_call1_packet_v2(view, inventory, runtime_contract)
+        build_call1_packet(view, inventory, runtime_contract)
     )
     call2_contract = rendered_response_contract(
-        build_call2_packet_v2(view, _plan(), inventory, runtime_contract)
+        build_call2_packet(view, _plan(), inventory, runtime_contract)
     )
 
     assert _guidance_schema_fields(call1_contract)
@@ -166,7 +166,7 @@ def test_prerequisite_equals_type_matches_declared_binding() -> None:
     for expected_type, equals, mismatch in cases:
         inventory = _typed_inventory(expected_type)
         plan = _typed_plan(expected_type, equals)
-        findings = collect_plan_findings_v2(plan, inventory, _runtime_contract())
+        findings = collect_plan_findings(plan, inventory, _runtime_contract())
         type_findings = [
             finding for finding in findings if finding.code == "prerequisite_type_mismatch"
         ]
@@ -177,7 +177,7 @@ def test_prerequisite_equals_type_matches_declared_binding() -> None:
             assert f"expected_type {expected_type}" in type_findings[0].detail
         artifact_type_findings = [
             finding.code == "prerequisite_type_mismatch"
-            for finding in collect_artifact_findings_v2(
+            for finding in collect_artifact_findings(
                 _metadata(), plan, inventory, _runtime_contract()
             )
         ]
@@ -189,7 +189,7 @@ def test_prerequisite_type_finding_is_rendered_in_plan_correction() -> None:
     plan = _typed_plan("object", "text")
     finding = next(
         finding
-        for finding in collect_plan_findings_v2(plan, inventory, _runtime_contract())
+        for finding in collect_plan_findings(plan, inventory, _runtime_contract())
         if finding.code == "prerequisite_type_mismatch"
     )
     context = build_correction_context(
@@ -207,7 +207,7 @@ def test_prerequisite_type_finding_is_rendered_in_plan_correction() -> None:
 
 def test_current_prerequisite_schema_explains_check_as_non_executable_text() -> None:
     contract = rendered_response_contract(
-        build_call1_packet_v2(_view(), _inventory(), _runtime_contract())
+        build_call1_packet(_view(), _inventory(), _runtime_contract())
     )
     description = contract["schema"]["properties"]["prerequisites"]["items"]["properties"][
         "check"
@@ -231,7 +231,7 @@ def test_unobtainable_essential_setup_requirement_is_a_current_plan_finding() ->
         }
     ]
 
-    findings = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
+    findings = collect_plan_findings(plan, _inventory(), _runtime_contract())
 
     finding = next(
         finding for finding in findings if finding.code == "unobtainable_essential_requirement"
@@ -266,12 +266,12 @@ def test_unresolved_requirement_blocking_rules_remain_narrow() -> None:
 
     assert not any(
         finding.code == "unobtainable_essential_requirement"
-        for finding in collect_plan_findings_v2(fact_plan, _inventory(), _runtime_contract())
+        for finding in collect_plan_findings(fact_plan, _inventory(), _runtime_contract())
     )
     assert _is_blocked_plan(fact_plan)
     assert not any(
         finding.code == "unobtainable_essential_requirement"
-        for finding in collect_plan_findings_v2(optional_plan, _inventory(), _runtime_contract())
+        for finding in collect_plan_findings(optional_plan, _inventory(), _runtime_contract())
     )
     assert not _is_blocked_plan(optional_plan)
 
@@ -316,7 +316,7 @@ def _setup_findings(step: object) -> list[dict]:
     plan["setup_recipe"] = [step]
     return [
         finding.to_dict()
-        for finding in collect_plan_findings_v2(
+        for finding in collect_plan_findings(
             plan, _hazard_inventory(), _hazard_runtime_contract()
         )
         if finding.path.startswith("setup_recipe")
@@ -364,7 +364,7 @@ def test_setup_step_details_name_the_step_index() -> None:
 
     findings = [
         (finding.detail, finding.path)
-        for finding in collect_plan_findings_v2(
+        for finding in collect_plan_findings(
             plan, _hazard_inventory(), _hazard_runtime_contract()
         )
         if finding.path.startswith("setup_recipe")
@@ -430,7 +430,7 @@ def test_plan_root_type_errors_for_assumptions_and_required_observations() -> No
     plan["assumptions"] = "none"
     plan["required_observations"] = []
 
-    findings = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
+    findings = collect_plan_findings(plan, _inventory(), _runtime_contract())
 
     assert [finding.to_dict() for finding in findings] == [
         {"code": "type_error", "detail": "assumptions must be a list", "path": "assumptions"},
@@ -450,7 +450,7 @@ def test_each_malformed_assumption_is_reported_in_order() -> None:
         {"ref": "nope", "reason": "r"},
     ]
 
-    findings = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
+    findings = collect_plan_findings(plan, _inventory(), _runtime_contract())
 
     assert [finding.to_dict() for finding in findings] == [
         {
@@ -499,7 +499,7 @@ def test_binding_sources_report_unknown_facts_and_unpermitted_setup() -> None:
         binding("b", "setup_output", "setup:locked", "result"),
     ]
 
-    findings = collect_plan_findings_v2(plan, _hazard_inventory(), _hazard_runtime_contract())
+    findings = collect_plan_findings(plan, _hazard_inventory(), _hazard_runtime_contract())
 
     assert [finding.to_dict() for finding in findings if finding.path.endswith(".source_ref")] == [
         {

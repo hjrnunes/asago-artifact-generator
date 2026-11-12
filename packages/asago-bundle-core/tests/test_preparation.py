@@ -154,13 +154,13 @@ def _package(
     if claim_level == "command_attempt":
         members["tool_call_condition.json"] = json.dumps(_CONDITION).encode()
     if canonical:
-        members["checks.json"] = b'{"interface":"artifact-authoring-v2"}'
+        members["checks.json"] = b'{"interface":"artifact-authoring-v1"}'
     if judge is not None:
         members["judge.json"] = json.dumps(judge).encode()
     return build_package(
         package_id="pkg-1",
         scenario_id="scenario-1",
-        input_kind="scenario-handoff-v6",
+        input_kind="scenario-handoff-v1",
         source_digests={"input": "a" * 64},
         members=members,
         authoring={"status": "produced"},

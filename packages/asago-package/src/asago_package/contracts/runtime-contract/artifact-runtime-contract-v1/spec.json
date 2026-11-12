@@ -1,0 +1,12 @@
+{
+  "contract": "runtime-contract",
+  "version": "artifact-runtime-contract-v1",
+  "status": "published",
+  "envelope": "required",
+  "supports": [],
+  "extensions": [],
+  "schema": "schema.json",
+  "cases": "cases",
+  "docs": "README.md",
+  "spec_digest": "sha256:0af328ba0d3af601dc0c5b7c7b134e0859131bf8db6959f8ffe8092e6659998a"
+}

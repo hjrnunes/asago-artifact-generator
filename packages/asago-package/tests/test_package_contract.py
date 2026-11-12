@@ -1,7 +1,7 @@
 """The artifact-package authority contract: v5, which the writer writes and the reader loads.
 
 The v4 schema stays frozen alongside v5 for the contract cases and the orchestrator's
-mirror; the reader refuses a v4 package. The writer writes only artifact-package-v5.
+mirror; the reader refuses a v4 package. The writer writes only artifact-package-v1.
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ from asago_package import package_io
 from asago_package.contract_kit import contract_dir
 
 _PACKAGE = contract_dir("artifact-package")
-_V5 = "artifact-package-v5"
-_HANDOFF_INPUT = "scenario-handoff-v6"
+_V5 = "artifact-package-v1"
+_HANDOFF_INPUT = "scenario-handoff-v1"
 
 
 def _json(path: Path) -> Any:

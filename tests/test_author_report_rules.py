@@ -258,7 +258,7 @@ def test_a_package_reads_the_advisory_findings_in_its_checks_member(tmp_path: Pa
     (tmp_path / "checks.json").write_text(
         json.dumps(
             {
-                "interface": "artifact-authoring-v2",
+                "interface": "artifact-authoring-v1",
                 "status": "structurally_valid",
                 "findings": [
                     {

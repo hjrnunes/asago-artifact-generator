@@ -169,8 +169,8 @@ def test_reply_package_without_bound_condition_has_a_judge_and_no_condition_memb
     assert "tool_call_condition.json" not in members
     assert "detector.py" not in members
     manifest = json.loads((tmp_path / "package" / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == "artifact-package-v5"
-    assert manifest["input_kind"] == "scenario-handoff-v6"
+    assert manifest["schema_version"] == "artifact-package-v1"
+    assert manifest["input_kind"] == "scenario-handoff-v1"
     assert "detector_interface" not in manifest
 
 

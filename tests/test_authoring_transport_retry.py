@@ -35,7 +35,7 @@ from .support import (
 )
 
 (_view,) = world_builders("refund-minimal", "view")
-_framed, _inventory_v2, _plan_v2, _runtime_contract_v2 = world_builders(
+_framed, _authoring_inventory, _authoring_plan, _authoring_runtime_contract = world_builders(
     "refund", "framed", "inventory", "plan", "runtime_contract"
 )
 
@@ -268,7 +268,7 @@ def test_an_allowing_session_is_asked_once_per_physical_request() -> None:
 
 def _plan_then_artifact(*first: object) -> FakeOpenAI:
     return scripted_client(
-        [*first, chat_completion(json.dumps(_plan_v2())), chat_completion(_framed().decode())]
+        [*first, chat_completion(json.dumps(_authoring_plan())), chat_completion(_framed().decode())]
     )
 
 
@@ -278,7 +278,7 @@ def _run(tmp_path: Path, client: FakeOpenAI, **kwargs: Any) -> Any:
         package_dir=tmp_path / "package",
         task_id="retry-task",
         **kwargs,
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
 
 def test_a_retried_dispatch_still_produces_the_accepted_package(tmp_path: Path) -> None:
@@ -386,12 +386,12 @@ def _tiered_run(tmp_path: Path, client: FakeOpenAI, budget: AuthoringBudget) -> 
         package_dir=tmp_path / "package",
         task_id="retry-task",
         budget=budget,
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
 
 def test_a_rate_limit_with_one_request_left_sends_no_fallback(tmp_path: Path) -> None:
     budget = AuthoringBudget(aggregate_limit=1, task_limit=1, author_limit=1, review_limit=1)
-    client = scripted_client([status_error(429), chat_completion(json.dumps(_plan_v2()))])
+    client = scripted_client([status_error(429), chat_completion(json.dumps(_authoring_plan()))])
 
     result = _tiered_run(tmp_path, client, budget)
 
@@ -424,7 +424,7 @@ def test_a_rate_limit_with_two_requests_left_counts_both(tmp_path: Path) -> None
 def test_a_fallback_then_a_transport_error_cannot_pass_the_cap(tmp_path: Path) -> None:
     budget = AuthoringBudget(aggregate_limit=2, task_limit=2, author_limit=2, review_limit=2)
     client = scripted_client(
-        [status_error(429), status_error(502), chat_completion(json.dumps(_plan_v2()))]
+        [status_error(429), status_error(502), chat_completion(json.dumps(_authoring_plan()))]
     )
 
     result = _tiered_run(tmp_path, client, budget)

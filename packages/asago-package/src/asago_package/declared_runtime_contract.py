@@ -69,7 +69,7 @@ def declared_runtime_contract(
     The contract is checked against the runtime-contract schema before it is
     returned: a target declaration that would build a contract no consumer can
     load raises :class:`RuntimeContractViolation` instead. The returned contract
-    states ``artifact-runtime-contract-v3`` and carries the self-identifying
+    states ``artifact-runtime-contract-v1`` and carries the self-identifying
     envelope.
     """
 

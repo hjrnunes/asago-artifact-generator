@@ -33,7 +33,7 @@ from conftest import receipt_payload
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 RECEIPT_SCHEMA = (
     Path(__file__).resolve().parents[3]
-    / "contracts/execution-receipt/execution-receipt-v2/schema.json"
+    / "contracts/execution-receipt/execution-receipt-v1/schema.json"
 )
 MESSAGES = [{"role": "user", "content": "Show the referral for PAT-201."}]
 CALL = {
@@ -115,7 +115,7 @@ def parse(output: Path, **kwargs: Any) -> dict[str, Any]:
 def test_tool_call_condition_report(command_output: Path, tmp_path: Path) -> None:
     receipt = parse(command_output, tool_revision="1c2918ae", adapter_revision="abc1234")
 
-    assert receipt["schema_version"] == "execution-receipt-v2"
+    assert receipt["schema_version"] == "execution-receipt-v1"
     assert receipt["tool"] == {
         "id": "garak",
         "revision": "1c2918ae",
@@ -611,7 +611,7 @@ def test_cli_parse_refuses_an_unreadable_bundle_with_exit_1(
 def test_the_written_receipt_reads_through_the_installed_contract(command_output: Path) -> None:
     receipt = parse_report(command_output / "bundle", command_output / "execution-receipt.json")
 
-    assert read_receipt(receipt).version == "execution-receipt-v2"
+    assert read_receipt(receipt).version == "execution-receipt-v1"
 
 
 def test_a_receipt_the_contract_refuses_is_an_error_naming_the_path(

@@ -8,13 +8,13 @@ from typing import Any
 
 import pytest
 
-from asago_artifact_generator.authoring.checks import collect_artifact_findings_v2
+from asago_artifact_generator.authoring.checks import collect_artifact_findings
 from asago_artifact_generator.authoring.contracts import (
-    _call2_contract_v2,
-    neutral_artifact_plan_v2,
+    _call2_contract,
+    neutral_artifact_plan,
 )
-from asago_artifact_generator.authoring.core import CORRECTION_PROMPT_VERSION_V53
-from asago_artifact_generator.authoring.prompt_packets import build_call2_packet_v2
+from asago_artifact_generator.authoring.core import ARTIFACT_CORRECTION_PROMPT_VERSION
+from asago_artifact_generator.authoring.prompt_packets import build_call2_packet
 from asago_artifact_generator.authoring.reply_examples import (
     REPLY_MEANING,
     neutral_reply_examples,
@@ -58,7 +58,7 @@ def _metadata_with_replies(replies: dict[str, Any]) -> dict[str, Any]:
 
 
 def _findings(metadata: dict[str, Any], plan: dict[str, Any] | None = None) -> list[Any]:
-    return collect_artifact_findings_v2(
+    return collect_artifact_findings(
         metadata, plan or reply_plan(), reply_inventory(), reply_runtime_contract()
     )
 
@@ -153,9 +153,9 @@ def test_a_command_attempt_example_cannot_carry_a_reply(label: str) -> None:
     metadata = neutral_metadata()
     metadata["examples"][label]["reply"] = "Done."
 
-    findings = collect_artifact_findings_v2(
+    findings = collect_artifact_findings(
         metadata,
-        neutral_artifact_plan_v2(),
+        neutral_artifact_plan(),
         {
             "facts": [],
             "operations": [{"name": "inspect_record"}],
@@ -170,11 +170,11 @@ def test_a_command_attempt_example_cannot_carry_a_reply(label: str) -> None:
 
 
 def _example_schema(plan: dict[str, Any], label: str) -> dict[str, Any]:
-    return _call2_contract_v2(plan)["schema"]["properties"]["examples"]["properties"][label]
+    return _call2_contract(plan)["schema"]["properties"]["examples"]["properties"][label]
 
 
 def test_the_reply_contract_requires_and_explains_a_reply_on_unsafe_and_safe() -> None:
-    contract = _call2_contract_v2(reply_plan())
+    contract = _call2_contract(reply_plan())
 
     for label in ("unsafe", "safe"):
         schema = _example_schema(reply_plan(), label)
@@ -191,10 +191,10 @@ def test_the_reply_contract_requires_and_explains_a_reply_on_unsafe_and_safe() -
 
 
 def test_the_command_attempt_contract_offers_no_reply() -> None:
-    contract = _call2_contract_v2(neutral_artifact_plan_v2())
+    contract = _call2_contract(neutral_artifact_plan())
 
     for label in ("unsafe", "safe", "inconclusive"):
-        assert "reply" not in _example_schema(neutral_artifact_plan_v2(), label)["properties"]
+        assert "reply" not in _example_schema(neutral_artifact_plan(), label)["properties"]
     assert "example_reply_meaning" not in contract
     assert "example_reply_neutral_example" not in contract
 
@@ -209,7 +209,7 @@ def test_the_neutral_reply_example_passes_the_checks_it_illustrates() -> None:
 
 
 def test_the_call2_prompt_of_a_reply_plan_carries_the_reply_meaning() -> None:
-    packet = build_call2_packet_v2(
+    packet = build_call2_packet(
         reply_view(), reply_plan(), reply_inventory(), reply_runtime_contract()
     )
 
@@ -249,7 +249,7 @@ def test_a_third_person_reply_is_corrected_and_the_package_holds_the_reply(
         "correction",
     ]
     correction = transport.requests[-1]
-    assert correction["version"] == CORRECTION_PROMPT_VERSION_V53
+    assert correction["version"] == ARTIFACT_CORRECTION_PROMPT_VERSION
     payload = correction["payload"]
     assert payload["current_output"] == described.decode()
     assert [(f["code"], f["path"]) for f in payload["findings"]] == [
@@ -351,9 +351,9 @@ def test_a_command_attempt_reply_is_reported_beside_a_shape_error() -> None:
     metadata = neutral_metadata() | {"explanation": 17}
     metadata["examples"]["safe"]["reply"] = "Done."
 
-    findings = collect_artifact_findings_v2(
+    findings = collect_artifact_findings(
         metadata,
-        neutral_artifact_plan_v2(),
+        neutral_artifact_plan(),
         {"facts": [], "operations": [{"name": "inspect_record"}], "source_handles": []},
         {"delivery": ["direct_user_message"], "setup_permissions": []},
     )
@@ -467,8 +467,8 @@ _NEUTRAL_RUNTIME = {"delivery": ["direct_user_message"], "setup_permissions": []
 
 
 def _command_attempt_findings(metadata: dict[str, Any]) -> list[Any]:
-    return collect_artifact_findings_v2(
-        metadata, neutral_artifact_plan_v2(), _NEUTRAL_INVENTORY, _NEUTRAL_RUNTIME
+    return collect_artifact_findings(
+        metadata, neutral_artifact_plan(), _NEUTRAL_INVENTORY, _NEUTRAL_RUNTIME
     )
 
 
@@ -505,12 +505,12 @@ def test_a_non_string_command_attempt_reply_beside_a_shape_error_is_only_unexpec
 
 
 @pytest.mark.parametrize("value", [*_NON_STRINGS, "I can't tell."])
-@pytest.mark.parametrize("plan", [reply_plan, neutral_artifact_plan_v2], ids=["reply", "command"])
+@pytest.mark.parametrize("plan", [reply_plan, neutral_artifact_plan], ids=["reply", "command"])
 def test_an_inconclusive_reply_is_only_an_unexpected_field(value: Any, plan: Any) -> None:
     metadata = _metadata_with_replies(_WRITTEN) if plan is reply_plan else neutral_metadata()
     metadata["examples"]["inconclusive"]["reply"] = value
 
-    findings = collect_artifact_findings_v2(
+    findings = collect_artifact_findings(
         metadata,
         plan(),
         reply_inventory() if plan is reply_plan else _NEUTRAL_INVENTORY,
@@ -620,9 +620,9 @@ def test_the_reply_finding_depends_only_on_claim_key_and_reply(
     change, caused = _DEFECTS[defect]
     change(metadata, key)
 
-    findings = collect_artifact_findings_v2(
+    findings = collect_artifact_findings(
         metadata,
-        reply_plan() if reply_claim else neutral_artifact_plan_v2(),
+        reply_plan() if reply_claim else neutral_artifact_plan(),
         reply_inventory() if reply_claim else _NEUTRAL_INVENTORY,
         reply_runtime_contract() if reply_claim else _NEUTRAL_RUNTIME,
     )

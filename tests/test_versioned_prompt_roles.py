@@ -5,7 +5,7 @@ import json
 import pytest
 
 from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
-from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
+from asago_artifact_generator.authoring.checks import collect_plan_findings
 from asago_artifact_generator.authoring.context_budget import _enforce_prompt_size
 from asago_artifact_generator.authoring.contracts import (
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
@@ -13,10 +13,10 @@ from asago_artifact_generator.authoring.contracts import (
 )
 from asago_artifact_generator.authoring.core import (
     ARTIFACT_REVIEW_PROMPT_VERSION_V31,
-    CALL1_PROMPT_VERSION_V31,
-    CALL2_PROMPT_VERSION_V35,
-    CORRECTION_PROMPT_VERSION_V50,
-    CORRECTION_PROMPT_VERSION_V53,
+    CALL1_PROMPT_VERSION,
+    CALL2_PROMPT_VERSION,
+    PLAN_CORRECTION_PROMPT_VERSION,
+    ARTIFACT_CORRECTION_PROMPT_VERSION,
     PLAN_REVIEW_PROMPT_VERSION_V30,
     Finding,
     PromptOverflowError,
@@ -35,8 +35,8 @@ from asago_artifact_generator.authoring.prompt_context import (
 )
 from asago_artifact_generator.authoring.prompt_packets import (
     _call1_response_contract_prompt_view,
-    build_call1_packet_v2,
-    build_call2_packet_v2,
+    build_call1_packet,
+    build_call2_packet,
 )
 from asago_artifact_generator.authoring.prompt_safety import (
     _endpoint_prompt_paths,
@@ -65,9 +65,9 @@ def test_five_prompt_roles_have_independent_versions_and_hashes() -> None:
     plan = _plan()
 
     packets = [
-        build_call1_packet_v2(view, inventory, runtime),
+        build_call1_packet(view, inventory, runtime),
         build_plan_review_packet(view, plan, inventory, runtime),
-        build_call2_packet_v2(view, plan, inventory, runtime),
+        build_call2_packet(view, plan, inventory, runtime),
         build_artifact_review_packet(
             view,
             plan,
@@ -78,7 +78,7 @@ def test_five_prompt_roles_have_independent_versions_and_hashes() -> None:
     ]
     correction = PromptPacket(
         stage="correction",
-        version=CORRECTION_PROMPT_VERSION_V50,
+        version=PLAN_CORRECTION_PROMPT_VERSION,
         system="correction",
         user="correction",
         payload={},
@@ -96,9 +96,9 @@ def test_all_dispatched_initial_roles_render_shared_meanings_once() -> None:
     runtime = _runtime_contract()
     plan = _plan()
 
-    call1 = build_call1_packet_v2(view, inventory, runtime)
+    call1 = build_call1_packet(view, inventory, runtime)
     plan_review = build_plan_review_packet(view, plan, inventory, runtime)
-    call2 = build_call2_packet_v2(view, plan, inventory, runtime)
+    call2 = build_call2_packet(view, plan, inventory, runtime)
     artifact_review = build_artifact_review_packet(
         view,
         plan,
@@ -186,7 +186,7 @@ def test_model_facing_descriptions_do_not_change_the_closed_wire() -> None:
     )
 
     unknown = {"setup_recipe_when_setup_is_unavailable": []}
-    findings = collect_plan_findings_v2(unknown, _inventory(), _runtime_contract())
+    findings = collect_plan_findings(unknown, _inventory(), _runtime_contract())
     assert any(
         finding.path == "setup_recipe_when_setup_is_unavailable"
         and finding.code == "unexpected_field"
@@ -277,7 +277,7 @@ def test_artifact_reviewer_and_correction_contexts_bound_candidate_and_active_fo
 def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V31,
+        version=CALL1_PROMPT_VERSION,
         system="system",
         user="candidate once",
         payload={"candidate": "candidate once"},
@@ -287,7 +287,7 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
 
     duplicate = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V31,
+        version=CALL1_PROMPT_VERSION,
         system="system",
         user="candidate once candidate once",
         payload={"candidate": "candidate once"},
@@ -297,7 +297,7 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
         assert_no_prompt_duplicates(duplicate)
 
     with pytest.raises(PromptOverflowError):
-        build_call1_packet_v2(
+        build_call1_packet(
             _view(),
             _inventory(),
             _runtime_contract(),
@@ -308,12 +308,12 @@ def test_duplicate_scan_is_bounded_and_prompt_overflow_stops_before_dispatch() -
 @pytest.mark.parametrize(
     "version",
     [
-        CALL1_PROMPT_VERSION_V31,
+        CALL1_PROMPT_VERSION,
         PLAN_REVIEW_PROMPT_VERSION_V30,
-        CALL2_PROMPT_VERSION_V35,
+        CALL2_PROMPT_VERSION,
         ARTIFACT_REVIEW_PROMPT_VERSION_V31,
-        CORRECTION_PROMPT_VERSION_V50,
-        CORRECTION_PROMPT_VERSION_V53,
+        PLAN_CORRECTION_PROMPT_VERSION,
+        ARTIFACT_CORRECTION_PROMPT_VERSION,
     ],
 )
 def test_every_dispatched_role_label_gets_the_duplicate_scan(version: str) -> None:
@@ -332,7 +332,7 @@ def test_every_dispatched_role_label_gets_the_duplicate_scan(version: str) -> No
 def test_prompt_secret_guard_rejects_urls_and_tokens_before_dispatch() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V31,
+        version=CALL1_PROMPT_VERSION,
         system="system",
         user=(
             "endpoint "
@@ -369,7 +369,7 @@ def test_duplicate_scan_requires_a_prompt_packet() -> None:
 def test_endpoint_prompt_paths_skip_malformed_urls_and_find_the_host() -> None:
     packet = PromptPacket(
         stage="call1",
-        version=CALL1_PROMPT_VERSION_V31,
+        version=CALL1_PROMPT_VERSION,
         system="no urls here",
         user="bad http://[::1 then https://API.example.com/x",
         payload={},

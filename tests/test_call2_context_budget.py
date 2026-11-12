@@ -4,7 +4,7 @@ import json
 
 from asago_artifact_generator.authoring.context_budget import _context_budget_estimate
 from asago_artifact_generator.authoring.prompt_context import build_artifact_author_context
-from asago_artifact_generator.authoring.prompt_packets import build_call2_packet_v2
+from asago_artifact_generator.authoring.prompt_packets import build_call2_packet
 
 from .support import world_builders
 
@@ -27,7 +27,7 @@ def _section(user: str, title: str) -> str:
 
 
 def test_call2_renders_source_context_as_compact_json_with_every_value() -> None:
-    packet = build_call2_packet_v2(_view(), _plan(), _inventory(), _runtime_contract())
+    packet = build_call2_packet(_view(), _plan(), _inventory(), _runtime_contract())
     context = build_artifact_author_context(_view(), _plan(), _inventory(), _runtime_contract())
 
     body = _section(packet.user, _SOURCE_TITLE)
@@ -61,7 +61,7 @@ def test_call2_source_context_costs_no_indentation_tokens() -> None:
         for index in range(60)
     )
     plan = _plan()
-    packet = build_call2_packet_v2(_view(), plan, inventory, _runtime_contract())
+    packet = build_call2_packet(_view(), plan, inventory, _runtime_contract())
     context = build_artifact_author_context(_view(), plan, inventory, _runtime_contract())
     source = {
         "scenario": context["original_scenario"],

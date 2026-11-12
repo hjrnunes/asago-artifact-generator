@@ -131,8 +131,8 @@
       "writer_version": "0.1.0"
     },
     "requires": [],
-    "spec_digest": "sha256:eaa141e8e726dc425a84143cea04b13ce1fc690c0b6c710c4d2f608e9411cf38",
-    "version": "scenario-handoff-v6"
+    "spec_digest": "sha256:c9e6e401ca6f1448ebb0031a9479127e43fcd7c9d7b83132352276c06a3e7c6e",
+    "version": "scenario-handoff-v1"
   },
   "deduplication": {
     "key": {
@@ -282,7 +282,7 @@
   },
   "scenario_id": "SCN-001",
   "scenario_version": 1,
-  "schema_version": "scenario-handoff-v6",
+  "schema_version": "scenario-handoff-v1",
   "semantic_failure_criterion": "The update_item operation is attempted for an item owned by another user.",
   "sourced_facts": [
     {

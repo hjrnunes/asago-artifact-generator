@@ -6,8 +6,8 @@ from asago_artifact_generator.authoring.core import (
     PromptPacket,
 )
 from asago_artifact_generator.authoring.prompt_packets import (
-    build_call1_packet_v2,
-    build_call2_packet_v2,
+    build_call1_packet,
+    build_call2_packet,
 )
 from asago_artifact_generator.bindings import validate_bindings
 
@@ -16,7 +16,7 @@ from .support import (
     world_builders,
 )
 
-_inventory_v2, _plan_v2, _runtime_contract_v2 = world_builders(
+_authoring_inventory, _authoring_plan, _authoring_runtime_contract = world_builders(
     "refund", "inventory", "plan", "runtime_contract"
 )
 
@@ -26,8 +26,8 @@ _inventory_v2, _plan_v2, _runtime_contract_v2 = world_builders(
 def test_call_packets_are_deterministic_and_include_complete_inventory() -> None:
     view = _view()
 
-    first = build_call1_packet_v2(view, _inventory_v2(), _runtime_contract_v2())
-    second = build_call1_packet_v2(view, _inventory_v2(), _runtime_contract_v2())
+    first = build_call1_packet(view, _authoring_inventory(), _authoring_runtime_contract())
+    second = build_call1_packet(view, _authoring_inventory(), _authoring_runtime_contract())
 
     assert isinstance(first, PromptPacket)
     assert first.system == second.system
@@ -40,9 +40,9 @@ def test_call_packets_are_deterministic_and_include_complete_inventory() -> None
 
 def test_rendered_contracts_expose_complete_validator_shapes_and_empty_permissions() -> None:
     view = _view()
-    contract = _runtime_contract_v2()
-    call1 = build_call1_packet_v2(view, _inventory_v2(), contract)
-    call2 = build_call2_packet_v2(view, _plan_v2(), _inventory_v2(), contract)
+    contract = _authoring_runtime_contract()
+    call1 = build_call1_packet(view, _authoring_inventory(), contract)
+    call2 = build_call2_packet(view, _authoring_plan(), _authoring_inventory(), contract)
 
     for packet in (call1, call2):
         response_contract = rendered_response_contract(packet)
@@ -79,7 +79,7 @@ def test_rendered_contracts_expose_complete_validator_shapes_and_empty_permissio
 
 
 def test_rendered_binding_contract_explains_direction_grammar_and_example() -> None:
-    call1 = build_call1_packet_v2(_view(), _inventory_v2(), _runtime_contract_v2())
+    call1 = build_call1_packet(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     binding = rendered_response_contract(call1)["binding_declaration"]
     assert "facts:<fact ref>" in binding["source_ref_rule"]
@@ -99,7 +99,7 @@ def test_rendered_binding_contract_explains_direction_grammar_and_example() -> N
 
 
 def test_rendered_binding_contract_explains_applicability_and_both_source_examples() -> None:
-    call1 = build_call1_packet_v2(_view(), _inventory_v2(), _runtime_contract_v2())
+    call1 = build_call1_packet(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
     binding = rendered_response_contract(call1)["binding_declaration"]
     assert binding["source_scope"] == (
@@ -122,7 +122,7 @@ def test_rendered_binding_contract_explains_applicability_and_both_source_exampl
 
 
 def test_rendered_binding_examples_are_accepted_by_closed_validator() -> None:
-    packet = build_call1_packet_v2(_view(), _inventory_v2(), _runtime_contract_v2())
+    packet = build_call1_packet(_view(), _authoring_inventory(), _authoring_runtime_contract())
     examples = rendered_response_contract(packet)["binding_declaration"]["valid_examples"]
     supplied = {
         **examples["supplied_input"],

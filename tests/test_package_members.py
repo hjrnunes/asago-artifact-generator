@@ -1,4 +1,4 @@
-"""An accepted package is an artifact-package-v5 that holds only the members a reader uses.
+"""An accepted package is an artifact-package-v1 that holds only the members a reader uses.
 
 Each request's prompt, reply, ledger record, and review stay in the sidecar
 failure evidence; the package keeps no copy, and the writer refuses a member
@@ -136,7 +136,7 @@ def test_the_manifest_keeps_only_the_authoring_outcome(package_dir: Path) -> Non
     }
     # Kept, empty: both schemas and downstream loaders require the key, and v5 requires it empty.
     assert manifest["creation_model"] == {}
-    assert manifest["schema_version"] == PACKAGE_SCHEMA_VERSION == "artifact-package-v5"
+    assert manifest["schema_version"] == PACKAGE_SCHEMA_VERSION == "artifact-package-v1"
 
 
 def test_inputs_keep_the_runtime_inputs_and_their_provenance(package_dir: Path) -> None:
@@ -150,7 +150,7 @@ def test_inputs_keep_the_runtime_inputs_and_their_provenance(package_dir: Path) 
         "runtime_contract",
     ]
     assert inputs["authoring_input_pins"]["input_sha256"] == _view().source_sha256
-    assert checks == {"interface": "artifact-authoring-v2", "status": "structurally_valid"}
+    assert checks == {"interface": "artifact-authoring-v1", "status": "structurally_valid"}
 
 
 def test_a_package_of_an_unsupported_version_is_refused_naming_it(
@@ -207,7 +207,7 @@ def test_the_writer_refuses_a_retired_member(member: str) -> None:
         build_package(
             package_id="pkg-1",
             scenario_id="SCN-1",
-            input_kind="scenario-handoff-v6",
+            input_kind="scenario-handoff-v1",
             source_digests={"input": "a" * 64},
             members={"plan.json": b"{}\n", member: b"{}\n"},
         )

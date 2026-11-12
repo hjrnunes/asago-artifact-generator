@@ -27,7 +27,7 @@ from typer.testing import CliRunner
 
 import replay_gate
 from asago_artifact_generator import cli
-from asago_artifact_generator.authoring.core import CALL1_PROMPT_VERSION_V31
+from asago_artifact_generator.authoring.core import CALL1_PROMPT_VERSION
 from asago_artifact_generator.authoring.transport import PrivateModelAuthoringTransport
 from asago_artifact_generator.contract_kit import canonical_json
 from replay_gate import (
@@ -982,7 +982,7 @@ OLDER_CALL1_ENTRY = replay_gate.ExpectedPromptDifference(
     stage="call1",
     template="authoring-call1",
     from_prompt_version="authoring-call1-v26",
-    to_prompt_version=CALL1_PROMPT_VERSION_V31,
+    to_prompt_version=CALL1_PROMPT_VERSION,
     bead="item-a",
     reason="the older recording carries authoring-call1-v26",
 )
@@ -1136,7 +1136,7 @@ def test_replay_client_leaves_an_undeclared_version_move_unmatched(
 
     _declare(monkeypatch)
     client = ReplayChatClient([_call(prompt_version="authoring-call1-v29")])
-    client.prompt = replay_gate.PromptIdentity("call1", CALL1_PROMPT_VERSION_V31)
+    client.prompt = replay_gate.PromptIdentity("call1", CALL1_PROMPT_VERSION)
 
     client.chat.completions.create(**_request())
 
@@ -1413,7 +1413,7 @@ def _superseded(
     item: str = TASK_ID,
     dispatch_index: int = 1,
     stage: str = "call1",
-    prompt_version: str = CALL1_PROMPT_VERSION_V31,
+    prompt_version: str = CALL1_PROMPT_VERSION,
     prompt_sha256: str = "a" * 64,
     bead: str = "item-b",
     reason: str = "a re-authoring replaces the recorded item",
@@ -1443,7 +1443,7 @@ def _superseded_mismatch(dispatch_index: int = 1, stage: str = "call1") -> dict[
     return {
         "dispatch_index": dispatch_index,
         "stage": stage,
-        "prompt_version": CALL1_PROMPT_VERSION_V31,
+        "prompt_version": CALL1_PROMPT_VERSION,
         "detail": "user message differs from the recording",
     }
 
@@ -1466,7 +1466,7 @@ def test_gate_declares_a_superseded_item_and_passes(
     assert "superseded: 1 declared superseded items" in report
     assert (
         "  superseded: run-test SCN-901 dispatch 1"
-        f" (call1, {CALL1_PROMPT_VERSION_V31}): bead item-b:"
+        f" (call1, {CALL1_PROMPT_VERSION}): bead item-b:"
         " a re-authoring replaces the recorded item"
     ) in report
     assert asdict(item)["superseded"]["recording"] == "run-test"
@@ -1494,7 +1494,7 @@ def test_gate_matches_a_superseded_item_a_declared_difference_covered(
         stage="call1",
         template="authoring-call1",
         from_prompt_version=from_version,
-        to_prompt_version=CALL1_PROMPT_VERSION_V31,
+        to_prompt_version=CALL1_PROMPT_VERSION,
         bead="item-c",
         reason="the declared change that covers the pinned dispatch",
     )
@@ -1513,7 +1513,7 @@ def test_gate_matches_a_superseded_item_a_declared_difference_covered(
     assert item.mismatches == []
     [record] = item.declared
     assert record["from_prompt_version"] == from_version
-    assert record["to_prompt_version"] == CALL1_PROMPT_VERSION_V31
+    assert record["to_prompt_version"] == CALL1_PROMPT_VERSION
     assert item.served >= entry.dispatch_index
 
 
@@ -1659,7 +1659,7 @@ def test_stage_report_names_a_stale_superseded_item() -> None:
     assert "superseded: 0 declared superseded items" in report
     assert (
         "  stale superseded item: run-test SCN-901 dispatch 1"
-        f" (call1, {CALL1_PROMPT_VERSION_V31}): bead item-b:"
+        f" (call1, {CALL1_PROMPT_VERSION}): bead item-b:"
         " the recording no longer mismatches at the declared dispatch"
     ) in report
 
@@ -1901,7 +1901,7 @@ def test_main_uses_the_declared_superseded_items(
     output = capsys.readouterr().out
     assert (
         "  superseded: run-test SCN-901 dispatch 1"
-        f" (call1, {CALL1_PROMPT_VERSION_V31}): bead item-b:"
+        f" (call1, {CALL1_PROMPT_VERSION}): bead item-b:"
     ) in output
     assert "superseded:      1" in output
     assert output.splitlines()[-1] == "PASS"

@@ -1,0 +1,33 @@
+{
+  "authoring_transports": {
+    "discovery": "unavailable",
+    "judge": "unavailable",
+    "setup": "unavailable",
+    "target": "unavailable"
+  },
+  "contract": {
+    "id": "runtime-contract",
+    "provenance": {
+      "validator_version": "asago-contracts-core 0.1.0",
+      "writer": "asago_package.declared_runtime_contract",
+      "writer_version": "0.1.0"
+    },
+    "requires": [],
+    "spec_digest": "sha256:0af328ba0d3af601dc0c5b7c7b134e0859131bf8db6959f8ffe8092e6659998a",
+    "version": "artifact-runtime-contract-v1"
+  },
+  "delivery": [
+    "direct_user_message"
+  ],
+  "limits": {
+    "detector_timeout_seconds": 10,
+    "generation_timeout_seconds": 180,
+    "max_planned_turns": 4,
+    "max_turns": 8
+  },
+  "observation": {},
+  "schema_version": "artifact-runtime-contract-v1",
+  "seed_slots": [],
+  "setup_permissions": [],
+  "target_access": "downstream_only"
+}

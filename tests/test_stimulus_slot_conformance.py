@@ -8,8 +8,8 @@ from typing import Any
 import pytest
 
 from asago_artifact_generator.authoring.checks import (
-    collect_artifact_findings_v2,
-    collect_plan_findings_v2,
+    collect_artifact_findings,
+    collect_plan_findings,
 )
 
 from .support import world_builders
@@ -38,7 +38,7 @@ def _plan_slot_findings(request: str, history: list[str], *bindings: dict[str, A
     plan["runtime_bindings"] = list(bindings)
     plan["stimulus_approach"]["request"] = request
     plan["stimulus_approach"]["history"] = history
-    findings = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
+    findings = collect_plan_findings(plan, _inventory(), _runtime_contract())
     return [finding for finding in findings if finding.code in _SLOT_CODES]
 
 
@@ -54,7 +54,7 @@ def _artifact_slot_findings(
         "history": [{"role": "user", "content": turn} for turn in history],
         "slots": [],
     }
-    findings = collect_artifact_findings_v2(metadata, plan, _inventory(), _runtime_contract())
+    findings = collect_artifact_findings(metadata, plan, _inventory(), _runtime_contract())
     return [finding for finding in findings if finding.code in _SLOT_CODES]
 
 

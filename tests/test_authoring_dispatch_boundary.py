@@ -35,7 +35,7 @@ from .support import (
 )
 
 (_view,) = world_builders("refund-minimal", "view")
-_framed, _inventory_v2, _plan_v2, _runtime_contract_v2 = world_builders(
+_framed, _authoring_inventory, _authoring_plan, _authoring_runtime_contract = world_builders(
     "refund", "framed", "inventory", "plan", "runtime_contract"
 )
 
@@ -373,14 +373,14 @@ def _orchestrate(tmp_path: Path, transport: Any, budget: AuthoringBudget) -> Any
         package_dir=tmp_path / "package",
         task_id="task",
         budget=budget,
-    ).run(_view(), _inventory_v2(), _runtime_contract_v2())
+    ).run(_view(), _authoring_inventory(), _authoring_runtime_contract())
 
 
 def test_the_orchestrator_opens_one_session_per_dispatch(tmp_path: Path) -> None:
     budget = _budget(10)
     transport = _session_transport(
         _rate_limit_then_bad_gateway_then(
-            chat_completion(json.dumps(_plan_v2())), chat_completion(_framed().decode())
+            chat_completion(json.dumps(_authoring_plan())), chat_completion(_framed().decode())
         )
     )
 
@@ -420,7 +420,7 @@ def test_the_orchestrator_reserves_just_before_every_physical_request(tmp_path: 
         events, aggregate_limit=10, task_limit=10, author_limit=10, review_limit=10
     )
     client = _rate_limit_then_bad_gateway_then(
-        chat_completion(json.dumps(_plan_v2())), chat_completion(_framed().decode())
+        chat_completion(json.dumps(_authoring_plan())), chat_completion(_framed().decode())
     )
     send = client.chat.completions.create
 
@@ -443,7 +443,7 @@ def test_a_first_attempt_over_the_cap_opens_no_record_and_leaves_the_last_one_al
     # of the artifact request the budget refuses before it is sent.
     budget = _budget(2)
     client = scripted_client(
-        [status_error(429), chat_completion(json.dumps(_plan_v2())), chat_completion()]
+        [status_error(429), chat_completion(json.dumps(_authoring_plan())), chat_completion()]
     )
     transport = _tiered(client)
 

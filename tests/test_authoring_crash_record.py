@@ -38,7 +38,7 @@ def test_a_crash_before_the_first_dispatch_ends_the_sidecar_as_failed(
 ) -> None:
     monkeypatch.setattr(
         orchestrator_module,
-        "build_call1_packet_v2",
+        "build_call1_packet",
         _raising(KeyError("establish_context")),
     )
 
@@ -106,7 +106,7 @@ def test_a_crash_after_the_first_stage_keeps_the_stage_it_was_in(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        orchestrator_module, "build_call2_packet_v2", _raising(KeyError("turn_purpose"))
+        orchestrator_module, "build_call2_packet", _raising(KeyError("turn_purpose"))
     )
 
     with pytest.raises(KeyError):
@@ -130,7 +130,7 @@ def test_a_failing_sidecar_write_keeps_the_original_exception(
         holder["journal"].flush = _raising(OSError("disk full"))
         raise original
 
-    monkeypatch.setattr(orchestrator_module, "build_call1_packet_v2", crash_and_break_the_journal)
+    monkeypatch.setattr(orchestrator_module, "build_call1_packet", crash_and_break_the_journal)
     real_init = orchestrator_module.AuthoringOrchestrator.__init__
 
     def init(self: Any, *args: Any, **kwargs: Any) -> None:
@@ -151,7 +151,7 @@ def test_the_crash_detail_is_redacted_and_truncated(
 ) -> None:
     message = "cannot reach https://models.example/v1?api_key=sk-secret " + "x" * 400
     monkeypatch.setattr(
-        orchestrator_module, "build_call1_packet_v2", _raising(RuntimeError(message))
+        orchestrator_module, "build_call1_packet", _raising(RuntimeError(message))
     )
 
     with pytest.raises(RuntimeError):

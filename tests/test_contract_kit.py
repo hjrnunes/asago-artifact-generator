@@ -152,7 +152,7 @@ def test_verify_contract_lock_refuses_a_locked_file_the_directory_omits(
         _verify(tmp_path)
 
 
-_HANDOFF_SCHEMA = CONTRACT_DIR / "scenario-handoff-v6" / "schema.json"
+_HANDOFF_SCHEMA = CONTRACT_DIR / "scenario-handoff-v1" / "schema.json"
 
 
 def test_claim_levels_are_the_handoff_contract_levels_in_order() -> None:

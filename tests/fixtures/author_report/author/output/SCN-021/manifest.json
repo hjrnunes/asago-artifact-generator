@@ -3,7 +3,7 @@
     "status": "accepted"
   },
   "creation_model": {},
-  "input_kind": "scenario-handoff-v6",
+  "input_kind": "scenario-handoff-v1",
   "manifest_digest": "d5e7bc05bcb786ea920809674229a0133f48632f8583d9a99ea5c0535aab9301",
   "members": [
     {
@@ -46,7 +46,7 @@
   "package_id": "SCN-021-SCN-021",
   "runtime_capabilities": {},
   "scenario_id": "SCN-021",
-  "schema_version": "artifact-package-v5",
+  "schema_version": "artifact-package-v1",
   "source_digests": {
     "gherkin": "8f030303d941ff247102ee7978a079418d519cee7e9896d25279b78cd169fb1c",
     "input": "df9597c6ff23cb8a7bdcfc80d82754697bb104ba814d4efb7e75f172ee6633df"

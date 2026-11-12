@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from asago_artifact_generator.authoring.binding_repair import correction_repair_inputs
-from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
+from asago_artifact_generator.authoring.checks import collect_plan_findings
 from asago_artifact_generator.authoring.correction import (
     _render_correction_packet,
     build_correction_context,
@@ -27,8 +27,8 @@ from asago_artifact_generator.authoring.prompt_context import (
     build_plan_author_context,
 )
 from asago_artifact_generator.authoring.prompt_packets import (
-    build_call1_packet_v2,
-    build_call2_packet_v2,
+    build_call1_packet,
+    build_call2_packet,
 )
 from asago_artifact_generator.authoring.review import (
     build_artifact_review_packet,
@@ -159,7 +159,7 @@ def test_the_plan_stage_returns_the_record_finding(tmp_path: Path) -> None:
 def test_the_plan_checks_accept_the_record_field(tmp_path: Path) -> None:
     refund = world("refund")
 
-    findings = collect_plan_findings_v2(plan_naming("ORD-102"), refund["inventory"], runtime())
+    findings = collect_plan_findings(plan_naming("ORD-102"), refund["inventory"], runtime())
 
     assert findings == []
 
@@ -265,7 +265,7 @@ def test_the_plan_contract_asks_for_the_record_only_when_the_plan_names_it(
     inventory = indirect_inventory(refund["inventory"])
 
     def properties(view: Any) -> dict[str, Any]:
-        packet = build_call1_packet_v2(view, inventory, runtime())
+        packet = build_call1_packet(view, inventory, runtime())
         schema = rendered_response_contract(packet)["schema"]
         return schema["properties"]["stimulus_approach"]
 
@@ -339,7 +339,7 @@ def test_every_plan_stage_request_carries_the_slots_records(tmp_path: Path) -> N
         correction_repair_inputs(view, inventory, runtime()),
     )
     packets = {
-        "call1": build_call1_packet_v2(view, inventory, runtime()),
+        "call1": build_call1_packet(view, inventory, runtime()),
         "plan_review": build_plan_review_packet(view, plan, inventory, runtime()),
         "plan_correction": correction,
     }
@@ -428,7 +428,7 @@ def test_the_artifact_stages_show_the_record_the_plan_fixed(tmp_path: Path) -> N
     plan = plan_naming("ORD-102")
     metadata = indirect_metadata(refund["metadata"])
     packets = {
-        "call2": build_call2_packet_v2(view, plan, inventory, runtime()),
+        "call2": build_call2_packet(view, plan, inventory, runtime()),
         "artifact_review": build_artifact_review_packet(
             view, plan, metadata, inventory, runtime()
         ),
@@ -452,7 +452,7 @@ def test_the_artifact_example_turns_name_the_record_the_plan_fixed(
 
     view = indirect_view(tmp_path, turns=turns, record_ref=None)
     inventory = indirect_inventory(world("refund")["inventory"])
-    packet = build_call2_packet_v2(view, plan_naming("ORD-102", turns), inventory, runtime())
+    packet = build_call2_packet(view, plan_naming("ORD-102", turns), inventory, runtime())
 
     fields = json_section(packet.user, "INDIRECT SHAPE")["fields"]
     examples = [item["content"] for item in fields["stimulus.history"]["example"]]
@@ -471,7 +471,7 @@ def _artifact_packets(view: Any, plan: dict[str, Any]) -> dict[str, Any]:
     inventory = indirect_inventory(refund["inventory"])
     metadata = indirect_metadata(refund["metadata"])
     return {
-        "call2": build_call2_packet_v2(view, plan, inventory, runtime()),
+        "call2": build_call2_packet(view, plan, inventory, runtime()),
         "artifact_review": build_artifact_review_packet(
             view, plan, metadata, inventory, runtime()
         ),

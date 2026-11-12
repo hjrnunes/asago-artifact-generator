@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from asago_artifact_generator.authoring.contracts import neutral_artifact_plan_v2
+from asago_artifact_generator.authoring.contracts import neutral_artifact_plan
 
 from .support import HANDOFF, ScriptedAuthoringTransport, stage_local_orchestrator
 
@@ -43,7 +43,7 @@ def _view():
 def test_correction_size_accounting_is_evidence_only(tmp_path: Path) -> None:
     invalid = b"```json\n{}\n```\n"
     transport = ScriptedAuthoringTransport(
-        [json.dumps(neutral_artifact_plan_v2()), invalid, invalid]
+        [json.dumps(neutral_artifact_plan()), invalid, invalid]
     )
     result = stage_local_orchestrator(
         transport=transport,

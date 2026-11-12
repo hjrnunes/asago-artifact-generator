@@ -39,7 +39,7 @@ def garak_receipt(root: Path, case: str) -> dict[str, Any]:
     (bundle / "reports").mkdir(parents=True)
     (bundle / "ipi-episodes.json").write_text(canonical(source), encoding="utf-8")
     manifest = {
-        "schema_version": "tool-bundle-v2",
+        "schema_version": "tool-bundle-v1",
         "tool": "garak",
         "scenario_id": metadata["scenario_id"],
         "package_id": metadata["package_id"],

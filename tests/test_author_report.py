@@ -409,7 +409,7 @@ def test_a_package_finding_is_shown_inside_its_package(run_dir: Path) -> None:
     path.write_text(
         json.dumps(
             {
-                "interface": "artifact-authoring-v2",
+                "interface": "artifact-authoring-v1",
                 "status": "structurally_valid",
                 "findings": [
                     {

@@ -14,10 +14,10 @@ import pytest
 from asago_artifact_generator import bindings
 from asago_artifact_generator.authoring import checks
 from asago_artifact_generator.authoring.checks import (
-    collect_artifact_findings_v2,
-    collect_plan_findings_v2,
-    normalize_artifact_v2,
-    normalize_plan_v2,
+    collect_artifact_findings,
+    collect_plan_findings,
+    normalize_artifact,
+    normalize_plan,
 )
 from asago_artifact_generator.authoring.core import _canonical_json, _sha256
 from asago_artifact_generator.authoring.orchestrator import AuthoringOrchestrator
@@ -97,8 +97,8 @@ def test_plan_normalization_is_pure() -> None:
     plan = _plan_needing_every_rewrite()
     written = copy.deepcopy(plan)
 
-    first = normalize_plan_v2(plan, _orders_inventory(), _runtime_contract())
-    second = normalize_plan_v2(plan, _orders_inventory(), _runtime_contract())
+    first = normalize_plan(plan, _orders_inventory(), _runtime_contract())
+    second = normalize_plan(plan, _orders_inventory(), _runtime_contract())
 
     assert plan == written
     assert first == second
@@ -121,7 +121,7 @@ def test_plan_normalization_is_pure() -> None:
 
 
 def test_plan_normalization_keeps_a_plan_that_is_not_an_object() -> None:
-    normalized = normalize_plan_v2(["plan"], _orders_inventory(), _runtime_contract())
+    normalized = normalize_plan(["plan"], _orders_inventory(), _runtime_contract())
 
     assert normalized.plan == ["plan"]
     assert normalized.declarations is None
@@ -131,14 +131,14 @@ def test_plan_normalization_keeps_a_plan_that_is_not_an_object() -> None:
 
 
 def test_artifact_normalization_is_pure() -> None:
-    plan = normalize_plan_v2(
+    plan = normalize_plan(
         _plan_needing_every_rewrite(), _orders_inventory(), _runtime_contract()
     ).plan
     metadata = _metadata_needing_slots()
     written = copy.deepcopy((metadata, plan))
 
-    first = normalize_artifact_v2(metadata, plan)
-    second = normalize_artifact_v2(metadata, plan)
+    first = normalize_artifact(metadata, plan)
+    second = normalize_artifact(metadata, plan)
 
     assert (metadata, plan) == written
     assert first == second
@@ -149,12 +149,12 @@ def test_artifact_normalization_is_pure() -> None:
 
 
 def test_artifact_normalization_keeps_metadata_with_shape_findings_as_written() -> None:
-    plan = normalize_plan_v2(
+    plan = normalize_plan(
         _plan_needing_every_rewrite(), _orders_inventory(), _runtime_contract()
     ).plan
     metadata = {**_metadata_needing_slots(), "junk": "x"}
 
-    normalized, transformations = normalize_artifact_v2(metadata, plan)
+    normalized, transformations = normalize_artifact(metadata, plan)
 
     assert normalized == metadata
     assert normalized["stimulus"]["slots"] == []
@@ -168,8 +168,8 @@ _NORMALIZING = (
     (bindings, "root_source_refs"),
     (bindings, "supplied_binding_values"),
     (bindings, "validate_bindings"),
-    (checks, "normalize_plan_v2"),
-    (checks, "normalize_artifact_v2"),
+    (checks, "normalize_plan"),
+    (checks, "normalize_artifact"),
     (checks, "_canonicalize_binding_source"),
     (checks, "_normalize_prerequisite_binding_consumers"),
     (checks, "_normalize_stimulus_slots"),
@@ -242,13 +242,13 @@ def test_the_checks_read_the_normalized_candidates_without_normalizing_them(
     monkeypatch: pytest.MonkeyPatch, plan: Any, inventory: Any
 ) -> None:
     inventory = inventory()
-    normalized = normalize_plan_v2(plan(), inventory, _runtime_contract())
-    metadata, _ = normalize_artifact_v2(_metadata_needing_slots(), normalized.plan)
+    normalized = normalize_plan(plan(), inventory, _runtime_contract())
+    metadata, _ = normalize_artifact(_metadata_needing_slots(), normalized.plan)
     raw_plan = plan()
     checked = copy.deepcopy((normalized, metadata, raw_plan))
     calls = _count_normalizing_calls(monkeypatch)
 
-    collect_plan_findings_v2(
+    collect_plan_findings(
         normalized.plan,
         inventory,
         _runtime_contract(),
@@ -256,9 +256,9 @@ def test_the_checks_read_the_normalized_candidates_without_normalizing_them(
         source_refs=normalized.source_refs,
         declaration_findings=normalized.findings,
     )
-    collect_artifact_findings_v2(metadata, normalized.plan, inventory, _runtime_contract())
+    collect_artifact_findings(metadata, normalized.plan, inventory, _runtime_contract())
     # A plan that skipped normalization is reported, not repaired.
-    collect_plan_findings_v2(raw_plan, inventory, _runtime_contract())
+    collect_plan_findings(raw_plan, inventory, _runtime_contract())
 
     assert calls == []
     assert (normalized, metadata, raw_plan) == checked
@@ -266,11 +266,11 @@ def test_the_checks_read_the_normalized_candidates_without_normalizing_them(
 
 def test_a_normalized_plan_with_every_rewrite_passes_the_checks() -> None:
     inventory = _orders_inventory()
-    normalized = normalize_plan_v2(_plan_needing_every_rewrite(), inventory, _runtime_contract())
-    metadata, _ = normalize_artifact_v2(_metadata_needing_slots(), normalized.plan)
+    normalized = normalize_plan(_plan_needing_every_rewrite(), inventory, _runtime_contract())
+    metadata, _ = normalize_artifact(_metadata_needing_slots(), normalized.plan)
 
     assert (
-        collect_plan_findings_v2(
+        collect_plan_findings(
             normalized.plan,
             inventory,
             _runtime_contract(),
@@ -281,10 +281,10 @@ def test_a_normalized_plan_with_every_rewrite_passes_the_checks() -> None:
         == []
     )
     assert (
-        collect_artifact_findings_v2(metadata, normalized.plan, inventory, _runtime_contract())
+        collect_artifact_findings(metadata, normalized.plan, inventory, _runtime_contract())
         == []
     )
-    assert collect_plan_findings_v2(_plan_needing_every_rewrite(), inventory, _runtime_contract())
+    assert collect_plan_findings(_plan_needing_every_rewrite(), inventory, _runtime_contract())
 
 
 def test_the_counter_sees_the_helpers_that_normalize_for_other_callers(
@@ -319,7 +319,7 @@ def test_the_counter_sees_the_helpers_that_normalize_for_other_callers(
 
 def test_an_unresolved_shorthand_is_looked_up_by_the_normalization_step() -> None:
     inventory = _orders_inventory()
-    normalized = normalize_plan_v2(_unresolved_shorthand_plan(), inventory, _runtime_contract())
+    normalized = normalize_plan(_unresolved_shorthand_plan(), inventory, _runtime_contract())
 
     assert normalized.plan["runtime_bindings"][1]["source_ref"] == (
         "facts:state:orders:ORD-1:customer_id"
@@ -327,7 +327,7 @@ def test_an_unresolved_shorthand_is_looked_up_by_the_normalization_step() -> Non
     assert normalized.source_refs == {
         ("supplied_input", "facts:state:orders:ORD-1:customer_id"): "facts:state:orders"
     }
-    findings = collect_plan_findings_v2(
+    findings = collect_plan_findings(
         normalized.plan,
         inventory,
         _runtime_contract(),
@@ -396,7 +396,7 @@ def _closure_duplicate_plan() -> dict:
 
 def test_a_declaration_the_consumer_closure_made_a_duplicate_is_reported_once() -> None:
     inventory = _inventory()
-    normalized = normalize_plan_v2(_closure_duplicate_plan(), inventory, _runtime_contract())
+    normalized = normalize_plan(_closure_duplicate_plan(), inventory, _runtime_contract())
 
     assert normalized.plan["runtime_bindings"] == [
         {
@@ -406,7 +406,7 @@ def test_a_declaration_the_consumer_closure_made_a_duplicate_is_reported_once() 
     ]
     assert _kinds(normalized.transformations) == ["binding_consumer_added"]
     assert len(normalized.declarations) == 2
-    findings = collect_plan_findings_v2(
+    findings = collect_plan_findings(
         normalized.plan,
         inventory,
         _runtime_contract(),
@@ -423,7 +423,7 @@ def test_a_declaration_the_consumer_closure_made_a_duplicate_is_reported_once() 
         ),
     ]
     # Normalizing the normalized plan again changes and records nothing.
-    again = normalize_plan_v2(normalized.plan, inventory, _runtime_contract())
+    again = normalize_plan(normalized.plan, inventory, _runtime_contract())
     assert again.plan == normalized.plan
     assert again.transformations == []
     assert again.declarations == normalized.plan["runtime_bindings"]
@@ -510,11 +510,11 @@ def _competing_plan(case: str) -> dict:
 def test_competing_declarations_keep_their_findings(case: str) -> None:
     inventory = _inventory()
     authored = _competing_plan(case)["runtime_bindings"]
-    normalized = normalize_plan_v2(_competing_plan(case), inventory, _runtime_contract())
+    normalized = normalize_plan(_competing_plan(case), inventory, _runtime_contract())
 
     assert normalized.plan["runtime_bindings"] == authored[:2]
     assert _kinds(normalized.transformations) == ["binding_consumer_added"]
-    findings = collect_plan_findings_v2(
+    findings = collect_plan_findings(
         normalized.plan,
         inventory,
         _runtime_contract(),
@@ -557,8 +557,8 @@ def test_normalizing_competing_declarations_again_closes_the_one_left_last(case:
     """The plan checks did the same before normalization became one step."""
 
     inventory = _inventory()
-    normalized = normalize_plan_v2(_competing_plan(case), inventory, _runtime_contract())
-    again = normalize_plan_v2(normalized.plan, inventory, _runtime_contract())
+    normalized = normalize_plan(_competing_plan(case), inventory, _runtime_contract())
+    again = normalize_plan(normalized.plan, inventory, _runtime_contract())
 
     first, middle = normalized.plan["runtime_bindings"]
     assert again.plan["runtime_bindings"] == [
@@ -582,8 +582,8 @@ def test_normalizing_competing_declarations_again_closes_the_one_left_last(case:
 def test_normalization_is_idempotent_without_competing_declarations(
     plan: Any, inventory: Any
 ) -> None:
-    normalized = normalize_plan_v2(plan(), inventory(), _runtime_contract())
-    again = normalize_plan_v2(normalized.plan, inventory(), _runtime_contract())
+    normalized = normalize_plan(plan(), inventory(), _runtime_contract())
+    again = normalize_plan(normalized.plan, inventory(), _runtime_contract())
 
     assert again.plan == normalized.plan
     assert again.transformations == []
@@ -605,9 +605,9 @@ def test_normalizing_an_accepted_plan_twice_equals_normalizing_it_once(
     def normalize(plan: dict) -> Any:
         """Return the accepted canonical bindings, which is what a caller keeps."""
 
-        return normalize_plan_v2(plan, build_inventory(), _runtime_contract()).plan
+        return normalize_plan(plan, build_inventory(), _runtime_contract()).plan
 
-    first = normalize_plan_v2(build_plan(), build_inventory(), _runtime_contract())
+    first = normalize_plan(build_plan(), build_inventory(), _runtime_contract())
     assert first.findings == []
     accepted = first.plan
 
@@ -619,7 +619,7 @@ def test_a_rejected_plan_keeps_its_diagnostics(case: str) -> None:
     """The accepted bindings drop a duplicate; normalization keeps its findings."""
 
     inventory = _inventory()
-    normalized = normalize_plan_v2(_competing_plan(case), inventory, _runtime_contract())
+    normalized = normalize_plan(_competing_plan(case), inventory, _runtime_contract())
 
     # The prerequisite consumer makes the last declaration equal to the first,
     # so the accepted bindings keep two of the three the author sent.
@@ -631,7 +631,7 @@ def test_a_rejected_plan_keeps_its_diagnostics(case: str) -> None:
         item for item in _COMPETING_FINDINGS[case] if item[0] == "plan_binding_validation"
     ]
     # ... and the checks report those diagnostics plus the stimulus ones.
-    findings = collect_plan_findings_v2(
+    findings = collect_plan_findings(
         normalized.plan,
         inventory,
         _runtime_contract(),
@@ -661,15 +661,15 @@ def test_the_checks_report_the_findings_normalization_computed(
     """Reading the computed findings changes no finding, their order included."""
 
     inventory = build_inventory()
-    normalized = normalize_plan_v2(build_plan(), inventory, _runtime_contract())
-    recomputed = collect_plan_findings_v2(
+    normalized = normalize_plan(build_plan(), inventory, _runtime_contract())
+    recomputed = collect_plan_findings(
         normalized.plan,
         inventory,
         _runtime_contract(),
         declarations=normalized.declarations,
         source_refs=normalized.source_refs,
     )
-    passed_in = collect_plan_findings_v2(
+    passed_in = collect_plan_findings(
         normalized.plan,
         inventory,
         _runtime_contract(),
@@ -689,9 +689,9 @@ def test_the_orchestrator_records_the_rewrites_of_its_one_normalization(tmp_path
     inventory = _orders_inventory()
     plan = _plan_needing_every_rewrite()
     metadata = _metadata_needing_slots()
-    normalized = normalize_plan_v2(plan, inventory, _runtime_contract())
+    normalized = normalize_plan(plan, inventory, _runtime_contract())
     normalized_plan, plan_rewrites = normalized.plan, normalized.transformations
-    normalized_metadata, artifact_rewrites = normalize_artifact_v2(metadata, normalized_plan)
+    normalized_metadata, artifact_rewrites = normalize_artifact(metadata, normalized_plan)
     transport = ScriptedAuthoringTransport([json.dumps(plan), _framed(metadata)])
 
     result = AuthoringOrchestrator(

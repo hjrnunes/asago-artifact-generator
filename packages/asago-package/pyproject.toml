@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "asago-package"
 version = "0.1.0"
-description = "The artifact-package-v5 values, writer and reader, with the authority contract kits it verifies"
+description = "The artifact-package-v1 values, writer and reader, with the authority contract kits it verifies"
 requires-python = ">=3.12"
 dependencies = [
     # ``runtime_contract_spec`` reads the runtime contract through the same installed spec

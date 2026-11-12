@@ -98,7 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     instantiate_cmd.set_defaults(handler=_instantiate)
     parse_cmd = commands.add_parser(
         "parse",
-        help="write execution-receipt-v2 from Garak's report; a failed run still exits 0",
+        help="write execution-receipt-v1 from Garak's report; a failed run still exits 0",
     )
     parse_cmd.add_argument("bundle", type=Path, help="concrete bundle directory")
     parse_cmd.add_argument("--out", type=Path, required=True, help="receipt path")

@@ -13,7 +13,7 @@ from copy import deepcopy
 from typing import Any
 
 from ..input_adapter import InputView
-from .contracts import _call1_contract_v2
+from .contracts import _call1_contract
 from .core import Finding
 from .planted_item import (
     PLANTED_ITEM_DELIVERY,
@@ -76,7 +76,7 @@ def plan_response_contract(
     among the slot's ``records`` also carries the record field, limited to them.
     """
 
-    contract = _call1_contract_v2()
+    contract = _call1_contract()
     approach = contract["schema"]["properties"]["stimulus_approach"]
     only = delivery or (SEQUENTIAL_DELIVERY if turns > 1 else None)
     if only is not None:

@@ -60,7 +60,7 @@
     "original_decision": "accept",
     "out_of_scope_findings": [],
     "prompt_sha256": "9e2ab242f8561122f5166c8721ebf57c9bc604ac46c2c46729b8fcfe8297f226",
-    "prompt_version": "authoring-plan-review-v20",
+    "prompt_version": "authoring-plan-review-v1",
     "question_ids": [
      "scenario_fidelity",
      "stimulus_fit",
@@ -219,7 +219,7 @@
     "original_decision": "accept",
     "out_of_scope_findings": [],
     "prompt_sha256": "d44a66a7d2afe4049849cf472af294aa339d35e7f42a8c7279a0d445ccf17f6f",
-    "prompt_version": "authoring-artifact-review-v20",
+    "prompt_version": "authoring-artifact-review-v1",
     "question_ids": [
      "judge_spec_implements_plan",
      "stimulus_realizes_plan",
@@ -344,7 +344,7 @@
   "artifact": "accepted",
   "plan": "accepted"
  },
- "schema_version": "authoring-failure-evidence-v2",
+ "schema_version": "authoring-failure-evidence-v1",
  "status": "accepted",
  "task_id": "SCN-004",
  "terminal": {

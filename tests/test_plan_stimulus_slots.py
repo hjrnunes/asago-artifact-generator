@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
+from asago_artifact_generator.authoring.checks import collect_plan_findings
 
 from .support import world_builders
 
@@ -35,7 +35,7 @@ def _documented_inventory() -> dict:
 
 
 def _findings(plan: dict):
-    return collect_plan_findings_v2(plan, _documented_inventory(), _runtime_contract())
+    return collect_plan_findings(plan, _documented_inventory(), _runtime_contract())
 
 
 def _codes(plan: dict) -> list[tuple[str, str]]:

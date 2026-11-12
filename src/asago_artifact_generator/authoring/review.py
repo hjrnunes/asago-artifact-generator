@@ -18,7 +18,7 @@ from .contracts import (
 )
 from .core import (
     ARTIFACT_REVIEW_PROMPT_VERSION,
-    AUTHORING_INTERFACE_VERSION_V2,
+    AUTHORING_INTERFACE_VERSION,
     MAX_RENDERED_PROMPT_BYTES,
     PLAN_REVIEW_PROMPT_VERSION,
     Finding,
@@ -842,7 +842,7 @@ def build_plan_review_packet(
     )
     record_sections = plan_review_record_sections(view, runtime_contract)
     payload = {
-        "interface": AUTHORING_INTERFACE_VERSION_V2,
+        "interface": AUTHORING_INTERFACE_VERSION,
         "stage": "plan_review",
         **context,
         **multi_turn_payload(view, runtime_contract),
@@ -852,7 +852,7 @@ def build_plan_review_packet(
     packet = PromptPacket(
         stage="plan_review",
         version=PLAN_REVIEW_PROMPT_VERSION,
-        system=_PLAN_REVIEW_SYSTEM_V3,
+        system=_PLAN_REVIEW_SYSTEM_WITH_GUIDANCE,
         user=_render_sections(
             (
                 ("ORIGINAL SCENARIO", context["original_scenario"]),
@@ -908,7 +908,7 @@ def build_artifact_review_packet(
         view, plan, metadata, inventory, runtime_contract, rejected=rejected
     )
     payload = {
-        "interface": AUTHORING_INTERFACE_VERSION_V2,
+        "interface": AUTHORING_INTERFACE_VERSION,
         "stage": "artifact_review",
         **context,
         **multi_turn_payload(view, runtime_contract, plan),
@@ -944,7 +944,7 @@ def build_artifact_review_packet(
     packet = PromptPacket(
         stage="artifact_review",
         version=ARTIFACT_REVIEW_PROMPT_VERSION,
-        system=_ARTIFACT_REVIEW_SYSTEM_V3,
+        system=_ARTIFACT_REVIEW_SYSTEM_WITH_GUIDANCE,
         user=_render_sections(tuple(sections)),
         payload=payload,
     )
@@ -1042,7 +1042,7 @@ def _review_configuration_digest(
 
 
 _PLAN_REVIEW_SYSTEM = prose("review/plan_review_system")
-_PLAN_REVIEW_SYSTEM_V3 = (
+_PLAN_REVIEW_SYSTEM_WITH_GUIDANCE = (
     _PLAN_REVIEW_SYSTEM
     + " "
     + _PLAN_REVIEW_GUIDANCE
@@ -1050,4 +1050,4 @@ _PLAN_REVIEW_SYSTEM_V3 = (
     + prose("review/plan_review_binding_rules")
 )
 _ARTIFACT_REVIEW_SYSTEM = prose("review/artifact_review_system")
-_ARTIFACT_REVIEW_SYSTEM_V3 = _ARTIFACT_REVIEW_SYSTEM + " " + _ARTIFACT_REVIEW_GUIDANCE
+_ARTIFACT_REVIEW_SYSTEM_WITH_GUIDANCE = _ARTIFACT_REVIEW_SYSTEM + " " + _ARTIFACT_REVIEW_GUIDANCE

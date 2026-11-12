@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
+from asago_artifact_generator.authoring.checks import collect_plan_findings
 from asago_artifact_generator.authoring.plan_triggers import uncited_trigger_observations
 
 from .test_omission_plan_checks import _OMISSION, _TARGET_REF, _full_plan, _inventory
@@ -59,7 +59,7 @@ def test_a_setup_output_binding_reads_a_permitted_setup_operation(
     ]
     runtime = {"delivery": ["direct_user_message"], "setup_permissions": permissions}
 
-    findings = collect_plan_findings_v2(plan, inventory, runtime)
+    findings = collect_plan_findings(plan, inventory, runtime)
 
     assert [
         finding.detail for finding in findings if finding.path == "runtime_bindings[0].source_ref"

@@ -16,7 +16,7 @@ contracts and historical experiment details belong in their own documents.
 
 - **Scenario** — the producer's statement of one failure: narrative, attack tree,
   Gherkin, failure criterion and safe alternative. You do not invent it.
-- **Artifact package** (`artifact-package-v5`) — the frozen test material
+- **Artifact package** (`artifact-package-v1`) — the frozen test material
   authoring returns: stimulus, setup, bindings, checks and judge facts.
 - **Planted item** — the lower-trust data item an indirect attack uses to carry
   the payload.
@@ -39,7 +39,7 @@ contracts and historical experiment details belong in their own documents.
   failure criterion, safe alternative, and metadata.
 - This consumer designs concrete stimuli, setup declarations, runtime bindings,
   and semantic judge specifications using supplied facts and documented
-  capabilities. Packages (`artifact-package-v5`, from a `scenario-handoff-v6`
+  capabilities. Packages (`artifact-package-v1`, from a `scenario-handoff-v1`
   input) contain no detector code; the loader refuses a v4 package.
 - `generate` is target-free. The plan owns the experiment; artifact authoring turns
   the accepted plan into a frozen package. Code checks run before the applicable
@@ -141,11 +141,11 @@ the group the module skips and names what it needs.
   adds the binding sources and destinations. Authoring's policies sit beside its wording
   (`asago_package.bindings.AUTHORING_POLICY`, `checks._FINDINGS_POLICY`); change a rule
   in the engine, for both.
-- `src/asago_artifact_generator/package_io.py`: a re-export of the artifact-package-v5
+- `src/asago_artifact_generator/package_io.py`: a re-export of the artifact-package-v1
   writer and loader the `asago-package` member owns. The loader refuses any other schema
   version, naming it.
 - `src/asago_artifact_generator/authoring/condition_eval.py`: a re-export of the
-  tool-call-condition-v2 validator and evaluator the producer's
+  tool-call-condition-v1 validator and evaluator the producer's
   `packages/asago-contracts-core` member owns (`asago_contracts_core.condition_eval`,
   re-exported as `asago_handoff.condition_eval`). Authoring's self-test,
   `tests/test_condition_eval.py` and the injection-spec compiler read it; orch's probe names
@@ -163,12 +163,12 @@ the group the module skips and names what it needs.
   declared target's runtime contract from the shared base; orch runs it in this
   interpreter, and the producer holds no copy.
 - `packages/asago-bundle-core/`: the tool-neutral core every tool adapter builds on (the
-  `tool-bundle-v2` runtime spec, slot markers, the capability-gap
+  `tool-bundle-v1` runtime spec, slot markers, the capability-gap
   record, `BundleError`, the `testing` package builders, the `mcp_records` readers of the
   orchestrator's boundary records, and the `conformance` helper that round-trips
   `compile`, `instantiate` and `parse` of an adapter and returns failure messages).
-  `receipt_contract` and `bundle_contract` ship the consumer's `execution-receipt-v2` and
-  `tool-bundle-v2` specs as package data and read every receipt and bundle an adapter writes
+  `receipt_contract` and `bundle_contract` ship the consumer's `execution-receipt-v1` and
+  `tool-bundle-v1` specs as package data and read every receipt and bundle an adapter writes
   through `SpecSet.read`;
   `contracts/execution-receipt/` and `contracts/tool-bundle/` are the authorities, and a
   test refuses a copy that differs. `schema.manifest_errors` reads a manifest through

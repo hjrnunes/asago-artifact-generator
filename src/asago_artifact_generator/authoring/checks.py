@@ -37,7 +37,7 @@ from ..bindings import (
     supplied_values_as_declared,
 )
 from ..contract_kit import CLAIM_LEVELS, ClaimLevel
-from .contracts import _SEMANTIC_JUDGE_SPEC_RULES, _call1_contract_v2
+from .contracts import _SEMANTIC_JUDGE_SPEC_RULES, _call1_contract
 from .core import (
     Finding,
     PlanValidationError,
@@ -260,7 +260,7 @@ def _call2_example_findings(label: str, item: Any) -> list[Finding]:
     return findings
 
 
-def collect_plan_findings_v2(
+def collect_plan_findings(
     plan: Any,
     inventory: dict[str, Any],
     runtime_contract: dict[str, Any],
@@ -271,7 +271,7 @@ def collect_plan_findings_v2(
     source_refs: Mapping[tuple[str, str], str] | None = None,
     declaration_findings: Collection[Finding] | None = None,
 ) -> list[Finding]:
-    """Return every structural finding for a v2 plan that ``normalize_plan_v2`` returned.
+    """Return every structural finding for a v2 plan that ``normalize_plan`` returned.
 
     The v2 root fields (``assumptions`` and ``required_observations``) are
     checked here; the remaining fields go through the shared field validator,
@@ -295,7 +295,7 @@ def collect_plan_findings_v2(
 
     if not isinstance(plan, dict):
         return [Finding("response_type_error", "plan must be an object", "response", stage="plan")]
-    findings = _v2_root_field_findings(plan, _call1_contract_v2()["schema"]["required"])
+    findings = _root_field_findings(plan, _call1_contract()["schema"]["required"])
     findings.extend(_plan_assumptions_findings(plan, inventory, provenance_ids))
     if not isinstance(plan.get("required_observations"), dict) and (
         "required_observations" in plan
@@ -540,7 +540,7 @@ def _omission_trigger_missing_finding(
     return Finding("omission_trigger_missing", detail, "selected_evidence")
 
 
-def collect_artifact_findings_v2(
+def collect_artifact_findings(
     metadata: dict[str, Any],
     plan: dict[str, Any],
     inventory: dict[str, Any],
@@ -549,7 +549,7 @@ def collect_artifact_findings_v2(
     condition: Mapping[str, Any] | None = None,
     planted_max_chars: int | None = None,
 ) -> list[Finding]:
-    """Validate v2 metadata that ``normalize_artifact_v2`` returned against the accepted plan.
+    """Validate v2 metadata that ``normalize_artifact`` returned against the accepted plan.
 
     ``condition`` is the handoff's bound tool-call condition. A command-attempt
     artifact whose example captures pass the structural checks is also scored
@@ -984,7 +984,7 @@ def _semantic_judge_fact_ref_findings(
     return findings
 
 
-def _v2_root_field_findings(plan: dict[str, Any], required: list[str]) -> list[Finding]:
+def _root_field_findings(plan: dict[str, Any], required: list[str]) -> list[Finding]:
     """Report root fields outside the contract, then required root fields that are absent."""
 
     findings = unexpected_field_findings(plan, required, "unexpected plan field", "")
@@ -1572,7 +1572,7 @@ def _collect_binding_findings(
     finding_code: str = "artifact_validation",
     source_refs: Mapping[tuple[str, str], str] | None = None,
 ) -> list[Finding]:
-    """Check declarations that ``normalize_plan_v2`` already canonicalized.
+    """Check declarations that ``normalize_plan`` already canonicalized.
 
     The binding engine reports every fault of each declaration under
     ``_FINDINGS_POLICY``, looking each source up as ``source_refs`` (the
@@ -1615,7 +1615,7 @@ def _declaration_findings(
 ) -> list[Finding]:
     """Return the declarations' diagnostics, recomputing them when none were passed.
 
-    ``normalize_plan_v2`` computes these once and returns them; a caller that
+    ``normalize_plan`` computes these once and returns them; a caller that
     normalizes nothing passes none and reads the same findings here.
     """
 
@@ -2124,7 +2124,7 @@ class NormalizedPlan:
     source_refs: dict[tuple[str, str], str]
 
 
-def normalize_plan_v2(
+def normalize_plan(
     plan: Any, inventory: dict[str, Any], runtime_contract: dict[str, Any]
 ) -> NormalizedPlan:
     """Return the accepted plan, the author's declarations, their findings and the rewrites.
@@ -2172,10 +2172,10 @@ def normalize_plan_v2(
     return NormalizedPlan(normalized, declarations, findings, transformations, source_refs)
 
 
-def normalize_artifact_v2(metadata: Any, plan: dict[str, Any]) -> tuple[Any, list[dict[str, Any]]]:
+def normalize_artifact(metadata: Any, plan: dict[str, Any]) -> tuple[Any, list[dict[str, Any]]]:
     """Return a copy of v2 metadata with its stimulus slots derived, and the rewrites.
 
-    ``plan`` is the accepted plan ``normalize_plan_v2`` returned; its declared
+    ``plan`` is the accepted plan ``normalize_plan`` returned; its declared
     bindings name the slots.  The metadata passed in is not changed.  Metadata
     with shape findings is returned as written: those findings describe the
     response the author sent.
@@ -2368,7 +2368,7 @@ class MechanicalCheck:
 
 
 PLAN_MECHANICAL_CHECKS = (
-    MechanicalCheck("plan_root_fields", (_v2_root_field_findings, _plan_list_type_findings)),
+    MechanicalCheck("plan_root_fields", (_root_field_findings, _plan_list_type_findings)),
     MechanicalCheck(
         "plan_references",
         (_selected_evidence_findings, _plan_assumptions_findings, _interpretation_findings),
@@ -2386,7 +2386,7 @@ PLAN_MECHANICAL_CHECKS = (
     ),
 )
 ARTIFACT_MECHANICAL_CHECKS = (
-    MechanicalCheck("accepted_plan", (collect_plan_findings_v2,)),
+    MechanicalCheck("accepted_plan", (collect_plan_findings,)),
     MechanicalCheck(
         "call2_response",
         (

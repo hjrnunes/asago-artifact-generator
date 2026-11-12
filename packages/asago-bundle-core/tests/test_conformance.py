@@ -120,7 +120,7 @@ class FakeAdapter:
             run["salt"] = self.compiles
         requires = ["gateway_url", "mcp_url", "messages", "model"]
         manifest = {
-            "schema_version": "tool-bundle-v2",
+            "schema_version": "tool-bundle-v1",
             "tool": "fake",
             "tool_revision_range": ">=1",
             "package_id": package.manifest.package_id,
@@ -140,7 +140,7 @@ class FakeAdapter:
             "entrypoint": ["{tool_python}", "--config", "{bundle}/run.json", "--name", "{model}"],
             "native_outputs": ["reports/fake.report.jsonl"],
         }
-        spec = installed_specs().spec("tool-bundle", "tool-bundle-v2")
+        spec = installed_specs().spec("tool-bundle", "tool-bundle-v1")
         manifest = write_envelope(
             manifest, spec, writer="tests.conformance", writer_version="0.1.0"
         )
@@ -212,7 +212,7 @@ class FakeAdapter:
         failed = not report.is_file() and "native-missing-ok" not in self.flaws
         reason = None if "no-reason" in self.flaws else "report_missing"
         receipt = {
-            "schema_version": "execution-receipt-v2",
+            "schema_version": "execution-receipt-v1",
             "tool": {"id": "fake", "revision": None, "adapter_revision": None},
             "package": {
                 "id": manifest["scenario_id"],

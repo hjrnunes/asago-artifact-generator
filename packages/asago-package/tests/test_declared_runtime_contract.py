@@ -19,7 +19,7 @@ from asago_package.declared_runtime_contract import (
 )
 from asago_package.runtime_contract_spec import VERSION, read_runtime_contract
 
-SCHEMA_VERSION = "artifact-runtime-contract-v3"
+SCHEMA_VERSION = "artifact-runtime-contract-v1"
 
 
 def _payload(contract: dict[str, Any]) -> dict[str, Any]:

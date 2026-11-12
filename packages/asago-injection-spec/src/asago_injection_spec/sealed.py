@@ -1,4 +1,4 @@
-"""parse: turn one evaluation's sealed snapshot and its verdict into ``execution-receipt-v2``.
+"""parse: turn one evaluation's sealed snapshot and its verdict into ``execution-receipt-v1``.
 
 The runner opens the evaluation ``compile`` wrote (``midojo.open_evaluation``), seals it, and
 grades the sealed snapshot with ``midojo.grade``, MiDojo's pure grade function. It leaves

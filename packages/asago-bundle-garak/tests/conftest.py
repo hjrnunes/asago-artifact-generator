@@ -104,7 +104,7 @@ def write_setup_package(
                 }
             ]
         ),
-        "checks.json": _json({"interface": "artifact-authoring-v2"}),
+        "checks.json": _json({"interface": "artifact-authoring-v1"}),
         "inputs.json": _json(
             {"inventory": {"operations": operations}, "runtime_contract": contract}
         ),
@@ -116,7 +116,7 @@ def write_setup_package(
     package = build_package(
         package_id="SCN-PB1-SCN-PB1",
         scenario_id="SCN-PB1",
-        input_kind="scenario-handoff-v6",
+        input_kind="scenario-handoff-v1",
         source_digests={"handoff": "0" * 64},
         members=members,
     )

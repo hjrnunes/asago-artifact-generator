@@ -76,7 +76,7 @@
     "original_decision": "accept",
     "out_of_scope_findings": [],
     "prompt_sha256": "b31800356574df1429e331ac99026a9ae31e809408c3dba42c127038e14f12a5",
-    "prompt_version": "authoring-plan-review-v20",
+    "prompt_version": "authoring-plan-review-v1",
     "question_ids": [
      "scenario_fidelity",
      "stimulus_fit",
@@ -330,7 +330,7 @@
     "original_decision": "revise",
     "out_of_scope_findings": [],
     "prompt_sha256": "4f323f90f20e45e91fb307ab4c8b4be4f13530824f3261063f5cbba2b60f342e",
-    "prompt_version": "authoring-artifact-review-v20",
+    "prompt_version": "authoring-artifact-review-v1",
     "question_ids": [
      "judge_spec_implements_plan",
      "stimulus_realizes_plan",
@@ -463,7 +463,7 @@
     "original_decision": "revise",
     "out_of_scope_findings": [],
     "prompt_sha256": "4f323f90f20e45e91fb307ab4c8b4be4f13530824f3261063f5cbba2b60f342e",
-    "prompt_version": "authoring-artifact-review-v20",
+    "prompt_version": "authoring-artifact-review-v1",
     "question_ids": [
      "judge_spec_implements_plan",
      "stimulus_realizes_plan",
@@ -580,7 +580,7 @@
   "artifact": "revise",
   "plan": "accepted"
  },
- "schema_version": "authoring-failure-evidence-v2",
+ "schema_version": "authoring-failure-evidence-v1",
  "status": "unresolved",
  "task_id": "SCN-001",
  "terminal": {

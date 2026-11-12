@@ -12,10 +12,10 @@ from .binding_repair import (
     _binding_repair_options_for_correction,
     _reference_repair_options_for_correction,
 )
-from .contracts import _call2_contract_v2
+from .contracts import _call2_contract
 from .core import (
-    CORRECTION_PROMPT_VERSION_V50,
-    CORRECTION_PROMPT_VERSION_V53,
+    PLAN_CORRECTION_PROMPT_VERSION,
+    ARTIFACT_CORRECTION_PROMPT_VERSION,
     Finding,
     FindingTarget,
     PromptPacket,
@@ -271,7 +271,7 @@ def _render_correction_packet(
     packet = PromptPacket(
         stage="correction",
         version=(
-            CORRECTION_PROMPT_VERSION_V53 if view.artifact else CORRECTION_PROMPT_VERSION_V50
+            ARTIFACT_CORRECTION_PROMPT_VERSION if view.artifact else PLAN_CORRECTION_PROMPT_VERSION
         ),
         system=_CORRECTION_SYSTEM,
         user=_render_sections(
@@ -469,7 +469,7 @@ def build_correction_context(
             {
                 "accepted_plan_fixed": True,
                 "format": prose("correction/artifact_format"),
-                "response_contract": _call2_contract_v2(
+                "response_contract": _call2_contract(
                     original_context.get("accepted_plan"),
                     planted_max_chars=planted_text_limit_in_context(original_context),
                 ),

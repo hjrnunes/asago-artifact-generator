@@ -33,7 +33,7 @@ LOCKS: dict[str, dict[str, str]] = {
     "runtime-contract": {
         "authority": "asago-artifact-generator",
         "contract": "runtime-contract",
-        "schema_version": "artifact-runtime-contract-v3",
+        "schema_version": "artifact-runtime-contract-v1",
     },
     "capability-gap": {
         "authority": "asago-artifact-generator",
@@ -70,7 +70,7 @@ def test_the_writer_verifies_the_artifact_package_lock() -> None:
 def test_a_contract_with_an_unlocked_file_is_refused(tmp_path: Path) -> None:
     copy = tmp_path / "artifact-package"
     shutil.copytree(contract_dir("artifact-package"), copy)
-    (copy / "artifact-package-v5" / "stray.json").write_text("{}\n", encoding="utf-8")
+    (copy / "artifact-package-v1" / "stray.json").write_text("{}\n", encoding="utf-8")
 
     with pytest.raises(PackageIntegrityError, match=r"stray\.json"):
         _verify(copy, "artifact-package")

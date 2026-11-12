@@ -10,7 +10,7 @@ import pytest
 from asago_artifact_generator.authoring import contracts
 from asago_artifact_generator.authoring.checks import (
     _collect_binding_findings,
-    collect_plan_findings_v2,
+    collect_plan_findings,
 )
 from asago_artifact_generator.authoring.contracts import _binding_contract, _binding_list_schema
 from asago_artifact_generator.bindings import (
@@ -991,7 +991,7 @@ def _plan_with_consumer(consumer: str, claim_level: str) -> dict:
 
 
 def _consumer_plan_findings(consumer: str, claim_level: str) -> list[tuple[str, str, str]]:
-    findings = collect_plan_findings_v2(
+    findings = collect_plan_findings(
         _plan_with_consumer(consumer, claim_level), _inventory(), _runtime_contract()
     )
     return [
@@ -1036,7 +1036,7 @@ def test_judge_consumer_check_skips_declarations_that_have_no_consumer_list() ->
         {"name": "mixed", "consumers": [3, "judge.status"]},
     ]
 
-    findings = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
+    findings = collect_plan_findings(plan, _inventory(), _runtime_contract())
 
     assert [f.path for f in findings if f.detail.endswith("claim_level is reply")] == [
         "runtime_bindings[3].consumers[1]"
@@ -1047,7 +1047,7 @@ def test_consumer_without_a_claim_level_leaves_the_claim_finding_alone() -> None
     plan = _plan_with_consumer("judge.status", "reply")
     plan["observation_claim"]["claim_level"] = "unknown"
 
-    findings = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
+    findings = collect_plan_findings(plan, _inventory(), _runtime_contract())
 
     assert [f.path for f in findings if f.path.startswith("runtime_bindings[0].consumers")] == []
 
@@ -1132,7 +1132,7 @@ def test_plan_reports_an_unhashable_source_kind_as_a_finding(source_kind: object
     plan = _plan_with_consumer("judge.status", "reply")
     plan["runtime_bindings"][0]["source_kind"] = source_kind
 
-    findings = collect_plan_findings_v2(plan, _inventory(), _runtime_contract())
+    findings = collect_plan_findings(plan, _inventory(), _runtime_contract())
 
     assert [
         (f.code, f.detail) for f in findings if f.path == "runtime_bindings[0].source_kind"

@@ -2,7 +2,7 @@
   "allowed": [
     {
       "metadata": {
-        "interface": "artifact-authoring-v2",
+        "interface": "artifact-authoring-v1",
         "usage": [
           {
             "availability": "available",
@@ -72,7 +72,7 @@
     {
       "metadata": {
         "context_window_tokens": 32768,
-        "interface": "artifact-authoring-v2",
+        "interface": "artifact-authoring-v1",
         "max_completion_tokens": 8192
       },
       "name": "model-controls"

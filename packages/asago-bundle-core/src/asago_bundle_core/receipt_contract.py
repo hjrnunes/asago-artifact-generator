@@ -23,7 +23,7 @@ from asago_contracts_core import ContractSpec, SpecSet, load_specs, write_envelo
 
 CONTRACTS_DIR = Path(__file__).resolve().parent / "contracts"
 CONTRACT = "execution-receipt"
-VERSION = "execution-receipt-v2"
+VERSION = "execution-receipt-v1"
 
 
 @cache

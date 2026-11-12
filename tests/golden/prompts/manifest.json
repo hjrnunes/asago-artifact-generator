@@ -1,8 +1,8 @@
 {
-  "artifact_correction": "authoring-correction-v53",
-  "artifact_review": "authoring-artifact-review-v31",
-  "call1": "authoring-call1-v31",
-  "call2": "authoring-call2-v35",
-  "plan_correction": "authoring-correction-v50",
-  "plan_review": "authoring-plan-review-v30"
+  "artifact_correction": "authoring-artifact-correction-v1",
+  "artifact_review": "authoring-artifact-review-v1",
+  "call1": "authoring-call1-v1",
+  "call2": "authoring-call2-v1",
+  "plan_correction": "authoring-plan-correction-v1",
+  "plan_review": "authoring-plan-review-v1"
 }

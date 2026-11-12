@@ -11,7 +11,7 @@ from asago_artifact_generator.authoring.correction import (
     build_correction_context,
 )
 from asago_artifact_generator.authoring.prompt_context import build_artifact_author_context
-from asago_artifact_generator.authoring.prompt_packets import build_call2_packet_v2
+from asago_artifact_generator.authoring.prompt_packets import build_call2_packet
 from asago_artifact_generator.authoring.review import (
     build_artifact_review_packet,
     build_artifact_reviewer_context,
@@ -52,7 +52,7 @@ def test_building_the_artifact_prompts_leaves_the_accepted_plan_unchanged() -> N
     original_plan = deepcopy(plan)
     view, inventory = _view(), _inventory()
     context = build_artifact_author_context(view, plan, inventory, runtime)
-    build_call2_packet_v2(view, plan, inventory, runtime)
+    build_call2_packet(view, plan, inventory, runtime)
     _render_correction_packet(
         build_correction_context(
             failed_stage="call2",

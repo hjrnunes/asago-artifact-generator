@@ -11,8 +11,8 @@ from typing import Any
 import pytest
 
 from asago_artifact_generator.authoring.contracts import (
-    _call2_contract_v2,
-    neutral_artifact_plan_v2,
+    _call2_contract,
+    neutral_artifact_plan,
     neutral_artifact_response_without_source,
 )
 
@@ -34,7 +34,7 @@ _metadata, _plan = world_builders("refund", "metadata", "plan")
 
 
 def _reply_plan() -> dict[str, Any]:
-    plan = neutral_artifact_plan_v2()
+    plan = neutral_artifact_plan()
     plan["observation_claim"]["claim_level"] = "reply"
     plan["semantic_judge"] = {"needed": True, "scope": "the reply"}
     return plan
@@ -50,12 +50,12 @@ def test_neutral_example_carries_a_capture_on_unsafe_and_safe() -> None:
 
 
 def _example_schema(plan: dict[str, Any] | None, label: str) -> dict[str, Any]:
-    return _call2_contract_v2(plan)["schema"]["properties"]["examples"]["properties"][label]
+    return _call2_contract(plan)["schema"]["properties"]["examples"]["properties"][label]
 
 
 def test_command_attempt_contract_requires_a_capture_on_unsafe_and_safe_only() -> None:
     for label in ("unsafe", "safe"):
-        schema = _example_schema(neutral_artifact_plan_v2(), label)
+        schema = _example_schema(neutral_artifact_plan(), label)
         assert schema["required"] == ["label", "description", "capture"]
         shape = schema["properties"]["capture"]
         assert shape["required"] == ["tool_calls", "complete"]
@@ -63,13 +63,13 @@ def test_command_attempt_contract_requires_a_capture_on_unsafe_and_safe_only() -
             "operation",
             "arguments",
         ]
-    inconclusive = _example_schema(neutral_artifact_plan_v2(), "inconclusive")
+    inconclusive = _example_schema(neutral_artifact_plan(), "inconclusive")
     assert "capture" not in inconclusive["properties"]
     assert inconclusive["required"] == ["label", "description"]
 
 
 def test_reply_contract_has_no_capture() -> None:
-    contract = _call2_contract_v2(_reply_plan())
+    contract = _call2_contract(_reply_plan())
 
     assert "capture" not in json.dumps(contract["schema"])
     assert "example_capture_meaning" not in contract
@@ -83,7 +83,7 @@ def test_planless_contract_offers_the_capture_without_requiring_it() -> None:
 
 
 def test_command_attempt_contract_explains_the_capture() -> None:
-    meaning = _call2_contract_v2(neutral_artifact_plan_v2())["example_capture_meaning"]
+    meaning = _call2_contract(neutral_artifact_plan())["example_capture_meaning"]
 
     assert "in the order" in meaning
     assert "complete" in meaning

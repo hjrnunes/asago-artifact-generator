@@ -10,7 +10,7 @@ from asago_artifact_generator.authoring.checks import (
     _normalize_prerequisite_binding_consumers,
     _prerequisite_evidence_ref_findings,
     _stimulus_slot_findings,
-    collect_plan_findings_v2,
+    collect_plan_findings,
 )
 
 
@@ -98,7 +98,7 @@ def test_stimulus_slot_findings_report_without_deriving_the_slots() -> None:
 
 
 def test_collect_plan_findings_v2_rejects_a_non_object_plan() -> None:
-    findings = collect_plan_findings_v2("plan", {}, {})
+    findings = collect_plan_findings("plan", {}, {})
 
     assert _coded(findings) == [("response_type_error", "plan must be an object", "response")]
 
@@ -124,7 +124,7 @@ def _root_presence(findings: list[Any]) -> list[tuple[str, str]]:
 
 
 def test_collect_plan_findings_v2_reports_each_root_field_problem_once() -> None:
-    findings = collect_plan_findings_v2({"x": 1, "interpretation": "bad"}, {}, {})
+    findings = collect_plan_findings({"x": 1, "interpretation": "bad"}, {}, {})
 
     assert _root_presence(findings) == [
         ("unexpected_field", "x"),
@@ -136,7 +136,7 @@ def test_collect_plan_findings_v2_reports_each_root_field_problem_once() -> None
 def test_collect_plan_findings_v2_still_reports_a_root_list_field_of_the_wrong_type() -> None:
     plan = {"selected_evidence": "x", "setup_recipe": {}, "prerequisites": 1}
 
-    findings = collect_plan_findings_v2(plan, {}, {})
+    findings = collect_plan_findings(plan, {}, {})
 
     assert [(f.detail, f.path) for f in findings if f.code == "type_error"] == [
         ("selected_evidence must be a list", "selected_evidence"),
@@ -152,7 +152,7 @@ def test_collect_plan_findings_v2_checks_each_unresolved_requirement() -> None:
         {"name": "n", "essential": True, "reason": "r"},
     ]
 
-    findings = collect_plan_findings_v2({"unresolved_requirements": unresolved}, {}, {})
+    findings = collect_plan_findings({"unresolved_requirements": unresolved}, {}, {})
 
     assert [
         (f.detail, f.path) for f in findings if f.path.startswith("unresolved_requirements[")
@@ -265,8 +265,8 @@ def test_every_registered_mechanical_check_runs_on_a_passing_candidate(
     plan = reply_plan()
     inventory, runtime = reply_inventory(), reply_runtime_contract()
     reply_findings = [
-        *checks.collect_plan_findings_v2(plan, inventory, runtime),
-        *checks.collect_artifact_findings_v2(
+        *checks.collect_plan_findings(plan, inventory, runtime),
+        *checks.collect_artifact_findings(
             reply_metadata("Does the reply assert the claim?"), plan, inventory, runtime
         ),
     ]
@@ -286,9 +286,9 @@ def test_mechanical_check_ids_are_unique_per_stage() -> None:
 
 
 def test_plan_that_is_not_an_object_yields_one_response_type_finding() -> None:
-    from asago_artifact_generator.authoring.checks import collect_plan_findings_v2
+    from asago_artifact_generator.authoring.checks import collect_plan_findings
 
-    findings = collect_plan_findings_v2(["plan"], {}, {})
+    findings = collect_plan_findings(["plan"], {}, {})
 
     assert _coded(findings) == [("response_type_error", "plan must be an object", "response")]
     assert findings[0].stage == "plan"

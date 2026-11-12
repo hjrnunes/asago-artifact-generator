@@ -21,8 +21,8 @@ from asago_artifact_generator.authoring.prompt_context import (
     build_plan_author_context,
 )
 from asago_artifact_generator.authoring.prompt_packets import (
-    build_call1_packet_v2,
-    build_call2_packet_v2,
+    build_call1_packet,
+    build_call2_packet,
 )
 from asago_artifact_generator.authoring.review import (
     PriorReviewRound,
@@ -62,9 +62,9 @@ def render_stage_packets(
     inventory, plan = build_inventory(), build_plan()
     runtime = build_runtime(**copy.deepcopy(runtime_changes or {}))
     return {
-        "call1": build_call1_packet_v2(view, inventory, runtime),
+        "call1": build_call1_packet(view, inventory, runtime),
         "plan_review": build_plan_review_packet(view, plan, inventory, runtime),
-        "call2": build_call2_packet_v2(view, plan, inventory, runtime),
+        "call2": build_call2_packet(view, plan, inventory, runtime),
         "artifact_review": build_artifact_review_packet(
             view, plan, build_metadata(), inventory, runtime
         ),

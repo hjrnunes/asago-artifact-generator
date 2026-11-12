@@ -3,10 +3,10 @@ from __future__ import annotations
 import pytest
 
 from asago_artifact_generator.authoring.checks import (
-    collect_plan_findings_v2,
-    normalize_plan_v2,
+    collect_plan_findings,
+    normalize_plan,
 )
-from asago_artifact_generator.authoring.prompt_packets import build_call1_packet_v2
+from asago_artifact_generator.authoring.prompt_packets import build_call1_packet
 
 from .support import rendered_response_contract, world_builders
 
@@ -15,7 +15,7 @@ _contract, _inventory, _plan, _view = world_builders(
 )
 
 
-def _v2_inventory_and_binding() -> tuple[dict[str, object], dict[str, object]]:
+def _inventory_and_binding() -> tuple[dict[str, object], dict[str, object]]:
     inventory = _inventory()
     inventory["facts"][0]["value"] = {"status": "awaiting_review"}
     inventory["facts"][0]["schema"] = {
@@ -36,7 +36,7 @@ def _v2_inventory_and_binding() -> tuple[dict[str, object], dict[str, object]]:
     return inventory, binding
 
 
-def _v2_plan(**overrides: object) -> dict[str, object]:
+def _plan_fixture(**overrides: object) -> dict[str, object]:
     plan = _plan(
         assumptions=[],
         required_observations={"tool_calls": {"required": True, "missing": "inconclusive"}},
@@ -46,7 +46,7 @@ def _v2_plan(**overrides: object) -> dict[str, object]:
 
 
 def test_v2_prerequisites_use_only_canonical_fields_and_declared_binding() -> None:
-    inventory, binding = _v2_inventory_and_binding()
+    inventory, binding = _inventory_and_binding()
     prerequisite = {
         "name": "booking_state",
         "check": "The supplied booking is ready.",
@@ -54,11 +54,11 @@ def test_v2_prerequisites_use_only_canonical_fields_and_declared_binding() -> No
         "binding": "booking_state",
         "equals": {"status": "awaiting_review"},
     }
-    plan = _v2_plan(runtime_bindings=[binding], prerequisites=[prerequisite])
+    plan = _plan_fixture(runtime_bindings=[binding], prerequisites=[prerequisite])
 
-    assert collect_plan_findings_v2(plan, inventory, _contract()) == []
+    assert collect_plan_findings(plan, inventory, _contract()) == []
 
-    packet = build_call1_packet_v2(_view(), inventory, _contract())
+    packet = build_call1_packet(_view(), inventory, _contract())
     schema = rendered_response_contract(packet)["schema"]["properties"]["prerequisites"]
     assert schema["items"]["required"] == [
         "name",
@@ -77,7 +77,7 @@ def test_v2_prerequisites_use_only_canonical_fields_and_declared_binding() -> No
 
 
 def test_v2_rejects_intended_safe_behavior_as_prerequisite() -> None:
-    inventory, binding = _v2_inventory_and_binding()
+    inventory, binding = _inventory_and_binding()
     prerequisite = {
         "name": "safe_behavior",
         "check": _plan()["interpretation"]["safe_alternative"],
@@ -86,8 +86,8 @@ def test_v2_rejects_intended_safe_behavior_as_prerequisite() -> None:
         "equals": {"status": "awaiting_review"},
     }
 
-    findings = collect_plan_findings_v2(
-        _v2_plan(runtime_bindings=[binding], prerequisites=[prerequisite]),
+    findings = collect_plan_findings(
+        _plan_fixture(runtime_bindings=[binding], prerequisites=[prerequisite]),
         inventory,
         _contract(),
     )
@@ -100,7 +100,7 @@ def test_v2_rejects_intended_safe_behavior_as_prerequisite() -> None:
 
 
 def test_v2_prerequisites_reject_closed_forms() -> None:
-    inventory, binding = _v2_inventory_and_binding()
+    inventory, binding = _inventory_and_binding()
     base = {
         "name": "booking_state",
         "check": "The supplied booking is ready.",
@@ -114,8 +114,8 @@ def test_v2_prerequisites_reject_closed_forms() -> None:
         "source": "bindings.booking_state",
         "expected": {"status": "awaiting_review"},
     }
-    alias_findings = collect_plan_findings_v2(
-        _v2_plan(runtime_bindings=[binding], prerequisites=[aliases]),
+    alias_findings = collect_plan_findings(
+        _plan_fixture(runtime_bindings=[binding], prerequisites=[aliases]),
         inventory,
         _contract(),
     )
@@ -125,8 +125,8 @@ def test_v2_prerequisites_reject_closed_forms() -> None:
     }
 
     bare_evidence = {**base, "binding": "order:owned"}
-    bare_findings = collect_plan_findings_v2(
-        _v2_plan(runtime_bindings=[binding], prerequisites=[bare_evidence]),
+    bare_findings = collect_plan_findings(
+        _plan_fixture(runtime_bindings=[binding], prerequisites=[bare_evidence]),
         inventory,
         _contract(),
     )
@@ -136,8 +136,8 @@ def test_v2_prerequisites_reject_closed_forms() -> None:
     )
 
     unknown_binding = {**base, "binding": "missing_binding"}
-    unknown_findings = collect_plan_findings_v2(
-        _v2_plan(runtime_bindings=[binding], prerequisites=[unknown_binding]),
+    unknown_findings = collect_plan_findings(
+        _plan_fixture(runtime_bindings=[binding], prerequisites=[unknown_binding]),
         inventory,
         _contract(),
     )
@@ -153,10 +153,10 @@ def test_v2_prerequisites_reject_closed_forms() -> None:
         "consumers": ["stimulus.user_text"],
     }
     scalar_base = {**base, "equals": "awaiting_review"}
-    mismatch_plan = _v2_plan(runtime_bindings=[mismatched_binding], prerequisites=[scalar_base])
+    mismatch_plan = _plan_fixture(runtime_bindings=[mismatched_binding], prerequisites=[scalar_base])
     mismatch_plan["stimulus_approach"]["request"] = "Review booking {{booking_state}}."
-    mismatch_plan = normalize_plan_v2(mismatch_plan, inventory, _contract()).plan
-    mismatch_findings = collect_plan_findings_v2(mismatch_plan, inventory, _contract())
+    mismatch_plan = normalize_plan(mismatch_plan, inventory, _contract()).plan
+    mismatch_findings = collect_plan_findings(mismatch_plan, inventory, _contract())
     assert mismatch_findings == []
     assert mismatch_plan["runtime_bindings"][0]["consumers"] == [
         "stimulus.user_text",
@@ -164,8 +164,8 @@ def test_v2_prerequisites_reject_closed_forms() -> None:
     ]
 
     omitted_equals = {key: value for key, value in base.items() if key != "equals"}
-    omitted_findings = collect_plan_findings_v2(
-        _v2_plan(runtime_bindings=[binding], prerequisites=[omitted_equals]),
+    omitted_findings = collect_plan_findings(
+        _plan_fixture(runtime_bindings=[binding], prerequisites=[omitted_equals]),
         inventory,
         _contract(),
     )
@@ -177,8 +177,8 @@ def test_v2_prerequisites_reject_closed_forms() -> None:
     explicit_null = {**base, "equals": None}
     inventory["facts"][0]["value"] = None
     assert (
-        collect_plan_findings_v2(
-            _v2_plan(runtime_bindings=[binding], prerequisites=[explicit_null]),
+        collect_plan_findings(
+            _plan_fixture(runtime_bindings=[binding], prerequisites=[explicit_null]),
             inventory,
             _contract(),
         )
@@ -197,9 +197,9 @@ def _canonical_prerequisite() -> dict[str, object]:
 
 
 def _prerequisite_findings(prerequisite: dict[str, object]) -> list[tuple[str, str]]:
-    inventory, binding = _v2_inventory_and_binding()
-    findings = collect_plan_findings_v2(
-        _v2_plan(runtime_bindings=[binding], prerequisites=[prerequisite]),
+    inventory, binding = _inventory_and_binding()
+    findings = collect_plan_findings(
+        _plan_fixture(runtime_bindings=[binding], prerequisites=[prerequisite]),
         inventory,
         _contract(),
     )
@@ -239,16 +239,16 @@ def test_v2_unknown_prerequisite_field_yields_only_the_canonical_finding() -> No
 
 
 def _empty_consumer_plan(*, prerequisites: list[dict[str, object]]) -> tuple[dict, dict]:
-    inventory, binding = _v2_inventory_and_binding()
-    plan = _v2_plan(runtime_bindings=[{**binding, "consumers": []}], prerequisites=prerequisites)
+    inventory, binding = _inventory_and_binding()
+    plan = _plan_fixture(runtime_bindings=[{**binding, "consumers": []}], prerequisites=prerequisites)
     return plan, inventory
 
 
 def test_binding_a_prerequisite_uses_needs_no_consumer_from_the_model() -> None:
     plan, inventory = _empty_consumer_plan(prerequisites=[_canonical_prerequisite()])
 
-    normalized = normalize_plan_v2(plan, inventory, _contract())
-    findings = collect_plan_findings_v2(
+    normalized = normalize_plan(plan, inventory, _contract())
+    findings = collect_plan_findings(
         normalized.plan,
         inventory,
         _contract(),
@@ -267,7 +267,7 @@ def test_binding_a_prerequisite_uses_needs_no_consumer_from_the_model() -> None:
 def test_binding_no_prerequisite_uses_still_needs_a_consumer() -> None:
     plan, inventory = _empty_consumer_plan(prerequisites=[])
 
-    findings = collect_plan_findings_v2(plan, inventory, _contract())
+    findings = collect_plan_findings(plan, inventory, _contract())
 
     assert [
         (finding.code, finding.path)
@@ -279,8 +279,8 @@ def test_binding_no_prerequisite_uses_still_needs_a_consumer() -> None:
 def test_normalizing_a_normalized_plan_records_no_further_rewrite() -> None:
     plan, inventory = _empty_consumer_plan(prerequisites=[_canonical_prerequisite()])
 
-    normalized = normalize_plan_v2(plan, inventory, _contract())
-    again = normalize_plan_v2(normalized.plan, inventory, _contract())
+    normalized = normalize_plan(plan, inventory, _contract())
+    again = normalize_plan(normalized.plan, inventory, _contract())
 
     assert [rewrite["transformation"] for rewrite in normalized.transformations] == [
         "binding_consumer_added"
@@ -294,17 +294,17 @@ def _value_plan(
 ) -> tuple[dict, dict]:
     """A plan whose one prerequisite compares ``equals`` with the supplied fact ``value``."""
 
-    inventory, declared = _v2_inventory_and_binding()
+    inventory, declared = _inventory_and_binding()
     inventory["facts"][0]["value"] = value
     declared = {**declared, "source_kind": source_kind, **binding}
     prerequisite = {**_canonical_prerequisite(), "equals": equals}
-    return _v2_plan(runtime_bindings=[declared], prerequisites=[prerequisite]), inventory
+    return _plan_fixture(runtime_bindings=[declared], prerequisites=[prerequisite]), inventory
 
 
 def _mismatches(plan: dict, inventory: dict) -> list[tuple[str, str]]:
     return [
         (finding.code, finding.path)
-        for finding in collect_plan_findings_v2(plan, inventory, _contract())
+        for finding in collect_plan_findings(plan, inventory, _contract())
         if finding.code == "prerequisite_value_mismatch"
     ]
 
@@ -346,7 +346,7 @@ def test_the_mismatch_names_the_resolved_value_and_cuts_it_at_200_characters() -
 
     (finding,) = [
         finding
-        for finding in collect_plan_findings_v2(plan, inventory, _contract())
+        for finding in collect_plan_findings(plan, inventory, _contract())
         if finding.code == "prerequisite_value_mismatch"
     ]
 
@@ -361,7 +361,7 @@ def test_the_mismatch_names_the_whole_short_value() -> None:
 
     (finding,) = [
         finding
-        for finding in collect_plan_findings_v2(plan, inventory, _contract())
+        for finding in collect_plan_findings(plan, inventory, _contract())
         if finding.code == "prerequisite_value_mismatch"
     ]
 
@@ -392,7 +392,7 @@ def test_a_prerequisite_without_equals_is_left_to_the_closed_form_check() -> Non
     plan, inventory = _value_plan({"status": "open"}, None)
     del plan["prerequisites"][0]["equals"]
 
-    findings = collect_plan_findings_v2(plan, inventory, _contract())
+    findings = collect_plan_findings(plan, inventory, _contract())
 
     assert "prerequisite_value_mismatch" not in [finding.code for finding in findings]
 
@@ -402,6 +402,6 @@ def test_the_value_check_survives_malformed_bindings_and_prerequisites() -> None
     plan["prerequisites"].append("not an object")
     plan["runtime_bindings"].append(7)
 
-    findings = collect_plan_findings_v2(plan, inventory, _contract())
+    findings = collect_plan_findings(plan, inventory, _contract())
 
     assert [finding.code for finding in findings].count("prerequisite_value_mismatch") == 1

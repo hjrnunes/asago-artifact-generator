@@ -8,8 +8,8 @@ import pytest
 
 from asago_artifact_generator.authoring.core import AuthoringError
 from asago_artifact_generator.authoring.prompt_packets import (
-    build_call1_packet_v2,
-    build_call2_packet_v2,
+    build_call1_packet,
+    build_call2_packet,
 )
 from asago_artifact_generator.authoring.prompt_safety import (
     assert_no_prompt_secrets,
@@ -117,8 +117,8 @@ def test_prompt_policy_keeps_scenario_handoff_meaning_in_call1_and_call2() -> No
     runtime_contract = _runtime_contract()
     view = _view()
 
-    call1 = build_call1_packet_v2(view, inventory, runtime_contract)
-    call2 = build_call2_packet_v2(
+    call1 = build_call1_packet(view, inventory, runtime_contract)
+    call2 = build_call2_packet(
         view,
         _saved_plan(),
         inventory,
@@ -201,7 +201,7 @@ def test_strict_package_and_response_policies_still_reject_session_path() -> Non
         build_package(
             package_id="strict-policy",
             scenario_id="neutral",
-            input_kind="scenario-handoff-v6",
+            input_kind="scenario-handoff-v1",
             source_digests={"input": "a" * 64},
             members={"explanation.json": b"{}\n"},
             authoring=value,
@@ -240,9 +240,9 @@ def test_author_packets_scan_the_rendered_sections_for_secret_keys(
 
     with pytest.raises(AuthoringError, match="secret-bearing authoring evidence") as error:
         if stage == "call1":
-            build_call1_packet_v2(_view(), inventory, _runtime_contract())
+            build_call1_packet(_view(), inventory, _runtime_contract())
         else:
-            build_call2_packet_v2(_view(), _saved_plan(), inventory, _runtime_contract())
+            build_call2_packet(_view(), _saved_plan(), inventory, _runtime_contract())
 
     assert f"{section}." in error.value.message
     assert "api_key" in error.value.message

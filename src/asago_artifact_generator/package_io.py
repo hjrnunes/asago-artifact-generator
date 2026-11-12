@@ -1,4 +1,4 @@
-"""The artifact-package-v5 writer and reader, re-exported from the ``asago-package`` member.
+"""The artifact-package-v1 writer and reader, re-exported from the ``asago-package`` member.
 
 The implementation, its values and the three authority contract kits it verifies live in
 ``packages/asago-package``. This module keeps the consumer's import path working and binds

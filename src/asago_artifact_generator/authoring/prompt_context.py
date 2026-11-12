@@ -17,7 +17,7 @@ from ..bindings import (
     supplied_binding_values,
     validate_bindings,
 )
-from ..input_adapter import V5_FIELDS, InputView, build_scenario_handoff_view
+from ..input_adapter import HANDOFF_FIELDS, InputView, build_scenario_handoff_view
 from .attack_path_outline import ATTACK_PATH_FORMAT, attack_path_outline, attack_path_provenance
 from .checks import _canonical_prerequisite_findings
 from .contracts import (
@@ -25,8 +25,8 @@ from .contracts import (
     NEUTRAL_OMISSION_OUTCOME_EXAMPLE,
     NEUTRAL_PLAN_OUTCOME_EXAMPLE,
     PLAN_FIELD_MEANINGS,
-    _call2_contract_v2,
-    neutral_artifact_plan_v2,
+    _call2_contract,
+    neutral_artifact_plan,
     neutral_artifact_response_without_source,
 )
 from .core import _sha256
@@ -156,7 +156,7 @@ def _original_scenario_context(view: InputView) -> dict[str, Any]:
     """Return source-owned scenario meaning without answer-bearing fixtures."""
 
     meaning = _case_meaning(view)
-    meaning["input_identity"] = _v2_input_projection(view)
+    meaning["input_identity"] = _input_projection(view)
     return meaning
 
 
@@ -601,7 +601,7 @@ def build_plan_author_context(
         "neutral_outcome_example": _neutral_outcome_example(view),
         "response_contract": {
             **response_contract,
-            "example_response": neutral_artifact_plan_v2(),
+            "example_response": neutral_artifact_plan(),
         },
     }
     context["field_guide"]["keyed_map_path_forms"] = _keyed_map_binding_forms(inventory)
@@ -708,7 +708,7 @@ def build_artifact_author_context(
     """Build the immutable-plan context for the artifact author."""
 
     response_contract = deepcopy(
-        _call2_contract_v2(
+        _call2_contract(
             plan, planted_max_chars=planted_text_limit(view, runtime_contract, plan)
         )
     )
@@ -778,7 +778,7 @@ def _render_sections(
     return "\n".join(rendered).rstrip() + "\n"
 
 
-def _v2_input_projection(view: InputView) -> dict[str, Any]:
+def _input_projection(view: InputView) -> dict[str, Any]:
     """Return v2 input identity and digests without repeating case meaning."""
 
     return {
@@ -833,7 +833,7 @@ def _structured_analysis(view: InputView) -> dict[str, Any]:
     """Return the fields a v5 handoff adds, leaving out a null or empty one, with their note."""
 
     analysis: dict[str, Any] = {"note": _STRUCTURED_ANALYSIS_NOTE}
-    for key in V5_FIELDS:
+    for key in HANDOFF_FIELDS:
         value = view.payload.get(key)
         if value is not None and value not in ("", [], {}):
             analysis[key] = deepcopy(value)

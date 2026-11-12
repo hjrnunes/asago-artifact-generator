@@ -17,7 +17,7 @@ from typing import Any
 
 from .metadata_policy import SECRET_KEY_BASE
 
-FAILURE_EVIDENCE_SCHEMA_VERSION = "authoring-failure-evidence-v2"
+FAILURE_EVIDENCE_SCHEMA_VERSION = "authoring-failure-evidence-v1"
 _SENSITIVE_KEYS = frozenset(SECRET_KEY_BASE)
 _URL_KEYS = {"base_url", "url", "uri"}
 

@@ -43,7 +43,7 @@ _INSTALLED_ROOT = (
 _VERSIONS = (VERSION,)
 _DATA = Path(__file__).resolve().parent / "data"
 #: Manifests the Garak compiler wrote for a command-attempt and a reply package.
-_WRITTEN_BUNDLES = ("tool-bundle-v2-command.json", "tool-bundle-v2-reply.json")
+_WRITTEN_BUNDLES = ("tool-bundle-v1-command.json", "tool-bundle-v1-reply.json")
 
 
 def _json(path: Path) -> Any:
