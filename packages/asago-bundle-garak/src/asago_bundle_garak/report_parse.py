@@ -74,7 +74,6 @@ from asago_injection_spec.sealed import (
     delivery_shape,
     evaluation_block,
     grade_result,
-    placements_of,
     plan_of,
     sealed_failure_of,
     snapshot_shape,
@@ -579,7 +578,7 @@ def ipi_evaluation(turns: list[dict[str, Any]], bundle: Bundle) -> dict[str, Any
     reason = sealed_failure_of(snapshot, verdict, delivery) if snapshot and verdict else None
     plan = None
     if final and reason is None:
-        plan = plan_of(source_plan(bundle), source_placements(bundle, delivery))
+        plan = plan_of(source_plan(bundle), source_placements(bundle))
     block = evaluation_block(IPI_DRIVER, snapshot, verdict, delivery=delivery, plan=plan)
     if snapshot is None:
         block["evaluation_id"] = text(trace.get("evaluation_id"))
@@ -612,22 +611,19 @@ def source_plan(bundle: Bundle) -> Any:
         return None
 
 
-def source_placements(bundle: Bundle, delivery: dict[str, Any] | None) -> list[Any]:
+def source_placements(bundle: Bundle) -> list[Any]:
     """Return the placements that name each instruction's seed slot and record.
 
-    An entry compiled now carries the envelope's placements, so the receipt can name the
-    seed slot (``piggybank.note.body``) the payload was placed in, not the digest a delivery
-    fact names the planted target by. A bundle compiled before the entry carried them falls
-    back to its delivery document, whose facts name that digest; the two sources are never
-    merged, because a second (slot, record) for one instruction leaves its placement
-    ambiguous and the receipt would name neither slot nor record.
+    The entry the compiler writes carries the envelope's placements, so the receipt can name
+    the seed slot (``piggybank.note.body``) the payload was placed in, not the digest a
+    delivery fact names the planted target by. An entry without them states none, and the
+    receipt leaves the placements unestablished: the delivery facts are never a second source,
+    because a second (slot, record) for one instruction leaves its placement ambiguous.
     """
 
     entry = source_entry(bundle)
     found = entry.get("placements") if entry is not None else None
-    if isinstance(found, list):
-        return found
-    return placements_of(delivery) if delivery else []
+    return found if isinstance(found, list) else []
 
 
 def sealed_snapshot(trace: dict[str, Any]) -> dict[str, Any] | None:

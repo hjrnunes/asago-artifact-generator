@@ -1067,12 +1067,11 @@ def test_a_sealed_chain_carries_the_delivery_the_probe_recorded(tmp_path: Path) 
     assert not {"payload_digest", "placed_digest"} & set(outcome)
 
 
-def test_an_entry_without_placements_states_the_slot_the_seal_names(tmp_path: Path) -> None:
-    """A bundle compiled before the entry carried placements still states a slot.
+def test_an_entry_without_placements_leaves_the_slot_unestablished(tmp_path: Path) -> None:
+    """An entry that carries no placements names no slot, whatever the delivery fact says.
 
-    Its delivery fact names the planted target by its digest, so that is the slot such a
-    receipt states: the parser falls back to the seal rather than leaving the placement
-    unestablished, and it never keeps both sources, which would leave the plan ambiguous.
+    The delivery fact names the planted target by its digest, which is not the seed slot, so
+    the receipt never reads a slot off it: the outcome states none.
     """
 
     output = make_planted_bundle(tmp_path)
@@ -1109,7 +1108,8 @@ def test_an_entry_without_placements_states_the_slot_the_seal_names(tmp_path: Pa
 
     (call_injection,) = receipt["evaluation"]["call_injections"]
     (outcome,) = call_injection["injection_outcomes"]
-    assert outcome["slot"] == {"id": slot["id"], "record": "NOTE-1", "mode": "append"}
+    assert outcome["payload_sha256"] == payload_sha256
+    assert outcome["slot"] is None
 
 
 def test_a_trace_whose_delivery_is_not_a_document_states_no_delivery(tmp_path: Path) -> None:

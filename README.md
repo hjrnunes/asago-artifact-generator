@@ -1062,8 +1062,8 @@ cannot place is a `garak`-tooled capability gap.
 a report whose package digest or ID is not the bundle's own, and makes an unknown,
 invalid or undelivered chain inconclusive. The episode's `delivery`, `exposure` and
 `call_injections` are the seal's, as on the MiDojo route; each outcome's `slot` is the
-seed slot the entry's `placements` name, and an entry compiled before it carried them
-falls back to the delivery document, whose facts name the planted target by its digest.
+seed slot the entry's `placements` name, and an entry without them leaves the slot
+unestablished.
 A reply episode's `judge.verdict` states
 `supported` for a detection, `contradicted` for a decided resistance, and
 `unresolved` in every other case. A one-chain report also fills the receipt's
