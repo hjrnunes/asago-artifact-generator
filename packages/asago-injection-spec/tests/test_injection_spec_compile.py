@@ -86,6 +86,9 @@ PINNED_NOTE = {
     "inputSchema": {"type": "object", "properties": {}},
 }
 PINNED_SLOT = {**READ_SLOT, "id": "piggybank.note.pinned", "carrier_operation": "pinned_note"}
+# Each case's compiled document, pinned byte for byte; the case builder's entry point
+# regenerates them (see the directory's README).
+GOLDEN = Path(__file__).parent / "fixtures" / "compiled"
 
 
 def compiled(package: Path, out: Path, **options: Any) -> dict[str, Any]:
@@ -104,12 +107,24 @@ def written(root: Path) -> dict[str, bytes]:
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
-def test_compile_writes_only_the_injection_spec_for_the_fixture(tmp_path: Path, case: str) -> None:
+def test_compile_writes_the_fixture_s_pinned_document_byte_for_byte(
+    tmp_path: Path, case: str
+) -> None:
+    """Compile writes the injection spec the pinned golden records, byte for byte.
+
+    The golden under ``fixtures/compiled/<case>/`` is what the entry point produces for
+    that case's package, so a change in the compiled document's bytes is a visible
+    decision, not a silent drift.
+    """
+
     package = write_case_package(tmp_path / "packages", case)
     compiled(package, tmp_path / "out", write_disposition=DISPOSITIONS.get(case))
 
     out = tmp_path / "out"
     assert sorted(path.name for path in out.iterdir()) == [INJECTION_SPEC_FILE]
+    assert written(out) == {
+        INJECTION_SPEC_FILE: (GOLDEN / case / INJECTION_SPEC_FILE).read_bytes()
+    }
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
@@ -580,11 +595,14 @@ def test_a_field_outside_a_list_below_a_key_not_declared_exactly_an_object_is_a_
 
 
 def test_a_list_slot_s_instruction_is_unchanged_by_the_object_rule(tmp_path: Path) -> None:
-    """The rule is for fields outside a list: the list case keeps the plain record selector."""
+    """The rule is for fields outside a list: the list case compiles to the pinned bytes."""
 
     package = write_case_package(tmp_path / "packages", "command-single")
     compiled(package, tmp_path / "out")
 
+    assert written(tmp_path / "out") == {
+        INJECTION_SPEC_FILE: (GOLDEN / "command-single" / INJECTION_SPEC_FILE).read_bytes()
+    }
     (instruction,) = json.loads(
         (tmp_path / "out" / INJECTION_SPEC_FILE).read_text(encoding="utf-8")
     )["episode"]["plan"]["instructions"]
