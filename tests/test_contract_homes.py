@@ -7,6 +7,8 @@ The producer's ``data/contracts/scenario-handoff/`` is the authority and
 holds two kinds of root kit: the three contracts it owns (``execution-receipt``,
 ``runtime-context`` and ``tool-bundle``), and the producer mirrors no
 package ships yet (``model-profile``, ``target-profile`` and ``tool-call-condition``).
+Each mirror is the producer's kit byte for byte: the producer's ``data/contracts/`` is the
+only maintained source, and a test names every file that differs.
 
 Every dependency on an Asago package from another repository names a version range, so an
 installed environment cannot drift outside the version this repository supports.
@@ -20,6 +22,7 @@ import tomllib
 from pathlib import Path
 
 import asago_contracts_core
+import pytest
 
 from asago_artifact_generator import input_adapter
 
@@ -55,6 +58,57 @@ def test_the_consumer_holds_its_own_kits_and_the_mirrors_no_package_ships() -> N
     assert names == set(_AUTHORITIES) | set(_MIRRORS)
     for name in (*_AUTHORITIES, *_MIRRORS):
         assert (_CONTRACTS / name / "CONTRACT.lock").is_file(), name
+
+
+def _tree_drift(copy: Path, source: Path) -> list[str]:
+    """Name every file the copy lacks, adds or changes against its source."""
+
+    def files(root: Path) -> dict[str, bytes]:
+        return {
+            path.relative_to(root).as_posix(): path.read_bytes()
+            for path in sorted(root.rglob("*"))
+            if path.is_file()
+        }
+
+    wanted, held = files(source), files(copy)
+    return sorted(
+        [f"{name} is missing from the copy" for name in wanted.keys() - held.keys()]
+        + [f"{name} is not in the source" for name in held.keys() - wanted.keys()]
+        + [f"{name} differs" for name in wanted.keys() & held.keys() if wanted[name] != held[name]]
+    )
+
+
+@pytest.mark.parametrize("name", _MIRRORS)
+def test_each_mirror_is_the_producers_kit_byte_for_byte(name: str) -> None:
+    paths = pytest.importorskip(
+        "asago_scenario_generator.data.paths",
+        reason=(
+            "requires the producer checkout ../asago-scenario-generator and the "
+            "producer-pair dependency group (uv sync --locked --group producer-pair)"
+        ),
+    )
+    authority = paths.DATA_ROOT / "contracts" / name
+
+    assert authority.is_dir(), f"the producer holds no {name} kit at {authority}"
+    assert _tree_drift(_CONTRACTS / name, authority) == []
+
+
+def test_a_mirror_that_differs_is_named_file_by_file(tmp_path: Path) -> None:
+    source, copy = tmp_path / "source", tmp_path / "copy"
+    for root in (source, copy):
+        (root / "v1").mkdir(parents=True)
+    (source / "CONTRACT.lock").write_text("lock")
+    (source / "v1" / "schema.json").write_text("{}")
+    (source / "v1" / "README.md").write_text("docs")
+    (copy / "v1" / "schema.json").write_text('{"changed": 1}')
+    (copy / "v1" / "README.md").write_text("docs")
+    (copy / "v1" / "stray.json").write_text("{}")
+
+    assert _tree_drift(copy, source) == [
+        "CONTRACT.lock is missing from the copy",
+        "v1/schema.json differs",
+        "v1/stray.json is not in the source",
+    ]
 
 
 def test_every_cross_repository_asago_dependency_declares_a_version_range() -> None:

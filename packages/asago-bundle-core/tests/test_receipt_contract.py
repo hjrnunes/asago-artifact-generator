@@ -92,10 +92,13 @@ def _enveloped(spec: ContractSpec, document: dict[str, Any], **overrides: Any) -
     return {**document, ENVELOPE_FIELD: envelope}
 
 
-@pytest.mark.parametrize("version", _VERSIONS)
-def test_the_installed_copy_is_the_authority_byte_for_byte(version: str) -> None:
-    assert (_INSTALLED / version).is_dir()
-    assert _files(_INSTALLED / version) == _files(_AUTHORITY / version)
+def test_the_installed_copy_is_the_authority_byte_for_byte() -> None:
+    # The lock stays with the authority at the repository root; the package ships the
+    # versions only, so every other file, and nothing else, is in the copy.
+    authority = _files(_AUTHORITY)
+    authority.pop("CONTRACT.lock")
+
+    assert _files(_INSTALLED) == authority
 
 
 @pytest.mark.parametrize("version", _VERSIONS)
