@@ -1089,13 +1089,12 @@ no seed command, so the interceptor's placements are the only planted text.
 The route's `compile --target` writes `ipi-episodes.json`, and Garak's `InjectionSpecProbe`
 probe plants through the same host interceptor. No route writes a `seed.json`
 into the target. The library reads and writes MiDojo's documents through `midojo-spec`,
-the contracts package `pyproject.toml` pins by commit to the MiDojo reset lane at
-`32e3b54` (subdirectory `packages/midojo-spec`), and it never imports `midojo`: the
+the contracts package `pyproject.toml` pins by commit to the MiDojo fork at
+`466d24c9` (subdirectory `packages/midojo-spec`), and it never imports `midojo`: the
 injection-spec schema, the plan, the snapshot digest, the rubric judge and the judge
 exchange log are the contracts package's (`midojo_spec.injection_spec_schema`,
 `midojo_spec.injection`, `midojo_spec.snapshot`, `midojo_spec.rubric_judge` and
-`midojo_spec.judge_exchange`). The local `midojo-spec` pin in `pyproject.toml` needs a
-fork SHA at the milestone.
+`midojo_spec.judge_exchange`).
 The Garak fixture generator (`tools/fixture-generators/garak_ipi.py`) compiles each case
 here and runs Garak's real `midojo.InjectionSpecProbe` and its detectors in the Garak
 interpreter `--garak-python` or `ASAGO_GARAK_PYTHON` names, in front of a scripted fixture
