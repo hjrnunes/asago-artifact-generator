@@ -13,9 +13,10 @@ scenario-handoff kit. It also checks the installed schema against the pinned cop
 MiDojo's injection-spec documents.
 
 ``asago-injection-spec`` and ``asago-bundle-garak`` ship no contract data of their own; the
-probe imports both from the install, which fails when a wheel leaves a dependency
-undeclared. A wheel built from a checkout proves what the checkout packages. It does not
-prove what a published wheel carries.
+probe imports both from the install, which shows that their modules install and import
+beside the other wheels. It does not show that either manifest declares its dependencies,
+because the test installs every wheel itself. A wheel built from a checkout proves what the
+checkout packages. It does not prove what a published wheel carries.
 """
 
 from __future__ import annotations
